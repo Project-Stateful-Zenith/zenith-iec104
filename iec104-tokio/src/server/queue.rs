@@ -40,17 +40,21 @@ pub struct Queue {
     limit: usize,
     /// Events waiting now.
     events: usize,
-    /// Events dropped for room since the start.
+    /// The most entries other than events kept; a new request is dropped
+    /// beyond it.
+    request_limit: usize,
+    /// Events and requests dropped for room since the start.
     pub dropped: u64,
 }
 
 impl Queue {
-    pub fn new(sizes: AddressSizes, limit: usize) -> Self {
+    pub fn new(sizes: AddressSizes, limit: usize, request_limit: usize) -> Self {
         Self {
             rows: Default::default(),
             sizes,
             limit,
             events: 0,
+            request_limit,
             dropped: 0,
         }
     }
@@ -100,6 +104,23 @@ impl Queue {
         self.events = self.events.saturating_add(1);
         self.row(priority)
             .push_back(Item::Frame { asdu, event: true });
+    }
+
+    /// Whether a new request must be dropped, counted, because the entries
+    /// other than events fill the request buffer. Only new requests are
+    /// turned away; what the station already owes (a termination, the rest
+    /// of an interrogation) is still queued.
+    pub fn refuses_request(&mut self) -> bool {
+        let waiting = self
+            .rows
+            .iter()
+            .fold(0_usize, |sum, row| sum.saturating_add(row.len()))
+            .saturating_sub(self.events);
+        let full = waiting >= self.request_limit;
+        if full {
+            self.dropped = self.dropped.saturating_add(1);
+        }
+        full
     }
 
     /// Queues `item` in `priority`'s row.

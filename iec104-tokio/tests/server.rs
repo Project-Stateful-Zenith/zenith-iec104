@@ -1380,6 +1380,30 @@ async fn the_event_buffer_drops_the_oldest() {
     assert_eq!(master.next().await, scaled(SPONT, 3));
 }
 
+/// The answers waiting for the window are bounded too: a controlling
+/// station that floods reads and does not confirm gets the k window's worth
+/// and the request buffer's worth answered; the other reads are dropped and
+/// counted.
+#[tokio::test(start_paused = true)]
+async fn the_request_buffer_drops_new_requests() {
+    let mut config = config();
+    config.request_buffer = 2;
+    let (server, _side, peer) = server(config).await;
+    let mut master = Master::start(peer, false).await;
+    for _ in 0..100 {
+        master.send(&read(IOA_100));
+    }
+    settle().await;
+    let k = LinkParams::default().k;
+    let mut answers = 0;
+    while !master.silent_for(Duration::from_secs(1)).await {
+        answers += 1;
+        master.ack();
+    }
+    assert_eq!(answers, usize::from(k) + 2);
+    assert_eq!(server.dropped().await, Ok(100 - u64::from(k) - 2));
+}
+
 /// 104 cl.10.6: *"any unconfirmed user data will be retransmitted on the new
 /// started connection after a connection switchover has been performed,
 /// including potential unconfirmed ACTCONs or ACTTERMs."* An event the first
