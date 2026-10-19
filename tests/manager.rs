@@ -734,6 +734,46 @@ fn clause_9_the_connection_is_closed_exactly_t1_after_the_last_acknowledgement()
     assert_eq!(manager.station(0).unwrap().state(), State::Terminated);
 }
 
+/// The same note under steady load: each acknowledgement releases the whole k
+/// window and clause 5.5's refill sends as many new frames in the same call, so
+/// the number outstanding never changes. t1 must still move to the new oldest
+/// frame: at 15 s nothing outstanding is older than 10 s.
+#[test]
+fn clause_9_t1_moves_when_an_acknowledgement_refills_the_k_window() {
+    let start = Instant::now();
+    let mut manager = ConnectionManager::new(Role::Controlling, vec![station()]).unwrap();
+    manager.tick(start);
+    manager.on_connection_established(0, start).unwrap();
+    manager.request_start(0, start).unwrap();
+    manager
+        .on_frame(0, Apci::U(UFunction::StartDtCon), start)
+        .unwrap();
+    let asdu = asdu();
+    for _ in 0..48 {
+        manager.queue_i_frame(0, &asdu).unwrap();
+    }
+    manager.flush_pending(0, start).unwrap();
+    let k = manager.station(0).unwrap().session().outstanding_i_frames();
+    assert_eq!(k, LinkParams::default().k, "the first k frames went out");
+
+    for (round, secs) in [5u64, 10, 15].into_iter().enumerate() {
+        let now = start + Duration::from_secs(secs);
+        let nr = SeqNo::new((round as u16 + 1) * k);
+        manager.on_frame(0, Apci::S { nr }, now).unwrap();
+        assert_eq!(
+            manager.station(0).unwrap().session().outstanding_i_frames(),
+            k,
+            "the acknowledgement released k frames and k more went out"
+        );
+        assert!(
+            !actions_of(&manager.tick(now))
+                .contains(&Action::ActiveClose("t1 expired with no confirmation")),
+            "nothing outstanding is t1 old at {secs} s"
+        );
+    }
+    assert_eq!(manager.station(0).unwrap().state(), State::Started);
+}
+
 // ---------------------------------------------------------------------------
 // cl.5.3: the caller's own requests, through the same timer wiring
 // ---------------------------------------------------------------------------
