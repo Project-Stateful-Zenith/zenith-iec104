@@ -1,0 +1,37 @@
+[package]
+name = "iec104-tokio"
+version = "0.32.1"
+edition = "2024"
+rust-version = "1.88"
+description = "Tokio transport for the iec104 crate: async master and outstation drivers, and a client and a server that run the procedures"
+license = "Apache-2.0"
+repository = "https://github.com/Project-Stateful-Zenith/zenith-iec104"
+authors = ["Insomnia and the Zenith contributors"]
+
+[features]
+# One event per APDU sent and received (formatted with `iec104::diag::apdu`)
+# and one per connection state change, through the `log` crate.
+log = ["dep:log"]
+# The same events through the `tracing` crate.
+tracing = ["dep:tracing"]
+
+[dependencies]
+iec104 = { path = ".." }
+log = { version = "0.4.17", optional = true }
+tokio = { version = "1.53", features = ["io-util", "macros", "net", "rt", "sync", "time"] }
+tracing = { version = "0.1.41", optional = true, default-features = false, features = ["std"] }
+
+[dev-dependencies]
+tokio = { version = "1.53", features = ["io-util", "macros", "net", "rt", "rt-multi-thread", "sync", "test-util", "time"] }
+
+
+[[test]]
+name = "log_lines"
+required-features = ["log"]
+
+[[test]]
+name = "tracing_events"
+required-features = ["tracing"]
+
+[lints]
+workspace = true

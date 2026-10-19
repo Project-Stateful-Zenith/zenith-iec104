@@ -1,0 +1,34 @@
+[package]
+name = "iec104"
+version = "0.32.1"
+edition = "2024"
+rust-version = "1.88"
+description = "Clean-room IEC 60870-5-104 (IEC 104) protocol library"
+license = "Apache-2.0"
+repository = "https://github.com/Project-Stateful-Zenith/zenith-iec104"
+authors = ["Insomnia and the Zenith contributors"]
+
+[dependencies]
+[workspace]
+members = [".", "iec104-tokio", "iec104-tls"]
+default-members = [".", "iec104-tokio", "iec104-tls"]
+
+[workspace.lints.clippy]
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"
+unreachable = "deny"
+unimplemented = "deny"
+unchecked_time_subtraction = "deny"
+todo = "deny"
+string_slice = "deny"
+panic_in_result_fn = "deny"
+panic = "deny"
+exit = "deny"
+as_conversions = "deny"
+
+[lints]
+workspace = true

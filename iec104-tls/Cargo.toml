@@ -1,0 +1,31 @@
+[package]
+name = "iec104-tls"
+version = "0.32.1"
+edition = "2024"
+rust-version = "1.88"
+description = "TLS transport for the iec104 crate: mutual TLS over rustls, after the IEC 62351-3 profile as secondary sources describe it"
+license = "Apache-2.0"
+repository = "https://github.com/Project-Stateful-Zenith/zenith-iec104"
+authors = ["Insomnia and the Zenith contributors"]
+
+[features]
+default = []
+# Async streams over tokio-rustls, and a connector and accept loops for iec104-tokio.
+tokio = ["dep:tokio", "dep:tokio-rustls", "dep:iec104-tokio"]
+
+[dependencies]
+iec104 = { path = ".." }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+iec104-tokio = { path = "../iec104-tokio", optional = true }
+tokio = { version = "1.53", features = ["net", "io-util", "time", "rt"], optional = true }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"], optional = true }
+
+[dev-dependencies]
+# The tests and examples cover the tokio feature too, under a plain `cargo test`.
+iec104-tls = { path = ".", features = ["tokio"] }
+iec104-tokio = { path = "../iec104-tokio" }
+rcgen = "0.14"
+tokio = { version = "1.53", features = ["io-util", "macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
+
+[lints]
+workspace = true
