@@ -3113,20 +3113,29 @@ fn a_command_with_an_invalid_or_malformed_tag_is_too_late() {
         invalid: true,
         ..now
     };
-    // Hour 30 of the day before would roll over to 06:00 of `now`'s day.
+    // Hour 30 of the day before would roll over to 06:30 of `now`'s day.
     let hour_30 = Cp56Time2a {
         hours: 30,
         day_of_month: now.day_of_month - 1,
         ..now
     };
-    let day_0 = Cp56Time2a {
-        day_of_month: 0,
+    let six_thirty = Cp56Time2a { hours: 6, ..now };
+    // April 31 would roll over to May 1.
+    let april_31 = Cp56Time2a {
+        day_of_month: 31,
+        months: 4,
         ..now
     };
-    for tag in [invalid, hour_30, day_0] {
+    let may_1 = Cp56Time2a {
+        day_of_month: 1,
+        months: 5,
+        ..now
+    };
+    // Each wall clock is the instant its tag would read as, so only the
+    // validity check can refuse it.
+    for (tag, wall) in [(invalid, now), (hour_30, six_thirty), (april_31, may_1)] {
         let mut station = controlled_tagged();
         let frame = activation(&tagged_single(0x3000, false, tag), CA, ORG).unwrap();
-        let wall = Cp56Time2a { hours: 6, ..now };
         let outcome = station
             .on_request_at(&frame, &Known::EVERYTHING, Instant::now(), Some(wall))
             .unwrap();
