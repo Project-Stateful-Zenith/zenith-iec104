@@ -652,6 +652,33 @@ async fn subscribers_see_spontaneous_data_and_the_link() {
     assert_eq!(updates.recv().await.unwrap(), Update::Stopped);
 }
 
+/// A subscriber that stops reading holds at most `update_buffer` updates:
+/// the client drops the rest for it without waiting, and once there is room
+/// tells it how many it missed. A second subscriber that reads gets all.
+#[tokio::test(start_paused = true)]
+async fn a_subscriber_that_does_not_read_is_bounded_and_told_it_lagged() {
+    let (client, station, _dials) = started(ClientConfig {
+        update_buffer: 2,
+        ..config()
+    })
+    .await;
+    let mut idle = client.subscribe().await.unwrap();
+    let mut reader = client.subscribe().await.unwrap();
+    for _ in 0..5 {
+        station.send(&MEASURAND);
+        assert!(matches!(next_update(&mut reader).await, Update::Data(_)));
+    }
+    assert!(matches!(idle.try_recv(), Ok(Update::Data(_))));
+    assert!(matches!(idle.try_recv(), Ok(Update::Data(_))));
+    assert!(idle.try_recv().is_err());
+
+    station.send(&MEASURAND);
+    assert!(matches!(next_update(&mut reader).await, Update::Data(_)));
+    assert_eq!(idle.try_recv(), Ok(Update::Lagged(3)));
+    assert!(matches!(idle.try_recv(), Ok(Update::Data(_))));
+    station.close().await;
+}
+
 /// 5-101 cl.7.2.3's mirror answers an interrogation and a clock
 /// synchronisation too: cause 44 with `P/N = 1`.
 #[tokio::test(start_paused = true)]
@@ -1497,7 +1524,7 @@ fn tagged_single_4001() -> Vec<u8> {
 /// `now`, and returns how many points were stored.
 fn drain_into(
     image: &mut ProcessImage,
-    updates: &mut mpsc::UnboundedReceiver<Update>,
+    updates: &mut mpsc::Receiver<Update>,
     now: Instant,
 ) -> usize {
     let mut stored = 0;
@@ -1509,7 +1536,7 @@ fn drain_into(
 
 /// The next update, failing rather than hanging when none comes within an
 /// hour of the paused clock.
-async fn next_update(updates: &mut mpsc::UnboundedReceiver<Update>) -> Update {
+async fn next_update(updates: &mut mpsc::Receiver<Update>) -> Update {
     tokio::time::timeout(Duration::from_secs(3600), updates.recv())
         .await
         .expect("no update came")
@@ -1522,7 +1549,7 @@ async fn next_update(updates: &mut mpsc::UnboundedReceiver<Update>) -> Update {
 async fn interrogated_image(
     client: &Client,
     station: &mut Station,
-    updates: &mut mpsc::UnboundedReceiver<Update>,
+    updates: &mut mpsc::Receiver<Update>,
 ) -> (ProcessImage, Instant) {
     let call = spawn_interrogation(client, Scope::Station);
     assert_eq!(station.next().await, interrogation(ACT, 20));

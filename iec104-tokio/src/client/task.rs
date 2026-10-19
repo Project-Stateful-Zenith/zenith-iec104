@@ -17,7 +17,7 @@ use iec104::pm::{self, Parameter, ParameterLoading};
 use iec104::rd::{self, Read};
 use iec104::redundancy::{Replay, Switchover};
 use iec104::ts::{self, TestProcedure};
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{self, error::TrySendError};
 use tokio::time::Instant;
 
 use super::{ClientConfig, ClientError, CommandOutcome, ParameterRequest, Reply, Request, Update};
@@ -151,7 +151,7 @@ struct Task {
     states: Vec<State>,
     started: bool,
     waiting: Vec<Reply<()>>,
-    subscribers: Vec<mpsc::UnboundedSender<Update>>,
+    subscribers: Vec<Subscriber>,
     /// Group members that failed while started, whose unconfirmed data waits
     /// for the next started connection ([`ClientConfig::retransmit_on_switchover`]).
     failed: Vec<usize>,
@@ -168,13 +168,50 @@ struct Task {
     parameters: Vec<PendingParameter>,
 }
 
+/// One subscription's channel and the updates it missed since its last
+/// delivery.
+pub(super) struct Subscriber {
+    sender: mpsc::Sender<Update>,
+    lagged: u64,
+}
+
+impl Subscriber {
+    pub(super) fn new(config: &ClientConfig) -> (Self, mpsc::Receiver<Update>) {
+        let (sender, receiver) = mpsc::channel(config.update_buffer.max(1));
+        (Self { sender, lagged: 0 }, receiver)
+    }
+
+    /// Delivers `update` without waiting, after the count of what was
+    /// dropped before it; `false` once the receiver is gone.
+    fn offer(&mut self, update: &Update) -> bool {
+        if self.lagged > 0 {
+            match self.sender.try_send(Update::Lagged(self.lagged)) {
+                Ok(()) => self.lagged = 0,
+                Err(TrySendError::Full(_)) => {
+                    self.lagged = self.lagged.saturating_add(1);
+                    return true;
+                }
+                Err(TrySendError::Closed(_)) => return false,
+            }
+        }
+        match self.sender.try_send(update.clone()) {
+            Ok(()) => true,
+            Err(TrySendError::Full(_)) => {
+                self.lagged = self.lagged.saturating_add(1);
+                true
+            }
+            Err(TrySendError::Closed(_)) => false,
+        }
+    }
+}
+
 pub(super) async fn run(
     handle: Handle,
     mut events: Events,
     mut requests: mpsc::Receiver<Request>,
     config: ClientConfig,
     group: bool,
-    subscribers: Vec<mpsc::UnboundedSender<Update>>,
+    subscribers: Vec<Subscriber>,
 ) {
     let (ca, org, sizes) = (config.common_address, config.originator, config.sizes);
     let mut task = Task {
@@ -324,7 +361,7 @@ impl Task {
 
     fn publish(&mut self, update: &Update) {
         self.subscribers
-            .retain(|subscriber| subscriber.send(update.clone()).is_ok());
+            .retain_mut(|subscriber| subscriber.offer(update));
     }
 
     async fn send(&self, frame: Vec<u8>) -> Result<(), ClientError> {
@@ -345,9 +382,10 @@ impl Task {
                     self.waiting.push(reply);
                 }
             }
-            Request::Subscribe(subscriber, reply) => {
+            Request::Subscribe(reply) => {
+                let (subscriber, receiver) = Subscriber::new(&self.config);
                 self.subscribers.push(subscriber);
-                let _ = reply.send(Ok(()));
+                let _ = reply.send(Ok(receiver));
             }
             Request::Interrogate(scope, reply) => self.interrogate(scope, Some(reply)).await,
             Request::StopInterrogation(scope, reply) => self.stop_interrogation(scope, reply).await,

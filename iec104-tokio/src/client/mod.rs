@@ -126,7 +126,10 @@
 //! - Time is a parameter, as in the rest of the crate. The instant stored is
 //!   the one the application passes, so it is when the update was taken from
 //!   the channel: later than the reception by the time the update waited
-//!   there, which is short for a channel read steadily.
+//!   there, which is short for a channel read steadily. A subscriber that
+//!   falls [`ClientConfig::update_buffer`] updates behind misses some
+//!   ([`Update::Lagged`]); its image is then incomplete until the next
+//!   interrogation.
 //!
 //! To see the interrogation run on the first start, subscribe before it:
 //! [`Client::spawn`], then [`Client::subscribe`], then
@@ -185,6 +188,9 @@ impl Default for Timeouts {
 /// [`Cp56Time2a::from_system_time`] turns the system clock into a tag.
 pub type Clock = Arc<dyn Fn() -> Cp56Time2a + Send + Sync>;
 
+/// The default size of each subscriber's channel: 1000 updates.
+pub const DEFAULT_UPDATE_BUFFER: usize = 1000;
+
 /// What a client needs to know about its station.
 #[derive(Clone)]
 pub struct ClientConfig {
@@ -220,6 +226,11 @@ pub struct ClientConfig {
     /// process or a parameter request, [`ClientError::ConnectionLost`] for the
     /// rest).
     pub retransmit_on_switchover: bool,
+    /// How many updates wait at most in each subscriber's channel
+    /// ([`Client::subscribe`]); beyond it the subscriber misses updates and
+    /// is told how many ([`Update::Lagged`]). At least 1. Default
+    /// [`DEFAULT_UPDATE_BUFFER`], 1000.
+    pub update_buffer: usize,
     /// Report every APDU in the driver's events ([`Options::trace`]). The
     /// client itself does not print them.
     pub trace: bool,
@@ -246,6 +257,7 @@ impl ClientConfig {
             timeouts: Timeouts::default(),
             interrogate_on_start: true,
             retransmit_on_switchover: false,
+            update_buffer: DEFAULT_UPDATE_BUFFER,
             trace: false,
             clock: None,
         }
@@ -266,6 +278,7 @@ impl fmt::Debug for ClientConfig {
             .field("timeouts", &self.timeouts)
             .field("interrogate_on_start", &self.interrogate_on_start)
             .field("retransmit_on_switchover", &self.retransmit_on_switchover)
+            .field("update_buffer", &self.update_buffer)
             .field("trace", &self.trace)
             .field("clock", &self.clock.as_ref().map(|_| "..."))
             .finish()
@@ -302,6 +315,10 @@ pub enum Update {
     /// Redundancy group: the started connection's t1 expired and the group
     /// moved on (104 cl.10.5).
     Switchover(Switchover),
+    /// This many updates were dropped before this one because the
+    /// subscriber's channel was full ([`ClientConfig::update_buffer`]): the
+    /// subscriber read more slowly than the station sent.
+    Lagged(u64),
 }
 
 /// Why a call failed.
@@ -436,7 +453,7 @@ type Reply<T> = oneshot::Sender<Result<T, ClientError>>;
 /// A request from a [`Client`] to its task.
 enum Request {
     WaitStarted(Reply<()>),
-    Subscribe(mpsc::UnboundedSender<Update>, Reply<()>),
+    Subscribe(Reply<mpsc::Receiver<Update>>),
     Interrogate(Scope, Reply<Vec<Asdu>>),
     StopInterrogation(Scope, Reply<()>),
     Counter(ci::Request, FreezeMode, Reply<Vec<Asdu>>),
@@ -521,14 +538,14 @@ impl Client {
     pub fn spawn_subscribed<K: Connector>(
         connector: K,
         config: ClientConfig,
-    ) -> Result<(Self, mpsc::UnboundedReceiver<Update>), ClientError> {
+    ) -> Result<(Self, mpsc::Receiver<Update>), ClientError> {
         let manager =
             ConnectionManager::new(Role::Controlling, vec![StationConfig::new(config.link)])
                 .map_err(|e| ClientError::Driver(Error::Manager(e)))?;
         let (handle, events) = master::spawn(manager, connector, options(&config))?;
-        let (sender, receiver) = mpsc::unbounded_channel();
+        let (subscriber, receiver) = task::Subscriber::new(&config);
         Ok((
-            Self::start(handle, events, config, false, vec![sender]),
+            Self::start(handle, events, config, false, vec![subscriber]),
             receiver,
         ))
     }
@@ -573,7 +590,7 @@ impl Client {
         events: crate::Events,
         config: ClientConfig,
         group: bool,
-        subscribers: Vec<mpsc::UnboundedSender<Update>>,
+        subscribers: Vec<task::Subscriber>,
     ) -> Self {
         let (requests, receiver) = mpsc::channel(64);
         tokio::spawn(task::run(
@@ -609,20 +626,22 @@ impl Client {
 
     /// Everything the station sends in the monitor direction, and the link's
     /// changes, from the moment this call returns: it returns once the
-    /// client holds the subscription. The channel is unbounded so no update
-    /// is dropped: read it steadily, or drop it. What happened before is not
+    /// client holds the subscription. The channel holds
+    /// [`ClientConfig::update_buffer`] updates; the client never waits for a
+    /// slow reader, so while the channel is full the updates for it are
+    /// dropped and counted, and the next one that fits is preceded by
+    /// [`Update::Lagged`] with the count. Read it steadily, or drop it. What
+    /// happened before is not
     /// repeated; to see the client's first connection and its first answers,
     /// use [`Client::spawn_subscribed`].
     ///
     /// # Errors
     ///
     /// [`ClientError::Driver`] once the client has stopped.
-    pub async fn subscribe(&self) -> Result<mpsc::UnboundedReceiver<Update>, ClientError> {
-        let (sender, receiver) = mpsc::unbounded_channel();
+    pub async fn subscribe(&self) -> Result<mpsc::Receiver<Update>, ClientError> {
         // Returns once the task holds the subscription, so whatever the
         // station sends after this call is in the channel.
-        self.call(|reply| Request::Subscribe(sender, reply)).await?;
-        Ok(receiver)
+        self.call(Request::Subscribe).await
     }
 
     /// A station or group interrogation (104 cl.7.5): every ASDU the station
