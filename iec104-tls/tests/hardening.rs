@@ -1,7 +1,7 @@
 //! Hardening against misbehaving peers and stale credentials: a handshake
-//! that never finishes, a lone `KeyUpdate`, descriptor exhaustion, an
-//! out-of-date CRL, credentials that do not fit together, and resumption past
-//! a certificate's expiry.
+//! that never finishes, a trickled record, a lone `KeyUpdate`, descriptor
+//! exhaustion, an out-of-date CRL, credentials that do not fit together, and
+//! resumption past a certificate's expiry.
 
 // Test code may panic, index and compute freely, as clippy.toml allows inside #[test] functions.
 #![allow(clippy::unwrap_used, clippy::arithmetic_side_effects)]
@@ -87,6 +87,47 @@ fn a_lone_key_update_does_not_end_a_blocking_read() {
         Ok(1) => assert_eq!(&buf, b"x"),
         other => panic!("blocking read without timeout returned {other:?}"),
     }
+}
+
+/// The read timeout bounds the whole read, not each socket read: a peer
+/// trickling one octet of a record every 20 ms does not hold a read with a
+/// 50 ms timeout past a few timeouts.
+#[test]
+fn the_blocking_read_timeout_holds_against_a_trickling_record() {
+    let ca = Ca::new("test CA");
+    let server = station(&ca, 2, &ca).build().unwrap();
+    let client = station(&ca, 1, &ca).build().unwrap();
+    let (listener, port) = listener();
+    let srv = thread::spawn(move || {
+        let (tcp, _) = listener.accept().unwrap();
+        let tls = iec104_tls::accept(tcp, &server).unwrap();
+        let mut raw = tls.get_ref();
+        // Application data record header, length 100, then its body octet by octet.
+        raw.write_all(&[0x17, 0x03, 0x03, 0x00, 0x64]).unwrap();
+        for _ in 0..100 {
+            if raw.write_all(&[0x00]).is_err() {
+                return;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+    });
+    let mut tls = iec104_tls::connect(&format!("127.0.0.1:{port}"), &client).unwrap();
+    tls.get_ref()
+        .set_read_timeout(Some(Duration::from_millis(50)))
+        .unwrap();
+    let started = Instant::now();
+    let r = tls.read(&mut [0u8; 1]);
+    let elapsed = started.elapsed();
+    srv.join().unwrap();
+    assert!(
+        elapsed < Duration::from_millis(500),
+        "read took {elapsed:?} with a 50 ms read timeout ({r:?})"
+    );
+    let kind = r.unwrap_err().kind();
+    assert!(
+        matches!(kind, io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut),
+        "{kind:?}"
+    );
 }
 
 /// A CRL whose nextUpdate has passed says nothing about today (RFC 5280
