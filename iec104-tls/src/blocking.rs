@@ -231,10 +231,21 @@ impl Read for TlsStream {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         // Whatever the session queued (a KeyUpdate the peer asked for) first.
         self.flush_tls()?;
+        // The socket timeout bounds each pass; this bounds the whole read, so a
+        // peer trickling a record one octet at a time cannot hold it forever.
+        let deadline = self
+            .sock
+            .read_timeout()?
+            .and_then(|timeout| Instant::now().checked_add(timeout));
         while self.conn.wants_read() {
             // Only a pass that neither read nor wrote ends the wait: one that
             // only wrote (an alert rustls queued) still owes a read.
             if self.conn.complete_io(&mut self.sock)? == (0, 0) {
+                break;
+            }
+            if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                // No plaintext yet: the reader reports `WouldBlock`, as the
+                // socket's own timeout does on Unix.
                 break;
             }
         }
