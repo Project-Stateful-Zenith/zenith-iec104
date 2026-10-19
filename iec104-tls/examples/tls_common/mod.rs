@@ -33,7 +33,7 @@ pub fn config(args: &mut impl Iterator<Item = String>) -> Result<TlsConfig, Stri
     if let Ok(peer) = std::env::var("IEC104_TLS_PEER") {
         builder = builder.allow_peers(certificates_from_pem_file(peer).map_err(|e| e.to_string())?);
     }
-    if std::env::var_os("IEC104_TLS_NO_NAME_CHECK").is_some() {
+    if std::env::var("IEC104_TLS_NO_NAME_CHECK").is_ok_and(|v| v == "1") {
         builder = builder.verify_server_name(false);
     }
     builder.build().map_err(|e| e.to_string())
