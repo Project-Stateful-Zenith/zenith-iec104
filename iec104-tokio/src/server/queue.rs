@@ -119,6 +119,16 @@ impl Queue {
         }
     }
 
+    /// Keeps only what is owed to whichever controlling station comes next:
+    /// the application's events and the end of initialisation. Every answer,
+    /// confirmation and termination goes, with the requests not answered yet.
+    pub fn drop_requested(&mut self) {
+        let [_, rest @ ..] = &mut self.rows;
+        for queue in rest {
+            queue.retain(|item| matches!(item, Item::Frame { event: true, .. }));
+        }
+    }
+
     /// Puts frames back at the head of their rows, in their order: the rest
     /// of an entry that stands for several, or a frame whose hand-over
     /// failed.

@@ -1423,3 +1423,40 @@ async fn the_client_against_the_server() {
     client.shutdown().await;
     server.shutdown().await;
 }
+
+/// With one member the group is the whole logical link (104 cl.10.2): once
+/// its connection is gone, what the controlling station had asked for is owed
+/// to nobody. A station that sent thirty reads and a select and closed leaves
+/// the next one only the twelve answers it had not confirmed (cl.10.6), not
+/// the eighteen that waited, and no select to execute.
+#[tokio::test(start_paused = true)]
+async fn the_answers_and_select_of_a_closed_connection_are_dropped() {
+    let mut config = config();
+    config.command_mode = CommandMode::SelectAndExecute;
+    let (server, _side, peer) = server(config).await;
+    let mut first = Master::start(peer, false).await;
+    first.send(&single_command(ACT, IOA_4001, 0x81));
+    assert_eq!(first.next().await, single_command(ACTCON, IOA_4001, 0x81));
+    first.ack();
+    for _ in 0..30 {
+        first.send(&read(IOA_4001));
+    }
+    for _ in 0..12 {
+        assert_eq!(first.next().await, double_point(REQ, 0x02));
+    }
+    first.close().await;
+    settle().await;
+
+    let (near, peer) = Peer::pipe();
+    server.attach(near).await.unwrap();
+    let mut second = Master::start(peer, true).await;
+    for _ in 0..12 {
+        assert_eq!(second.next().await, double_point(REQ, 0x02));
+    }
+    assert!(second.silent_for(Duration::from_secs(1)).await);
+    second.send(&single_command(ACT, IOA_4001, 0x01));
+    assert_eq!(
+        second.next().await,
+        single_command(ACTCON_NEGATIVE, IOA_4001, 0x01)
+    );
+}

@@ -57,6 +57,8 @@ struct Task<A> {
     validity: TimeValidity,
     /// Each connection's last reported state.
     states: Vec<State>,
+    /// The connections with a socket now.
+    connected: Vec<usize>,
     started: bool,
     /// Group members that failed while started, whose unconfirmed data goes
     /// out again on the next started connection.
@@ -145,6 +147,7 @@ pub(super) async fn run<A: Application>(
         .with_select_timeout(config.select_timeout),
         validity,
         states: Vec::new(),
+        connected: Vec::new(),
         started: false,
         failed: Vec::new(),
         operated,
@@ -249,7 +252,14 @@ impl<A: Application> Task<A> {
         match event {
             Event::Asdu { asdu, .. } => self.on_asdu(&asdu),
             Event::State { conn, state } => self.set_state(conn, state).await,
-            Event::Disconnected { conn, .. } => self.set_state(conn, State::Stopped).await,
+            Event::Connected { conn } => self.connected.push(conn),
+            Event::Disconnected { conn, .. } => {
+                self.connected.retain(|c| *c != conn);
+                self.set_state(conn, State::Stopped).await;
+                if self.connected.is_empty() {
+                    self.link_gone();
+                }
+            }
             Event::StartedConnectionFailed { conn, .. } => self.on_failed(conn).await,
             Event::Switchover(
                 Switchover::Automatic { failed, .. }
@@ -294,6 +304,20 @@ impl<A: Application> Task<A> {
                     .await;
             }
         }
+    }
+
+    /// No member of the group has a socket any more: the logical link (104
+    /// cl.10.2) is gone, and with it the controlling station that asked. Its
+    /// answers, confirmations, terminations and selects are owed to nobody,
+    /// so the next one gets none of them and cannot execute a select it did
+    /// not make (TS 60870-5-604 5.4.13.10 starts it with a fresh general
+    /// interrogation). The events stay for it. While another member is
+    /// connected the link lives on, and everything carries over (cl.10.6).
+    fn link_gone(&mut self) {
+        self.queue.drop_requested();
+        self.gi.reset();
+        self.ci.reset();
+        self.ct.reset();
     }
 
     fn on_asdu(&mut self, asdu: &[u8]) {
