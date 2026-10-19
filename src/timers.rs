@@ -103,7 +103,7 @@
 
 use std::time::Instant;
 
-use crate::apci::{Apci, UFunction};
+use crate::apci::{Apci, SeqNo, UFunction};
 use crate::link::{Action, Session, State, Timer};
 use crate::params::{LinkParams, ParamError};
 
@@ -331,9 +331,9 @@ impl Supervisor {
         if !after.act_pending {
             self.act_sent = None;
         }
-        if after.outstanding == 0 {
+        if after.oldest.is_none() {
             self.frames_sent = None;
-        } else if self.frames_sent.is_none() || after.outstanding < before.outstanding {
+        } else if self.frames_sent.is_none() || after.acknowledged_from(before) {
             self.frames_sent = Some(now);
         }
         if !after.any() {
@@ -356,13 +356,15 @@ impl Supervisor {
 /// for the con that ends that procedure.
 ///
 /// Figures 17/18 NOTE 2: *"t1 is the timeout of a sent U-frame or I-frame"*.
-/// The count and the flag are both needed to tell an event that made
+/// The oldest N(S) and the flag are both needed to tell an event that made
 /// acknowledgement progress from one that did not.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Supervision {
-    /// I-frames held in the clause 5.1 send buffer. An N(R) that acknowledges one
-    /// of them lowers this; that is the acknowledgement progress that moves t1.
-    outstanding: u16,
+    /// N(S) of the oldest I-frame held in the clause 5.1 send buffer. An N(R)
+    /// that acknowledges it changes this; that is the acknowledgement progress
+    /// that moves t1. A count would not do: clause 5.5's k window refills in
+    /// the same event, so the number outstanding can stay the same.
+    oldest: Option<SeqNo>,
     /// A `TESTFR act`, `STARTDT act` or `STOPDT act` of ours awaits the peer's
     /// con (figure 13, figures 15/16). A con of ours is never pending.
     act_pending: bool,
@@ -371,9 +373,9 @@ pub struct Supervision {
 impl Supervision {
     /// What in `session` awaits confirmation from the peer right now.
     #[must_use]
-    pub const fn of(session: &Session) -> Self {
+    pub fn of(session: &Session) -> Self {
         Self {
-            outstanding: session.outstanding_i_frames(),
+            oldest: session.outstanding_frames().first().map(|frame| frame.ns),
             act_pending: session.test_pending()
                 || matches!(
                     session.state(),
@@ -388,12 +390,17 @@ impl Supervision {
     /// condition t1 exists for. Either half is enough to keep t1 armed, and both
     /// must be gone before it is cancelled.
     const fn any(self) -> bool {
-        self.outstanding > 0 || self.act_pending
+        self.oldest.is_some() || self.act_pending
     }
 
     /// True when this station made acknowledgement progress relative to `before`:
     /// an outstanding frame was acknowledged, or an act of ours was confirmed.
-    const fn advanced_from(self, before: Self) -> bool {
-        self.outstanding < before.outstanding || (before.act_pending && !self.act_pending)
+    fn advanced_from(self, before: Self) -> bool {
+        self.acknowledged_from(before) || (before.act_pending && !self.act_pending)
+    }
+
+    /// True when an N(R) released the frame that was oldest in `before`.
+    fn acknowledged_from(self, before: Self) -> bool {
+        before.oldest.is_some() && self.oldest != before.oldest
     }
 }
