@@ -128,7 +128,11 @@
 //! ASDUs a failed connection left unconfirmed are sent again on it (104
 //! cl.10.6: *"any unconfirmed user data will be retransmitted on the new
 //! started connection after a connection switchover has been performed,
-//! including potential unconfirmed ACTCONs or ACTTERMs."*).
+//! including potential unconfirmed ACTCONs or ACTTERMs."*). Once no member
+//! of the group has a socket the link is gone, and so is the controlling
+//! station that asked: the queue keeps only the events and the end of
+//! initialisation, and the running interrogations, selects and executes are
+//! dropped, so the next one gets no answer it did not ask for.
 //!
 //! The end of initialisation ([`ServerConfig::end_of_initialisation`]) goes
 //! out once, on the first started connection: TS 60870-5-604 5.4.12.30, after

@@ -37,6 +37,16 @@ struct Operated {
     ok: bool,
 }
 
+/// Where an execute's [`Operated`] goes, with the logical link it arrived on
+/// ([`Task::link`]).
+struct Done(mpsc::UnboundedSender<(u64, Operated)>, u64);
+
+impl Done {
+    fn send(&self, done: Operated) -> Result<(), mpsc::error::SendError<(u64, Operated)>> {
+        self.0.send((self.1, done))
+    }
+}
+
 struct Task<A> {
     handle: Handle,
     app: Arc<A>,
@@ -57,11 +67,17 @@ struct Task<A> {
     validity: TimeValidity,
     /// Each connection's last reported state.
     states: Vec<State>,
+    /// The connections with a socket now.
+    connected: Vec<usize>,
     started: bool,
     /// Group members that failed while started, whose unconfirmed data goes
     /// out again on the next started connection.
     failed: Vec<usize>,
-    operated: mpsc::UnboundedSender<Operated>,
+    /// Each operation with the logical link its execute arrived on.
+    operated: mpsc::UnboundedSender<(u64, Operated)>,
+    /// The logical links gone so far: an operation outliving its link
+    /// (104 cl.10.2) is told apart by it.
+    link: u64,
 }
 
 fn now() -> std::time::Instant {
@@ -145,9 +161,11 @@ pub(super) async fn run<A: Application>(
         .with_select_timeout(config.select_timeout),
         validity,
         states: Vec::new(),
+        connected: Vec::new(),
         started: false,
         failed: Vec::new(),
         operated,
+        link: 0,
     };
     if let Some(max) = config.max_command_delay {
         task.ct = task.ct.with_max_command_delay(max);
@@ -171,7 +189,11 @@ pub(super) async fn run<A: Application>(
                 Some(event) => task.on_event(event).await,
                 None => return,
             },
-            Some(done) = operated_rx.recv() => task.on_operated(done),
+            Some((link, done)) = operated_rx.recv() => if link == task.link {
+                task.on_operated(done);
+            } else {
+                task.on_operated_late(done);
+            },
         }
         task.release().await;
     }
@@ -249,7 +271,14 @@ impl<A: Application> Task<A> {
         match event {
             Event::Asdu { asdu, .. } => self.on_asdu(&asdu),
             Event::State { conn, state } => self.set_state(conn, state).await,
-            Event::Disconnected { conn, .. } => self.set_state(conn, State::Stopped).await,
+            Event::Connected { conn } => self.connected.push(conn),
+            Event::Disconnected { conn, .. } => {
+                self.connected.retain(|c| *c != conn);
+                self.set_state(conn, State::Stopped).await;
+                if self.connected.is_empty() {
+                    self.link_gone();
+                }
+            }
             Event::StartedConnectionFailed { conn, .. } => self.on_failed(conn).await,
             Event::Switchover(
                 Switchover::Automatic { failed, .. }
@@ -294,6 +323,22 @@ impl<A: Application> Task<A> {
                     .await;
             }
         }
+    }
+
+    /// No member of the group has a socket any more: the logical link (104
+    /// cl.10.2) is gone, and with it the controlling station that asked. Its
+    /// answers, confirmations, terminations and selects are owed to nobody,
+    /// so the next one gets none of them and cannot execute a select it did
+    /// not make (TS 60870-5-604 5.4.13.10 starts it with a fresh general
+    /// interrogation). The events stay for it. While another member is
+    /// connected the link lives on, and everything carries over (cl.10.6).
+    fn link_gone(&mut self) {
+        self.queue.drop_requested();
+        self.gi.reset();
+        self.ci.reset();
+        // An execute still being operated keeps its object until it ends.
+        self.ct.drop_selects();
+        self.link = self.link.wrapping_add(1);
     }
 
     fn on_asdu(&mut self, asdu: &[u8]) {
@@ -498,7 +543,7 @@ impl<A: Application> Task<A> {
     /// released rather than held until restart.
     fn operate(&self, command: Command) {
         let app = Arc::clone(&self.app);
-        let done = self.operated.clone();
+        let done = Done(self.operated.clone(), self.link);
         tokio::spawn(async move {
             let ok = tokio::spawn(async move { app.operate(command).await })
                 .await
@@ -516,6 +561,15 @@ impl<A: Application> Task<A> {
             && let Ok(frame) = self.ct.terminate(done.ioa, !done.ok)
         {
             self.queue.frame(frame);
+        }
+    }
+
+    /// An execute whose link has gone finished: its object is free again, but
+    /// its termination is owed to the controlling station that left, not to
+    /// the one there now.
+    fn on_operated_late(&mut self, done: Operated) {
+        if self.ct.is_running(done.ioa) {
+            let _ = self.ct.terminate(done.ioa, !done.ok);
         }
     }
 
@@ -562,11 +616,15 @@ impl<A: Application> Task<A> {
                 _ => return,
             };
             for _ in 0..room {
-                let Some(frame) = self.next_frame() else {
+                let Some((frame, event)) = self.next_frame() else {
                     return;
                 };
                 if self.handle.send_asdu(CONN, frame.clone()).await.is_err() {
-                    self.queue.put_back(vec![frame]);
+                    if event {
+                        self.queue.put_back_event(frame);
+                    } else {
+                        self.queue.put_back(vec![frame]);
+                    }
                     return;
                 }
             }
@@ -589,7 +647,10 @@ impl<A: Application> Task<A> {
     /// interrogation's totals and termination) gives its first one, and the
     /// rest go back to the head of their row in their order. Each answer
     /// ASDU is encoded again from the image as it goes ([`Image::refresh`]).
-    fn next_frame(&mut self) -> Option<Vec<u8>> {
+    ///
+    /// The flag says whether the ASDU is the application's events, so one
+    /// whose hand-over fails goes back as events.
+    fn next_frame(&mut self) -> Option<(Vec<u8>, bool)> {
         loop {
             match self.queue.pop()? {
                 Item::Interrogation => {
@@ -612,7 +673,7 @@ impl<A: Application> Task<A> {
                     if let Some(frame) = frames.pop_front() {
                         self.queue
                             .push_front(Priority::Interrogation, Item::Answer { scope, frames });
-                        return Some(self.image.refresh(frame));
+                        return Some((self.image.refresh(frame), false));
                     }
                     if !self.gi.is_running(scope) {
                         continue;
@@ -635,15 +696,16 @@ impl<A: Application> Task<A> {
                     for frame in rest {
                         self.queue.frame(frame);
                     }
-                    return Some(self.image.refresh(first));
+                    return Some((self.image.refresh(first), false));
                 }
                 item => {
+                    let event = matches!(item, Item::Frame { event: true, .. });
                     let mut frames = self.expand(item).into_iter();
                     let Some(first) = frames.next() else {
                         continue;
                     };
                     self.queue.put_back(frames.collect());
-                    return Some(self.image.refresh(first));
+                    return Some((self.image.refresh(first), event));
                 }
             }
         }
