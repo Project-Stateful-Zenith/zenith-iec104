@@ -1287,6 +1287,53 @@ fn deactivating_the_running_one_promotes_the_queued_one() {
     assert_interrogation_frame(&term[0], CAUSE_ACTIVATION_TERM, false, Scope::Group(3));
 }
 
+/// Option 3 queues a scope at most once: a repeat of a queued scope is
+/// refused, and deactivating the running one keeps the confirmed queued one.
+#[test]
+fn option_3_queues_each_scope_once() {
+    let (_controlling, mut controlled, device) = running_pair(ReActivation::Queue);
+    // Its own originator, so the termination shows which entry survived.
+    let again = request(Scope::Station, CA, 9).expect("frame");
+    let first = controlled
+        .on_request(&again, &Known::EVERYTHING, &device)
+        .expect("queued");
+    assert_eq!(
+        first.reaction,
+        Reaction::ActivationConfirmed {
+            scope: Scope::Station,
+            negative: false
+        }
+    );
+    let second = controlled
+        .on_request(&again, &Known::EVERYTHING, &device)
+        .expect("refused");
+    assert_eq!(
+        second.reaction,
+        Reaction::ActivationConfirmed {
+            scope: Scope::Station,
+            negative: true
+        }
+    );
+    assert_interrogation_frame(&second.send[0], CAUSE_ACTIVATION_CON, true, Scope::Station);
+    assert_eq!(controlled.queued(), [Scope::Station]);
+
+    let off = deactivation(Scope::Station, CA, 0).expect("frame");
+    controlled
+        .on_request(&off, &Known::EVERYTHING, &device)
+        .expect("deactcon");
+    assert_eq!(
+        controlled.running(),
+        [Scope::Station],
+        "the queued one runs"
+    );
+    let term = controlled
+        .complete(&device)
+        .expect("its data and termination");
+    assert_eq!(term.len(), 3);
+    assert_interrogation_frame(&term[2], CAUSE_ACTIVATION_TERM, false, Scope::Station);
+    assert_eq!(Header::parse(&term[2]).expect("header").originator, 9);
+}
+
 /// TS 60870-5-604 5.4.17.40 from the controlling station's side: under
 /// option 3 with the **same** scope, the second interrogation's objects and
 /// termination still belong to it after the first one terminates.
