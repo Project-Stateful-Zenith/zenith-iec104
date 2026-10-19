@@ -1460,3 +1460,42 @@ async fn the_answers_and_select_of_a_closed_connection_are_dropped() {
         single_command(ACTCON_NEGATIVE, IOA_4001, 0x01)
     );
 }
+
+/// An execute still being operated when its link goes (104 cl.10.2) keeps its
+/// object until the operation ends: the next controlling station's execute of
+/// it is refused (TS 60870-5-604 5.4.19.40) rather than operated alongside,
+/// and the old operation's termination is not sent to it. Once the operation
+/// has ended, the object can be executed again.
+#[tokio::test(start_paused = true)]
+async fn an_execute_outliving_its_connection_is_held_until_it_ends() {
+    let (server, mut side, peer) = server(config()).await;
+    let mut first = Master::start(peer, true).await;
+    first.send(&single_command(ACT, IOA_4001, 0x01));
+    assert_eq!(first.next().await, single_command(ACTCON, IOA_4001, 0x01));
+    let (_, done) = side.operation().await;
+    first.close().await;
+    settle().await;
+
+    let (near, peer) = Peer::pipe();
+    server.attach(near).await.unwrap();
+    let mut second = Master::start(peer, true).await;
+    second.send(&single_command(ACT, IOA_4001, 0x00));
+    assert_eq!(
+        second.next().await,
+        single_command(ACTCON_NEGATIVE, IOA_4001, 0x00)
+    );
+    settle().await;
+    assert!(side.operations.try_recv().is_err());
+
+    done.send(true).unwrap();
+    assert!(second.silent_for(Duration::from_secs(1)).await);
+
+    second.send(&single_command(ACT, IOA_4001, 0x00));
+    assert_eq!(second.next().await, single_command(ACTCON, IOA_4001, 0x00));
+    let (_, done) = side.operation().await;
+    done.send(false).unwrap();
+    assert_eq!(
+        second.next().await,
+        single_command(ACTTERM_NEGATIVE, IOA_4001, 0x00)
+    );
+}

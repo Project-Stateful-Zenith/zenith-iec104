@@ -2198,6 +2198,19 @@ impl CommandTransmission {
         self.deadlines.clear();
     }
 
+    /// Drops every select, pending select and deadline but keeps the running
+    /// executes, for a controlled station whose controlling station has gone
+    /// while an operation is still under way: the object stays occupied until
+    /// [`terminate`](Self::terminate) frees it, so a second execute of it is
+    /// refused (TS 60870-5-604 5.4.19.40) rather than operated alongside.
+    pub fn drop_selects(&mut self) {
+        let running = std::mem::take(&mut self.running);
+        let reply_to = std::mem::take(&mut self.reply_to);
+        self.reset();
+        self.running = running;
+        self.reply_to = reply_to;
+    }
+
     /// Drops everything outstanding for `ioa` (a select in flight, a confirmed
     /// select, a running execute) and reports whether there was anything. The
     /// controlling station uses it when its own delay for an answer lapses; a

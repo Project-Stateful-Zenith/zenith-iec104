@@ -140,6 +140,16 @@ impl Queue {
         }
     }
 
+    /// Puts an ASDU of events whose hand-over failed back at the head of its
+    /// row, still an event: it stays for the next controlling station
+    /// ([`Self::drop_requested`]). Events joined into it count as one now.
+    pub fn put_back_event(&mut self, asdu: Vec<u8>) {
+        let priority = self.priority_of(&asdu);
+        self.events = self.events.saturating_add(1);
+        self.row(priority)
+            .push_front(Item::Frame { asdu, event: true });
+    }
+
     /// The head of the highest row that has one.
     ///
     /// An event takes the events right behind it in its row along into one
