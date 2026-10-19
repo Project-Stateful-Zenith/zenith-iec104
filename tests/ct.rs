@@ -1261,8 +1261,9 @@ fn the_execute_does_not_match_the_select() {
         .unwrap();
     assert!(controlled.is_selected(0x3000));
 
-    // The same address, the same family, a different state.
-    let mismatch = controlling.execute(&single(0x3000, false, false)).unwrap();
+    // The same address, the same family, a different state, from a peer that
+    // does not check its own execute against its select.
+    let mismatch = activation(&single(0x3000, false, false), CA, ORG).unwrap();
     let outcome = controlled
         .on_request(&mismatch, &Known::EVERYTHING)
         .unwrap();
@@ -1289,6 +1290,34 @@ fn the_execute_does_not_match_the_select() {
 }
 
 #[test]
+fn the_controlling_station_refuses_an_execute_that_is_not_its_select() {
+    // TS 604 Table 19: the EXECUTE must "contain exactly the same information
+    // as the SELECT message". The controlling station does not send one that
+    // does not, and the select survives the refusal.
+    let mut controlled = controlled_sbo();
+    let mut controlling = controlling_sbo();
+    let select = controlling.select(&single(0x3000, true, false)).unwrap();
+    let mirror = controlled.on_request(&select, &Known::EVERYTHING).unwrap();
+    controlling
+        .on_response(&mirror.send[0], &Known::EVERYTHING)
+        .unwrap();
+
+    assert_eq!(
+        controlling
+            .execute(&single(0x3000, false, false))
+            .unwrap_err(),
+        CtError::ExecuteMismatch { ioa: 0x3000 }
+    );
+    assert!(controlling.is_selected(0x3000), "the select is kept");
+    let execute = controlling.execute(&single(0x3000, true, false)).unwrap();
+    assert_eq!(
+        execute[9] & 0x81,
+        0x01,
+        "S/E = 0, SCS = 1: the select's state"
+    );
+}
+
+#[test]
 fn a_set_point_threadhold_value_that_differs_also_fails_the_match() {
     let mut controlled = CommandTransmission::controlled(
         CommandMode::SelectAndExecute,
@@ -1309,9 +1338,7 @@ fn a_set_point_threadhold_value_that_differs_also_fails_the_match() {
     controlling
         .on_response(&mirror.send[0], &Known::EVERYTHING)
         .unwrap();
-    let execute = controlling
-        .execute(&normalized(0x3000, 101, false))
-        .unwrap();
+    let execute = activation(&normalized(0x3000, 101, false), CA, ORG).unwrap();
     let outcome = controlled.on_request(&execute, &Known::EVERYTHING).unwrap();
     assert_eq!(
         outcome.reaction,
