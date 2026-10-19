@@ -6,7 +6,11 @@ rust-version = "1.88"
 description = "Clean-room IEC 60870-5-104 (IEC 104) protocol library"
 license = "Apache-2.0"
 repository = "https://github.com/Project-Stateful-Zenith/zenith-iec104"
-authors = ["Insomnia and the Zenith contributors"]
+authors = ["Project-Stateful-Zenith Contributors"]
+readme = "README.md"
+homepage = "https://github.com/Project-Stateful-Zenith/zenith-iec104"
+keywords = ["iec104", "scada", "protocol", "sans-io", "iec-60870-5-104"]
+categories = ["network-programming", "parser-implementations"]
 
 [dependencies]
 [workspace]

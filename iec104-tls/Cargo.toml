@@ -6,7 +6,11 @@ rust-version = "1.88"
 description = "TLS transport for the iec104 crate: mutual TLS over rustls, after the IEC 62351-3 profile as secondary sources describe it"
 license = "Apache-2.0"
 repository = "https://github.com/Project-Stateful-Zenith/zenith-iec104"
-authors = ["Insomnia and the Zenith contributors"]
+authors = ["Project-Stateful-Zenith Contributors"]
+readme = "../README.md"
+homepage = "https://github.com/Project-Stateful-Zenith/zenith-iec104"
+keywords = ["iec104", "scada", "tls", "rustls", "iec-60870-5-104"]
+categories = ["network-programming", "cryptography"]
 
 [features]
 default = []
