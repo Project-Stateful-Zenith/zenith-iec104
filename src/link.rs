@@ -124,7 +124,9 @@
 //!   session clears the queue only with the connection, because clause 5.1
 //!   restarts the sequence numbers at zero; a caller can still take it out
 //!   with [`Session::take_pending_user_data`]. `queue_i_frame` refuses
-//!   ([`QueueError::NotConnected`]) when there is no connection.
+//!   ([`QueueError::NotConnected`]) when there is no connection, and
+//!   ([`QueueError::Full`]) beyond [`MAX_PENDING_USER_DATA`] ASDUs, so a peer
+//!   that never sends STARTDT cannot make it grow without end.
 //!
 //! # The TESTFR keep-alive (clause 5.2, figures 13 and 14)
 //!
@@ -338,7 +340,21 @@ pub enum QueueError {
     /// ([`State::Terminated`]). Establishing one clears the queue, so the frame
     /// is refused rather than silently held.
     NotConnected,
+    /// The queue already holds [`MAX_PENDING_USER_DATA`] ASDUs. Clause 5.3
+    /// holds the data until a STARTDT that a peer may never send, so the queue
+    /// is bounded and the caller keeps the ASDU rather than having it dropped.
+    Full,
 }
+
+/// The most ASDUs a connection's pending queue ([`Session::queue_i_frame`]) or
+/// a redundancy group's held data takes before refusing with
+/// [`QueueError::Full`].
+///
+/// 16384 ASDUs of at most 249 octets (clause 5, figure 4: APDU length 253
+/// minus the APCI's four control octets) are about 4 MiB per connection:
+/// far above any k window (at most 32767 frames in flight, typically 12), and
+/// still a bound a peer that never sends STARTDT cannot push past.
+pub const MAX_PENDING_USER_DATA: usize = 16_384;
 
 /// What a connection does with one codec error: a row of the module doc's
 /// reaction table, as a value the caller can inspect.
@@ -556,8 +572,8 @@ impl Session {
     /// acknowledgement, so a caller that hands data over while data transfer is
     /// inactive needs no further step.
     ///
-    /// The queue has no size limit and nothing is dropped for room. It is
-    /// cleared with the connection, because the sequence numbers restart at zero
+    /// The queue holds at most [`MAX_PENDING_USER_DATA`] ASDUs; beyond that the
+    /// ASDU is refused, never dropped for room. It is cleared with the connection, because the sequence numbers restart at zero
     /// (clause 5.1); see [`Session::on_connection_lost`].
     ///
     /// Returns [`QueueError::NotConnected`] when there is no connection (before
@@ -566,10 +582,15 @@ impl Session {
     ///
     /// # Errors
     ///
-    /// [`QueueError::NotConnected`] when there is no connection.
+    /// [`QueueError::NotConnected`] when there is no connection, and
+    /// [`QueueError::Full`] when the queue holds [`MAX_PENDING_USER_DATA`]
+    /// ASDUs already.
     pub fn queue_i_frame(&mut self, asdu: &[u8]) -> Result<(), QueueError> {
         if !self.connected {
             return Err(QueueError::NotConnected);
+        }
+        if self.pending.len() >= MAX_PENDING_USER_DATA {
+            return Err(QueueError::Full);
         }
         self.pending.push_back(asdu.to_vec());
         Ok(())

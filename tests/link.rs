@@ -9,7 +9,9 @@
 #![allow(clippy::expect_used)]
 
 use iec104::apci::{Apci, ParseError, SeqNo, UFunction};
-use iec104::link::{Action, ParseReaction, QueueError, Role, Session, State, Timer, reaction};
+use iec104::link::{
+    Action, MAX_PENDING_USER_DATA, ParseReaction, QueueError, Role, Session, State, Timer, reaction,
+};
 use iec104::params::LinkParams;
 
 const fn u(f: UFunction) -> Apci {
@@ -932,6 +934,21 @@ fn a_queue_beyond_the_k_window_keeps_the_surplus_until_an_acknowledgement() {
     let actions = s.on_frame(s_frame(1));
     assert_eq!(sent_i(&actions), vec![(2, 0, b"\x03".to_vec())]);
     assert_eq!(s.pending_user_data(), 0);
+}
+
+#[test]
+fn a_connection_that_is_never_started_refuses_data_beyond_the_limit() {
+    // A peer that connects, never sends STARTDT and answers every TESTFR keeps
+    // the connection Stopped for good, so clause 5.3's queue would never drain.
+    // It stops at the limit and refuses the next ASDU instead of growing.
+    let mut s = session_with(Role::Controlled, 12, 8);
+    s.on_connection_established();
+    for _ in 0..MAX_PENDING_USER_DATA {
+        assert_eq!(s.queue_i_frame(b"\x01"), Ok(()));
+    }
+    assert_eq!(s.queue_i_frame(b"\x01"), Err(QueueError::Full));
+    assert_eq!(s.pending_user_data(), MAX_PENDING_USER_DATA);
+    assert_eq!(s.state(), State::Stopped);
 }
 
 #[test]

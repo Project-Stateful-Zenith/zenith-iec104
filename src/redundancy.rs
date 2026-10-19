@@ -488,7 +488,7 @@
 use crate::apci::{Apci, ParseError, UFunction};
 use crate::asdu::{Coi, LayoutError};
 use crate::init::{FollowUp, end_of_initialisation};
-use crate::link::{Action, QueueError, Role, Session, State, Timer};
+use crate::link::{Action, MAX_PENDING_USER_DATA, QueueError, Role, Session, State, Timer};
 use crate::params::{LinkParams, ParamError};
 use crate::timers::{Supervision, Supervisor, Timers};
 use std::time::Instant;
@@ -949,7 +949,11 @@ impl RedundancyGroup {
     ///   replay decision.
     ///
     /// A terminated connection that is still named refuses with
-    /// [`GroupError::Queue`].
+    /// [`GroupError::Queue`], and so does the group once it holds
+    /// [`MAX_PENDING_USER_DATA`] ASDUs not yet confirmed or decided on (its held
+    /// data, every member's queue mirror, unconfirmed frames and
+    /// [`Member::left_behind`]): a STARTDT act or a replay decision may never
+    /// come, so the data is refused rather than piled up or dropped.
     ///
     /// For a controlled station this is 10.4's monitor direction (index 124,
     /// printed 123): *"no user data is transmitted from the controlled station
@@ -969,13 +973,27 @@ impl RedundancyGroup {
     /// [`GroupError::NoStartedConnection`] or
     /// [`GroupError::NotStartedConnection`] when it may not carry user data
     /// (rule 3), and [`GroupError::Queue`] when the connection refuses to queue
-    /// the ASDU.
+    /// the ASDU or the group is full ([`QueueError::Full`]).
     pub fn send_user_data(
         &mut self,
         index: usize,
         asdu: &[u8],
     ) -> Result<Option<Action>, GroupError> {
         self.member(index)?;
+        let in_hand = self.members.iter().fold(self.held.len(), |sum, member| {
+            sum.saturating_add(member.left.len())
+                .saturating_add(member.queued.len())
+                .saturating_add(member.session.outstanding_frames().len())
+        });
+        if in_hand >= MAX_PENDING_USER_DATA {
+            return Err(GroupError::Queue(QueueError::Full));
+        }
+        self.deliver(index, asdu)
+    }
+
+    /// [`RedundancyGroup::send_user_data`] without the group's limit, for the
+    /// replay of data the limit already counted.
+    fn deliver(&mut self, index: usize, asdu: &[u8]) -> Result<Option<Action>, GroupError> {
         if (self.started.is_none() && self.switching) || !self.held.is_empty() {
             // Between a failure and the next Start there is no connection to
             // carry it; the group holds it for the next one named. Data the
@@ -1602,7 +1620,7 @@ impl RedundancyGroup {
                 // (10.6).
                 let newer = std::mem::take(&mut self.held);
                 for asdu in &held {
-                    match self.send_user_data(index, asdu) {
+                    match self.deliver(index, asdu) {
                         Ok(Some(action)) => actions.push(action),
                         Ok(None) => queued = queued.saturating_add(1),
                         Err(error) => {
