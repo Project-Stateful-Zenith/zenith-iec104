@@ -254,15 +254,26 @@ impl<A: Application> Task<A> {
             let time = time.unwrap_or_else(|| (self.clock)());
             self.validity.mark(time, now())
         });
-        entry.sample = super::image::Sample {
-            value,
-            quality,
-            time,
-        };
-        if let Some(cause) = event
-            && let Some(asdu) = self.image.event(ioa, cause).map_err(ServerError::Layout)?
-        {
-            self.queue.event(asdu);
+        let previous = std::mem::replace(
+            &mut entry.sample,
+            super::image::Sample {
+                value,
+                quality,
+                time,
+            },
+        );
+        if let Some(cause) = event {
+            match self.image.event(ioa, cause) {
+                Ok(Some(asdu)) => self.queue.event(asdu),
+                Ok(None) => {}
+                Err(e) => {
+                    // A report that cannot be sent leaves the image as it was.
+                    if let Some(entry) = self.image.entries.get_mut(&ioa) {
+                        entry.sample = previous;
+                    }
+                    return Err(ServerError::Layout(e));
+                }
+            }
         }
         Ok(())
     }

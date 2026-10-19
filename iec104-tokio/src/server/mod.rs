@@ -154,7 +154,9 @@ use std::io;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use iec104::asdu::{AddressSizes, Cause, Coi, Cp56Time2a, LayoutError, Point, Quality, Value};
+use iec104::asdu::{
+    AddressSizes, AsduError, Cause, Coi, Cp56Time2a, LayoutError, MAX_IOA, Point, Quality, Value,
+};
 use iec104::ci::{self, CounterMode};
 use iec104::ct::{Command, CommandMode, CommandSet, Family, Termination};
 use iec104::gi::ReActivation;
@@ -516,9 +518,36 @@ impl Server {
     ///
     /// # Errors
     ///
-    /// [`ServerError::Driver`] when the redundancy group cannot be built
-    /// from the configuration (no member, say).
+    /// [`ServerError::Layout`] when the common address, or a point's or a
+    /// command's address, does not fit [`ServerConfig::sizes`], and
+    /// [`ServerError::Driver`] when the redundancy group cannot be built from
+    /// the configuration (no member, say).
     pub fn spawn<A: Application>(config: ServerConfig, app: A) -> Result<Self, ServerError> {
+        // 5-101 cl.7.2.4: every ASDU carries it, so one that does not fit
+        // would leave each answer unencodable.
+        let max = config.sizes.max_common_address();
+        if config.common_address > max {
+            return Err(ServerError::Layout(LayoutError::Asdu(
+                AsduError::CommonAddressOutOfRange {
+                    common_address: config.common_address,
+                    max,
+                },
+            )));
+        }
+        let max = config.sizes.max_ioa();
+        if let Some(&ioa) = config
+            .points
+            .keys()
+            .chain(config.commands.keys())
+            .find(|&&ioa| ioa > max)
+        {
+            let e = if max == MAX_IOA {
+                AsduError::IoaOutOfRange { ioa }
+            } else {
+                AsduError::IoaOutOfRangeForWidth { ioa, max }
+            };
+            return Err(ServerError::Layout(LayoutError::Asdu(e)));
+        }
         let group = RedundancyGroup::new(Role::Controlled, vec![config.link; config.members])
             .map_err(|e| ServerError::Driver(Error::Group(e)))?;
         let options = Options {
