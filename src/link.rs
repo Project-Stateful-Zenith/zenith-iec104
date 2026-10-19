@@ -573,8 +573,9 @@ impl Session {
     /// inactive needs no further step.
     ///
     /// The queue holds at most [`MAX_PENDING_USER_DATA`] ASDUs; beyond that the
-    /// ASDU is refused, never dropped for room. It is cleared with the connection, because the sequence numbers restart at zero
-    /// (clause 5.1); see [`Session::on_connection_lost`].
+    /// ASDU is refused, never dropped for room. It is cleared with the
+    /// connection, because the sequence numbers restart at zero (clause 5.1);
+    /// see [`Session::on_connection_lost`].
     ///
     /// Returns [`QueueError::NotConnected`] when there is no connection (before
     /// the first [`Session::on_connection_established`] or after the

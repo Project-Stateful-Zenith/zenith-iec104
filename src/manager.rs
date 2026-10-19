@@ -477,7 +477,8 @@ pub enum ManagerError {
         error: ParamError,
     },
     /// The connection refused the ASDU: see [`QueueError`]. A terminated station
-    /// cannot carry one, and the manager holds no queue of its own.
+    /// cannot carry one, a full queue takes no more ([`QueueError::Full`]), and
+    /// the manager holds no queue of its own.
     Queue {
         /// The index of the station whose connection refused the data.
         station: usize,
@@ -902,7 +903,8 @@ impl ConnectionManager {
     /// # Errors
     ///
     /// [`ManagerError::StationIndexOutOfRange`] when `index` names no station,
-    /// and [`ManagerError::Queue`] when that station has no connection.
+    /// and [`ManagerError::Queue`] when that station has no connection or its
+    /// queue is full ([`QueueError::Full`]).
     pub fn queue_i_frame(&mut self, index: usize, asdu: &[u8]) -> Result<(), ManagerError> {
         let station = self.station_mut(index)?;
         station

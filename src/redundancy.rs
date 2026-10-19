@@ -952,8 +952,9 @@ impl RedundancyGroup {
     /// [`GroupError::Queue`], and so does the group once it holds
     /// [`MAX_PENDING_USER_DATA`] ASDUs not yet confirmed or decided on (its held
     /// data, every member's queue mirror, unconfirmed frames and
-    /// [`Member::left_behind`]): a STARTDT act or a replay decision may never
-    /// come, so the data is refused rather than piled up or dropped.
+    /// [`Member::left_behind`], a failed connection's data counted once): a
+    /// STARTDT act or a replay decision may never come, so the data is refused
+    /// rather than piled up or dropped.
     ///
     /// For a controlled station this is 10.4's monitor direction (index 124,
     /// printed 123): *"no user data is transmitted from the controlled station
@@ -981,8 +982,13 @@ impl RedundancyGroup {
     ) -> Result<Option<Action>, GroupError> {
         self.member(index)?;
         let in_hand = self.members.iter().fold(self.held.len(), |sum, member| {
-            sum.saturating_add(member.left.len())
-                .saturating_add(member.queued.len())
+            let sum = sum.saturating_add(member.left.len());
+            if member.captured && !member.session.is_connected() {
+                // A failed connection's data is in `left` now; its queue mirror
+                // and unconfirmed frames are stale copies of it.
+                return sum;
+            }
+            sum.saturating_add(member.queued.len())
                 .saturating_add(member.session.outstanding_frames().len())
         });
         if in_hand >= MAX_PENDING_USER_DATA {
@@ -2149,7 +2155,8 @@ pub enum GroupError {
         index: usize,
     },
     /// The connection refused the data: see [`QueueError`]. A terminated member
-    /// cannot carry an ASDU, so the group does not hold it either.
+    /// cannot carry an ASDU, so the group does not hold it either; a full
+    /// connection or group refuses it with [`QueueError::Full`].
     Queue(QueueError),
     /// 10.5's retransmission (index 128, printed 127): the connection the data
     /// came from is still the group's started one, so there is no new connection
