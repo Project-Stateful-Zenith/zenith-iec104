@@ -624,6 +624,35 @@ fn a_parameter_reports_its_own_type_family_and_qualifier() {
 // ------------------------------------------------------------ the two roles
 
 #[test]
+fn a_load_with_a_qpm_the_builder_refuses_is_confirmed_negatively() {
+    // 5-101 cl.7.2.6.24: KPA <0> "not used" and <5..31> reserved, LPC (0x40)
+    // and POP (0x80) "set to zero". `load` refuses each, so `on_request` must
+    // not accept one either: the request mirrored with cause 7 and P/N = 1.
+    let (_, controlled) = roles();
+    for qpm_byte in [0x00, 0x05, 0x1F, 0x41, 0x81] {
+        let request = vec![
+            0x6E, 0x01, 0x06, 0x07, 0x0C, 0x00, 0x01, 0x40, 0x00, 0x00, 0x20, qpm_byte,
+        ];
+        let outcome = controlled.on_request(&request, &Known::EVERYTHING).unwrap();
+        assert_eq!(
+            outcome.reaction,
+            Reaction::Refused {
+                ioa: IOA,
+                cause: Cause::ActivationCon,
+            },
+            "QPM {qpm_byte:#04x}"
+        );
+        assert_eq!(
+            outcome.send,
+            vec![vec![
+                0x6E, 0x01, 0x47, 0x07, 0x0C, 0x00, 0x01, 0x40, 0x00, 0x00, 0x20, qpm_byte,
+            ]],
+            "QPM {qpm_byte:#04x}"
+        );
+    }
+}
+
+#[test]
 fn the_load_exchange_accepts_with_the_new_value() {
     let (controlling, controlled) = roles();
     let new = normalized(0x2000);
