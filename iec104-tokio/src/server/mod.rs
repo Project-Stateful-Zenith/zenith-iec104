@@ -355,7 +355,8 @@ pub struct ServerConfig {
     /// it, a received ASDU is dropped unanswered and counted
     /// ([`Server::dropped`]); the controlling station's own timeout covers
     /// it. What is owed for an ASDU already taken, such as the termination
-    /// of a confirmed command, is never dropped. Default
+    /// of a confirmed command, is never dropped. `0` is not "no limit": it
+    /// drops every received ASDU, so the station answers nothing. Default
     /// [`DEFAULT_REQUEST_BUFFER`], 1000.
     pub request_buffer: usize,
     /// Report every APDU in the driver's events ([`Options::trace`]).
