@@ -96,12 +96,12 @@ impl Cp56Time2a {
     /// Milliseconds since 2000-01-01 00:00:00.000 of the same clock, for
     /// comparing two time tags. `years` is read as 2000 to 2099 and the `SU`,
     /// `IV` and `GEN` flags are ignored, so both tags must come from clocks
-    /// that agree on the time zone. `None` for a month outside `1..=12`.
+    /// that agree on the time zone. `None` for any field outside its clause
+    /// 7.2.6.18 range (as [`Cp56Time2a::to_unix`] checks it), never a field
+    /// carried into the next one.
     #[must_use]
     pub fn millis_since_2000(&self) -> Option<i64> {
-        if !(1..=12).contains(&self.months) {
-            return None;
-        }
+        self.check_ranges().ok()?;
         // Days from civil (proleptic Gregorian), March-based year. Every
         // input is a u8 or u16, so no step below overflows an i64.
         let m = i64::from(self.months);
@@ -238,6 +238,24 @@ impl Cp56Time2a {
     ///
     /// [`TimeRangeError::Field`] for the first field outside its range.
     pub fn to_unix(&self) -> Result<Duration, TimeRangeError> {
+        self.check_ranges()?;
+        // `None` only for a field out of range, which was checked above.
+        let since_2000 = self
+            .millis_since_2000()
+            .ok_or_else(|| TimeRangeError::Field {
+                field: TimeField::Months,
+                value: self.months.into(),
+            })?;
+        // The checked fields make both terms non-negative and their sum small.
+        Ok(Duration::from_millis(
+            UNIX_MILLIS_2000.wrapping_add(since_2000).cast_unsigned(),
+        ))
+    }
+
+    /// Clause 7.2.6.18's ranges of the fields that name the instant:
+    /// `milliseconds` `0..59999`, `minutes` `0..59`, `hours` `0..23`, `months`
+    /// `1..12`, `years` `0..99`, day of month `1` to the month's last day.
+    fn check_ranges(&self) -> Result<(), TimeRangeError> {
         let check = |field, value: u16, range: std::ops::RangeInclusive<u16>| {
             if range.contains(&value) {
                 Ok(())
@@ -255,18 +273,7 @@ impl Cp56Time2a {
             TimeField::DayOfMonth,
             self.day_of_month.into(),
             1..=low_u16(last_day),
-        )?;
-        // `None` only for a month outside 1..=12, which was checked above.
-        let since_2000 = self
-            .millis_since_2000()
-            .ok_or_else(|| TimeRangeError::Field {
-                field: TimeField::Months,
-                value: self.months.into(),
-            })?;
-        // The checked fields make both terms non-negative and their sum small.
-        Ok(Duration::from_millis(
-            UNIX_MILLIS_2000.wrapping_add(since_2000).cast_unsigned(),
-        ))
+        )
     }
 
     /// [`Cp56Time2a::to_unix`] as a `SystemTime`.

@@ -2219,8 +2219,9 @@ impl CommandTransmission {
 
     /// Whether `command` is past the maximum command delay at the wall-clock
     /// time [`on_request_at`](Self::on_request_at) was given. A tag from the
-    /// future by more than the same margin, or a time that cannot be converted,
-    /// is treated the same way: it cannot be the command's initiation time.
+    /// future by more than the same margin, a tag with `IV` set, or a time with
+    /// a field outside its clause 7.2.6.18 range (on either side) is treated the
+    /// same way: it cannot be the command's initiation time.
     ///
     /// Both times are compared as standard time
     /// ([`Cp56Time2a::standard_millis_since_2000`]), so the `SU` bit of the tag
@@ -2233,6 +2234,10 @@ impl CommandTransmission {
         else {
             return false;
         };
+        // Clause 7.2.6.18: IV = 1 is an invalid time, not the initiation time.
+        if tag.invalid {
+            return true;
+        }
         let (Some(tag), Some(now)) = (
             tag.standard_millis_since_2000(),
             now.standard_millis_since_2000(),
