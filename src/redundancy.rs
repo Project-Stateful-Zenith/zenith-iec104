@@ -435,7 +435,9 @@
 //!   connection and the next naming, the group itself holds the user data it
 //!   is handed ([`RedundancyGroup::held_user_data`]) and queues it on the next
 //!   connection named; data still waiting on another stopped connection when
-//!   the naming moves joins it.
+//!   the naming moves joins it. While a failed connection's data waits for the
+//!   application's replay decision, the held data waits behind it, so the
+//!   replay goes out first (10.6).
 //!
 //! # What stays the caller's
 //!
@@ -941,8 +943,10 @@ impl RedundancyGroup {
     ///   connection (clause 5.1) and 10.5 requires *"that data are not lost
     ///   during a connection switchover"*;
     /// - in the group ([`RedundancyGroup::held_user_data`]), when the started
-    ///   connection failed and no other has been named yet. The data goes into
-    ///   the queue of the next connection named.
+    ///   connection failed and no other has been named yet, or the group
+    ///   already holds data. The data goes into the queue of the next
+    ///   connection named, once no failed connection's data waits for the
+    ///   replay decision.
     ///
     /// A terminated connection that is still named refuses with
     /// [`GroupError::Queue`].
@@ -972,9 +976,11 @@ impl RedundancyGroup {
         asdu: &[u8],
     ) -> Result<Option<Action>, GroupError> {
         self.member(index)?;
-        if self.started.is_none() && self.switching {
+        if (self.started.is_none() && self.switching) || !self.held.is_empty() {
             // Between a failure and the next Start there is no connection to
-            // carry it; the group holds it for the next one named.
+            // carry it; the group holds it for the next one named. Data the
+            // group already holds (waiting for the replay decision) goes
+            // first, so new data queues behind it.
             self.held.push(asdu.to_vec());
             return Ok(None);
         }
@@ -1076,19 +1082,36 @@ impl RedundancyGroup {
         self.switching = false;
         if let Some(member) = self.members.get_mut(index) {
             member.reestablish();
-            // The data held while no connection was started goes into the new
-            // one's clause 5.3 queue, which sends it once data transfer is on.
-            // A connection that cannot take it leaves it held.
-            let mut kept = Vec::new();
-            for asdu in std::mem::take(&mut self.held) {
-                if member.session.queue_i_frame(&asdu).is_ok() {
-                    member.note_queued(&asdu);
-                } else {
-                    kept.push(asdu);
-                }
-            }
-            self.held = kept;
         }
+        self.release_held();
+    }
+
+    /// Moves the group's held data into the started connection's clause 5.3
+    /// queue, which sends it once data transfer is on. A connection that
+    /// cannot take it leaves it held.
+    ///
+    /// Not while any member still has data left behind that the application
+    /// has not decided on: that data is older than what the group holds, and
+    /// 10.6's *"any unconfirmed user data will be retransmitted on the new
+    /// started connection"* puts it on the wire first. The decision
+    /// ([`RedundancyGroup::retransmit_unconfirmed`]) releases the held data
+    /// behind it.
+    fn release_held(&mut self) {
+        if self.members.iter().any(|member| !member.left.is_empty()) {
+            return;
+        }
+        let Some(member) = self.started.and_then(|index| self.members.get_mut(index)) else {
+            return;
+        };
+        let mut kept = Vec::new();
+        for asdu in std::mem::take(&mut self.held) {
+            if member.session.queue_i_frame(&asdu).is_ok() {
+                member.note_queued(&asdu);
+            } else {
+                kept.push(asdu);
+            }
+        }
+        self.held = kept;
     }
 
     /// Moves the queued data of every other established, stopped connection
@@ -1122,7 +1145,10 @@ impl RedundancyGroup {
         self.held.splice(0..0, moved);
     }
 
-    /// User data held by the group because no connection is started.
+    /// User data held by the group because no connection is started, or
+    /// because what a failed connection left behind, which is older, still
+    /// waits for [`RedundancyGroup::retransmit_unconfirmed`]'s `Retransmit` or
+    /// `Discard`.
     #[must_use]
     pub fn held_user_data(&self) -> &[Vec<u8>] {
         &self.held
@@ -1466,6 +1492,12 @@ impl RedundancyGroup {
     /// the wire yet waits in *its* clause 5.3 queue (counted in
     /// [`ReplayOutcome::Retransmitted`]'s `queued`).
     ///
+    /// The user data the group held meanwhile ([`RedundancyGroup::held_user_data`])
+    /// is newer, so it waits for this decision: once no member has anything
+    /// left behind, `Retransmit` sends it behind the replay (in the same
+    /// actions) and `Discard` queues it on the started connection. `Leave`
+    /// decides nothing and keeps it held.
+    ///
     /// **Once.** `Retransmit` and `Discard` empty what was held and record the
     /// decision ([`Member::replayed`]); a further call with nothing new held is
     /// [`GroupError::AlreadyRetransmitted`], so a caller that retries cannot
@@ -1522,6 +1554,9 @@ impl RedundancyGroup {
             }),
             Replay::Discard => {
                 self.member_mut(failed)?.mark_replayed();
+                // Queued on the started connection; it goes out with that
+                // session's next flush (clause 5.3).
+                self.release_held();
                 Ok(ReplayOutcome::Discarded {
                     discarded: held.len(),
                 })
@@ -1535,13 +1570,28 @@ impl RedundancyGroup {
                 let index = self.started()?;
                 let mut actions = Vec::new();
                 let mut queued = 0_usize;
+                // What the group holds is newer than the replay: set aside so
+                // the replay does not queue behind it, and released after it
+                // (10.6).
+                let newer = std::mem::take(&mut self.held);
                 for asdu in &held {
-                    match self.send_user_data(index, asdu)? {
-                        Some(action) => actions.push(action),
-                        None => queued = queued.saturating_add(1),
+                    match self.send_user_data(index, asdu) {
+                        Ok(Some(action)) => actions.push(action),
+                        Ok(None) => queued = queued.saturating_add(1),
+                        Err(error) => {
+                            self.held = newer;
+                            return Err(error);
+                        }
                     }
                 }
+                self.held = newer;
                 self.member_mut(failed)?.mark_replayed();
+                self.release_held();
+                let member = self.member_mut(index)?;
+                let flushed = member.session.flush_pending();
+                member.note_wire(&flushed);
+                self.record(index, &flushed);
+                actions.extend(flushed);
                 Ok(ReplayOutcome::Retransmitted { actions, queued })
             }
         }

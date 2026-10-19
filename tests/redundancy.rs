@@ -4132,3 +4132,50 @@ fn a_parse_error_on_the_started_connection_closes_it_through_the_group() {
         "captured at the close, before the loss is reported"
     );
 }
+
+/// 10.6, verbatim (index 132): *"any unconfirmed user data will be
+/// retransmitted on the new started connection after a connection switchover
+/// has been performed"*. What the failed connection left unconfirmed is older
+/// than the data the group held while no connection was started, so on the new
+/// connection the replay goes first and the held data behind it.
+#[test]
+fn clause_10_6_the_replay_goes_out_before_the_held_data() {
+    let a1 = station_interrogation();
+    let mut d2 = station_interrogation();
+    d2[9] = 0x15;
+
+    let mut group = controlling_group(2, 0);
+    start_member(&mut group, 0);
+    group
+        .send_user_data(0, &a1)
+        .expect("the started connection")
+        .expect("an I-frame");
+    let outcome = group.on_timeout(0, Timer::T1).expect("member 0");
+    assert_eq!(
+        outcome.switchover,
+        Some(Switchover::NoStoppedConnection {
+            failed: 0,
+            unconfirmed: 1,
+        })
+    );
+    assert_eq!(group.send_user_data(0, &d2), Ok(None), "held by the group");
+
+    group
+        .member_mut(1)
+        .expect("a member")
+        .session_mut()
+        .on_connection_established();
+    let now = Instant::now();
+    let mut wire = Vec::new();
+    for routed in group.start_at(1, now).expect("member 1 is stopped") {
+        wire.extend(sent_i(&routed.actions));
+    }
+    let (_, routed) = group
+        .retransmit_unconfirmed_at(0, Replay::Retransmit, now)
+        .expect("member 1 is started");
+    for routed in routed {
+        wire.extend(sent_i(&routed.actions));
+    }
+    let asdus: Vec<Vec<u8>> = wire.into_iter().map(|(_, _, asdu)| asdu).collect();
+    assert_eq!(asdus, vec![a1, d2], "the replay first, then the held data");
+}

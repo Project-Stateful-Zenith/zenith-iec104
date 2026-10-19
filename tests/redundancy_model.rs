@@ -547,7 +547,9 @@ impl Model {
             self.switch_over_to(target);
         }
         self.settling = true;
-        for _ in 0..64 {
+        // Data held behind an undecided replay (10.6) reaches the target as
+        // one backlog, which a k of 1 drains slowly between t1s.
+        for _ in 0..128 {
             self.step += 1;
             if !self.peers[target].up {
                 self.peers[target].up = true;
