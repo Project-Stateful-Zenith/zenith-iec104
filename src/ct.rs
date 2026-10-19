@@ -1880,6 +1880,14 @@ pub enum CtError {
         /// The information object address.
         ioa: u32,
     },
+    /// An execute whose command is not the message the confirmed select
+    /// carried. TS 60870-5-604 Table 19: *"If the EXECUTE message from the
+    /// Controlling does not contain exactly the same information as the SELECT
+    /// message"*, the controlled station refuses it; the select stays in place.
+    ExecuteMismatch {
+        /// The information object address.
+        ioa: u32,
+    },
     /// A deactivation of an information object address that has no confirmed
     /// select outstanding.
     DeactivationWithoutSelect {
@@ -2404,8 +2412,9 @@ impl CommandTransmission {
     ///
     /// [`CtError::WrongRole`] on the controlled role, [`CtError::WrongCommandSet`]
     /// for a command of the other set, [`CtError::NotACommandState`],
-    /// [`CtError::ExecuteWithoutSelect`], and [`CtError::Layout`] when the
-    /// frame cannot be encoded.
+    /// [`CtError::ExecuteWithoutSelect`], [`CtError::ExecuteMismatch`] when
+    /// `command` is not the confirmed select's element (the select is kept), and
+    /// [`CtError::Layout`] when the frame cannot be encoded.
     pub fn execute(&mut self, command: &Command) -> Result<Vec<u8>, CtError> {
         if self.role != Role::Controlling {
             return Err(CtError::WrongRole);
@@ -2420,6 +2429,13 @@ impl CommandTransmission {
                 .iter()
                 .position(|selected| selected.ioa == command.ioa)
                 .ok_or(CtError::ExecuteWithoutSelect { ioa: command.ioa })?;
+            if !self
+                .selected
+                .get(index)
+                .is_some_and(|selected| selected.state_eq(command))
+            {
+                return Err(CtError::ExecuteMismatch { ioa: command.ioa });
+            }
             self.selected.remove(index);
         } else {
             self.selected.retain(|selected| selected.ioa != command.ioa);
