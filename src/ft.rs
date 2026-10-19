@@ -72,7 +72,9 @@
 //! direction's frame ([`FtError::NotSelectedDirection`]), and one that has
 //! selected neither refuses the function ([`FtError::FunctionNotUsed`]). An
 //! arriving frame of a direction the station does not serve gets the same
-//! typed refusal.
+//! typed refusal on a controlling station; a controlled station answers it with
+//! the class-44 mirror instead (5-101 clause 7.2.3), as [`crate::ts`] and
+//! [`crate::rd`] do for a function they do not use.
 //!
 //! 5-101 clause **7.4.11** *"Selections from file transfer"* (index 130,
 //! printed page 129) is, verbatim in full: *"Options of IEC 60870-5-5, 6.12:
@@ -899,9 +901,12 @@ impl FileTransferProcedure {
     ///    (cl.7.2.3; TS 60870-5-604 §5.1: *"only a controlled station is allowed
     ///    to send these COT"*).
     /// 4. **Otherwise** the frame is decoded with [`decode_frame`]'s checks, so
-    ///    a short prefix of any length is a typed error. A station that marks
-    ///    neither box gets [`FtError::FunctionNotUsed`], one that does not serve
-    ///    the frame's direction [`FtError::NotSelectedDirection`]. A frame of
+    ///    a short prefix of any length is a typed error. A frame of a direction
+    ///    the station does not serve is refused: a **controlled** station sends
+    ///    the class-44 mirror ([`Reaction::Refused`], cl.7.2.3), so the peer is
+    ///    not left waiting; a controlling station, which sends no COT 44-47,
+    ///    gets [`FtError::FunctionNotUsed`] when it marks neither box and
+    ///    [`FtError::NotSelectedDirection`] otherwise. A frame of
     ///    the requesting/receiving side is then [`Reaction::Requested`], one of
     ///    the providing side [`Reaction::Answered`], and [`Outcome::send`] is
     ///    empty: which frame answers which is the caller's session.
@@ -909,8 +914,8 @@ impl FileTransferProcedure {
     /// # Errors
     ///
     /// Returns [`FtError::Layout`] when the header cannot be parsed; for a family frame that is
-    /// neither a mirror nor refused, [`decode_frame`]'s errors, [`FtError::FunctionNotUsed`] or
-    /// [`FtError::NotSelectedDirection`].
+    /// neither a mirror nor refused, [`decode_frame`]'s errors and, on a controlling station,
+    /// [`FtError::FunctionNotUsed`] or [`FtError::NotSelectedDirection`].
     pub fn on_asdu(&self, asdu: &[u8], known: &Known) -> Result<Outcome, FtError> {
         let header = Header::parse_with(asdu, self.sizes)?;
         if !is_file_type(header.type_id) {
@@ -979,10 +984,22 @@ impl FileTransferProcedure {
         }
         let frame = decode_frame_with(asdu, self.sizes)?;
         let direction = direction_of(other(self.role), &frame);
-        if !self.selection.uses_function() {
-            return Err(FtError::FunctionNotUsed);
-        }
         if !self.selection.uses(direction) {
+            if control_direction {
+                // A file transfer this station does not serve is an unknown type
+                // here: mirrored with cause 44 (cl.7.2.3) so the peer is not
+                // left waiting, as `ts` and `rd` refuse an unused function.
+                let which = Unspecified::TypeIdentification;
+                return Ok(Outcome {
+                    reaction: Reaction::Refused {
+                        cause: which.cause(),
+                    },
+                    send: vec![mirror_frame(&header, asdu, which, self.ca, self.sizes)],
+                });
+            }
+            if !self.selection.uses_function() {
+                return Err(FtError::FunctionNotUsed);
+            }
             return Err(FtError::NotSelectedDirection { direction });
         }
         let reaction = if frame.is_receiver_side() {
@@ -1006,8 +1023,9 @@ impl FileTransferProcedure {
     /// `CHS` are the peer's to fill in), so only what the request asked for is
     /// compared: always the information object address; the `NOF` when both
     /// frames carry one; and the `NOS` only when the request **names a
-    /// section**, which is `F_SC`'s `SCQ` action `<6>` (`A_CALL_SECTION`) alone.
-    /// A call file is answered by the *first* section ready, and an
+    /// section**, which is `F_SC`'s `SCQ` action `<6>` (`A_CALL_SECTION`) alone;
+    /// and the answer's type, which must be one that answers the request (a
+    /// file ready does not answer a call section). A call file is answered by the *first* section ready, and an
     /// acknowledgement of section *m* by section *m + 1* ready or by the last
     /// section (clause 7.4.11's transfer figures, indices 131–133), so their
     /// section is the peer's to choose.
@@ -1035,12 +1053,15 @@ impl FileTransferProcedure {
 /// and the same `NOS` when the request asked for one section **by name** (see
 /// [`requested_section`]).
 ///
+/// The answer must also be of the type that answers the request (see
+/// [`answers_type`]).
+///
 /// `F_DR` (figure 89) has no single `NOF` or `NOS`, since its element carries
 /// one per file, so a directory is compared by address alone, which is what a
-/// call directory or a `QueryLog` asks about. `F_FR` has a `NOF` and no `NOS`, so
-/// a select file is checked down to the file's name.
+/// call directory asks about. `F_FR` has a `NOF` and no `NOS`, so a select
+/// file or a `QueryLog` is checked down to the file's name.
 fn answers(sent: &Frame, answered: &Frame) -> bool {
-    if sent.ioa() != answered.ioa() {
+    if sent.ioa() != answered.ioa() || !answers_type(sent, answered) {
         return false;
     }
     if let (Some(sent_nof), Some(answered_nof)) = (nof_of(sent), nof_of(answered))
@@ -1055,6 +1076,47 @@ fn answers(sent: &Frame, answered: &Frame) -> bool {
         return false;
     }
     true
+}
+
+/// Whether `answered` is of a type that answers `sent`, in the order of
+/// 5-104 clause 7.11's table (the module's first section) and 5-101 clause
+/// 7.4.11's transfer figures (indices 131–133): call directory → `F_DR`;
+/// select file → `F_FR`; call file and select section → `F_SR`; call section
+/// → its segments (`F_SG`) and its last segment (`F_LS`); a positive section
+/// acknowledgement → the next section ready (`F_SR`) or the last section
+/// (`F_LS`), a negative one → the same section again (`F_SG`, `F_LS`, 604
+/// `5.4.23.1`); and 104 clause 8.9's `QueryLog` → the file ready (`F_FR`).
+///
+/// The rest (deactivate or delete file, deactivate section, acknowledge file)
+/// close a step rather than ask for a frame, so no type is demanded of them.
+const fn answers_type(sent: &Frame, answered: &Frame) -> bool {
+    match sent {
+        Frame::Sc { scq, .. } => match scq.action {
+            SCQ_CALL_DIRECTORY => matches!(answered, Frame::Directory { .. }),
+            Scq::SELECT_FILE => matches!(answered, Frame::FileReady { .. }),
+            Scq::REQUEST_FILE | Scq::SELECT_SECTION => {
+                matches!(answered, Frame::SectionReady { .. })
+            }
+            Scq::REQUEST_SECTION => {
+                matches!(answered, Frame::Segment { .. } | Frame::LastSection { .. })
+            }
+            _ => true,
+        },
+        Frame::Ack { afq, .. } => match afq.action {
+            Afq::SECTION_POSITIVE => {
+                matches!(
+                    answered,
+                    Frame::SectionReady { .. } | Frame::LastSection { .. }
+                )
+            }
+            Afq::SECTION_NEGATIVE => {
+                matches!(answered, Frame::Segment { .. } | Frame::LastSection { .. })
+            }
+            _ => true,
+        },
+        Frame::QueryLog { .. } => matches!(answered, Frame::FileReady { .. }),
+        _ => true,
+    }
 }
 
 /// The `NOS` a request names, when it names one: only `F_SC_NA_1`'s `SCQ`
