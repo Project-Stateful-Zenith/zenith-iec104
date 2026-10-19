@@ -293,6 +293,12 @@ pub enum ReActivation {
     Restart,
     /// Option 3: the running interrogation continues; the second is positively
     /// confirmed and its data follows the first's termination.
+    ///
+    /// Each scope waits at most once: an activation of a scope that is already
+    /// queued is answered as option 1 answers, with a negative confirmation,
+    /// so the queue is bounded by the number of scopes. One of the same scope
+    /// as the running interrogation is still queued once, since TS 60870-5-604
+    /// 5.4.17.40 tests option 3 with the same scope.
     Queue,
 }
 
@@ -1104,11 +1110,12 @@ impl Interrogation {
                 // Nothing of this scope to stop: a negative confirmation that
                 // changes no state, as for an activation that is not ready.
                 let negative = !current && !queued;
-                self.queued.retain(|s| *s != scope);
-                if !negative {
-                    self.origins.retain(|(s, _)| *s != scope);
-                }
                 if current {
+                    // Only the running procedure stops: a queued one of the
+                    // same scope was confirmed already and is still owed.
+                    if let Some(at) = self.origins.iter().position(|(s, _)| *s == scope) {
+                        self.origins.remove(at);
+                    }
                     self.running.clear();
                     self.awaiting_data = false;
                     // Option 3's queued interrogation was confirmed already;
@@ -1117,6 +1124,9 @@ impl Interrogation {
                         self.running.push(self.queued.remove(0));
                         self.awaiting_data = true;
                     }
+                } else if queued {
+                    self.queued.retain(|s| *s != scope);
+                    self.origins.retain(|(s, _)| *s != scope);
                 }
                 Ok(Outcome {
                     reaction: Reaction::DeactivationConfirmed { scope, negative },
@@ -1164,6 +1174,11 @@ impl Interrogation {
                         },
                         send: vec![stopped, confirmed],
                     })
+                }
+                // Already waiting: a second copy would repeat its data and
+                // termination, so it is refused as option 1 refuses.
+                ReActivation::Queue if self.queued.contains(&scope) => {
+                    self.confirmation_outcome(scope, true, header.originator)
                 }
                 ReActivation::Queue => {
                     // "mirrors the second Interrogation Command with
