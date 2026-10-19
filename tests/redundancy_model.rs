@@ -268,13 +268,14 @@ impl Model {
                     }
                     self.perform(routed);
                 }
-                Ok((ReplayOutcome::Discarded { discarded }, _)) => {
+                Ok((ReplayOutcome::Discarded { discarded, .. }, routed)) => {
                     if discarded != held.len() {
                         self.fail("discard count");
                     }
                     self.stats.discards += 1;
                     self.open.retain(|id| !held.contains(id));
                     self.discarded.extend(held);
+                    self.perform(routed);
                 }
                 Ok((ReplayOutcome::Left { unconfirmed }, _)) => {
                     if unconfirmed != held.len() {
@@ -548,8 +549,9 @@ impl Model {
         }
         self.settling = true;
         // Data held behind an undecided replay (10.6) reaches the target as
-        // one backlog, which a k of 1 drains slowly between t1s.
-        for _ in 0..128 {
+        // one backlog, which a k of 1 drains slowly between t1s: a round per
+        // open ASDU, and a margin.
+        for _ in 0..self.open.len() + 64 {
             self.step += 1;
             if !self.peers[target].up {
                 self.peers[target].up = true;

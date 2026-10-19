@@ -3945,7 +3945,10 @@ fn clause_10_5_discarded_data_is_not_counted_or_replayed_later() {
     group.on_connection_lost(0).unwrap();
     assert_eq!(
         group.retransmit_unconfirmed(0, Replay::Discard),
-        Ok(ReplayOutcome::Discarded { discarded: 1 })
+        Ok(ReplayOutcome::Discarded {
+            discarded: 1,
+            actions: Vec::new(),
+        })
     );
 
     // The next connection's frame is confirmed, and that connection fails too.
@@ -4054,7 +4057,10 @@ fn a_decision_on_a_hand_closed_session_covers_its_queue() {
     );
     assert_eq!(
         group.retransmit_unconfirmed(0, Replay::Discard),
-        Ok(ReplayOutcome::Discarded { discarded: 2 })
+        Ok(ReplayOutcome::Discarded {
+            discarded: 2,
+            actions: Vec::new(),
+        })
     );
     group.on_connection_lost(0).unwrap();
     assert_eq!(
@@ -4178,4 +4184,70 @@ fn clause_10_6_the_replay_goes_out_before_the_held_data() {
     }
     let asdus: Vec<Vec<u8>> = wire.into_iter().map(|(_, _, asdu)| asdu).collect();
     assert_eq!(asdus, vec![a1, d2], "the replay first, then the held data");
+}
+
+/// 10.5: *"Care shall be taken that data are not lost during a connection
+/// switchover"*, and 10.6 keeps it in order. `Discard` releases the data the
+/// group held onto the started connection, which already runs (clause 5.3:
+/// STARTDT con received), so it goes out with the decision and not at a later
+/// acknowledgement, and data sent after it queues behind it.
+#[test]
+fn clause_10_5_discard_sends_the_held_data_before_newer_data() {
+    let a1 = station_interrogation();
+    let mut d2 = station_interrogation();
+    d2[9] = 0x15;
+    let mut d3 = station_interrogation();
+    d3[9] = 0x16;
+
+    let mut group = controlling_group(2, 0);
+    start_member(&mut group, 0);
+    group
+        .send_user_data(0, &a1)
+        .expect("the started connection")
+        .expect("an I-frame");
+    let outcome = group.on_timeout(0, Timer::T1).expect("member 0");
+    assert_eq!(
+        outcome.switchover,
+        Some(Switchover::NoStoppedConnection {
+            failed: 0,
+            unconfirmed: 1,
+        })
+    );
+    assert_eq!(group.send_user_data(0, &d2), Ok(None), "held by the group");
+
+    group
+        .member_mut(1)
+        .expect("a member")
+        .session_mut()
+        .on_connection_established();
+    let now = Instant::now();
+    let mut wire = Vec::new();
+    for routed in group.start_at(1, now).expect("member 1 is stopped") {
+        wire.extend(sent_i(&routed.actions));
+    }
+    for routed in group
+        .on_frame_at(1, Apci::U(UFunction::StartDtCon), now)
+        .expect("member 1")
+    {
+        wire.extend(sent_i(&routed.actions));
+    }
+    let (outcome, routed) = group
+        .retransmit_unconfirmed_at(0, Replay::Discard, now)
+        .expect("member 0 failed");
+    for routed in routed {
+        wire.extend(sent_i(&routed.actions));
+    }
+    assert!(
+        matches!(outcome, ReplayOutcome::Discarded { discarded: 1, ref actions } if actions.len() == 1),
+        "the released data is returned"
+    );
+    for routed in group.send_user_data_at(1, &d3, now).expect("member 1") {
+        wire.extend(sent_i(&routed.actions));
+    }
+    let asdus: Vec<Vec<u8>> = wire.into_iter().map(|(_, _, asdu)| asdu).collect();
+    assert_eq!(
+        asdus,
+        vec![d2, d3],
+        "the held data first, then the newer data"
+    );
 }

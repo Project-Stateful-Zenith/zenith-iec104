@@ -986,7 +986,14 @@ impl RedundancyGroup {
         }
         let index = self.route(index)?;
         let member = self.member_mut(index)?;
-        if let Some(action) = member.session.send_i_frame(asdu) {
+        // Clause 5.3's queue is older than this ASDU: while it holds anything
+        // the ASDU queues behind it, so nothing overtakes it (10.6's order).
+        let sent = if member.session.pending_user_data() > 0 {
+            None
+        } else {
+            member.session.send_i_frame(asdu)
+        };
+        if let Some(action) = sent {
             self.log.push((index, vec![action.clone()]));
             Ok(Some(action))
         } else {
@@ -1149,6 +1156,10 @@ impl RedundancyGroup {
     /// because what a failed connection left behind, which is older, still
     /// waits for [`RedundancyGroup::retransmit_unconfirmed`]'s `Retransmit` or
     /// `Discard`.
+    ///
+    /// That decision is required for user data to flow again: while a failure
+    /// is undecided, every later [`RedundancyGroup::send_user_data`] is held
+    /// here too ([`Replay::Leave`] decides nothing).
     #[must_use]
     pub fn held_user_data(&self) -> &[Vec<u8>] {
         &self.held
@@ -1495,8 +1506,15 @@ impl RedundancyGroup {
     /// The user data the group held meanwhile ([`RedundancyGroup::held_user_data`])
     /// is newer, so it waits for this decision: once no member has anything
     /// left behind, `Retransmit` sends it behind the replay (in the same
-    /// actions) and `Discard` queues it on the started connection. `Leave`
-    /// decides nothing and keeps it held.
+    /// actions) and `Discard` sends it on the started connection (in
+    /// [`ReplayOutcome::Discarded`]'s actions); what that connection cannot put
+    /// on the wire yet waits in its clause 5.3 queue, and later user data
+    /// queues behind it. `Leave` decides nothing and keeps it held.
+    ///
+    /// **The decision is required.** After a failure that left data behind,
+    /// the group holds *all* later user data until this call returns
+    /// `Retransmitted` or `Discarded`; a caller that never decides, or only
+    /// ever answers `Leave`, sends no user data again.
     ///
     /// **Once.** `Retransmit` and `Discard` empty what was held and record the
     /// decision ([`Member::replayed`]); a further call with nothing new held is
@@ -1554,11 +1572,20 @@ impl RedundancyGroup {
             }),
             Replay::Discard => {
                 self.member_mut(failed)?.mark_replayed();
-                // Queued on the started connection; it goes out with that
-                // session's next flush (clause 5.3).
                 self.release_held();
+                // The started connection may already carry user data (clause
+                // 5.3); the released data goes out now, as after `Retransmit`,
+                // not at that connection's next acknowledgement.
+                let mut actions = Vec::new();
+                if let Some(index) = self.started {
+                    let member = self.member_mut(index)?;
+                    actions = member.session.flush_pending();
+                    member.note_wire(&actions);
+                    self.record(index, &actions);
+                }
                 Ok(ReplayOutcome::Discarded {
                     discarded: held.len(),
+                    actions,
                 })
             }
             Replay::Retransmit => {
@@ -2036,6 +2063,10 @@ pub enum ReplayOutcome {
     Discarded {
         /// How many there were.
         discarded: usize,
+        /// The frames to put on the wire: the data the group held meanwhile,
+        /// released onto the started connection
+        /// ([`RedundancyGroup::held_user_data`]).
+        actions: Vec<Action>,
     },
     /// The held ASDUs went out on the group's started connection, oldest first,
     /// re-stamped with that connection's own `N(S)`.
