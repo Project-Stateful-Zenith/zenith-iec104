@@ -128,7 +128,7 @@ pub(super) async fn run<A: Application>(
             addressing,
             frozen: Vec::new(),
         },
-        queue: Queue::new(sizes, config.event_buffer),
+        queue: Queue::new(sizes, config.event_buffer, config.request_buffer),
         gi: Interrogation::controlled(config.reactivation, ca, 0).with_address_sizes(sizes),
         ci: CounterInterrogation::controlled(config.counter_mode, ca, 0).with_address_sizes(sizes),
         cs: ClockSynchronisation::controlled(ca, 0).with_address_sizes(sizes),
@@ -300,6 +300,11 @@ impl<A: Application> Task<A> {
         let Ok(header) = Header::parse_with(asdu, self.sizes) else {
             return;
         };
+        // Dropped before any procedure sees it, so nothing is owed for it:
+        // the controlling station's own timeout covers the missing answer.
+        if self.queue.refuses_request() {
+            return;
+        }
         let own = header.common_address == self.common_address
             || header.common_address == self.sizes.broadcast_common_address();
         let known = Known::standard(&header, own, true);

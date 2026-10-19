@@ -172,6 +172,9 @@ pub const DEFAULT_SELECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// The default size of the event buffer: 1000 events.
 pub const DEFAULT_EVENT_BUFFER: usize = 1000;
 
+/// The default size of the request buffer: 1000 entries.
+pub const DEFAULT_REQUEST_BUFFER: usize = 1000;
+
 /// The default clock synchronisation interval: 24 hours. 104 cl.7.6 speaks of
 /// *"agreed time intervals"* and fixes none.
 pub const DEFAULT_SYNC_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
@@ -347,6 +350,14 @@ pub struct ServerConfig {
     /// dropped and counted ([`Server::dropped`]). Default
     /// [`DEFAULT_EVENT_BUFFER`], 1000.
     pub event_buffer: usize,
+    /// How many entries other than events (answers to reads, confirmations,
+    /// mirrors, terminations, interrogations) wait at most. While they fill
+    /// it, a received ASDU is dropped unanswered and counted
+    /// ([`Server::dropped`]); the controlling station's own timeout covers
+    /// it. What is owed for an ASDU already taken, such as the termination
+    /// of a confirmed command, is never dropped. Default
+    /// [`DEFAULT_REQUEST_BUFFER`], 1000.
+    pub request_buffer: usize,
     /// Report every APDU in the driver's events ([`Options::trace`]).
     pub trace: bool,
     points: BTreeMap<u32, PointConfig>,
@@ -377,6 +388,7 @@ impl ServerConfig {
             sync_interval: DEFAULT_SYNC_INTERVAL,
             external_clock: false,
             event_buffer: DEFAULT_EVENT_BUFFER,
+            request_buffer: DEFAULT_REQUEST_BUFFER,
             trace: false,
             points: BTreeMap::new(),
             commands: BTreeMap::new(),
@@ -420,6 +432,7 @@ impl fmt::Debug for ServerConfig {
             .field("sync_interval", &self.sync_interval)
             .field("external_clock", &self.external_clock)
             .field("event_buffer", &self.event_buffer)
+            .field("request_buffer", &self.request_buffer)
             .field("trace", &self.trace)
             .field("points", &self.points)
             .field("commands", &self.commands)
@@ -646,7 +659,8 @@ impl Server {
         self.call(|reply| Request::Point(ioa, reply)).await
     }
 
-    /// How many events were dropped because the event buffer was full.
+    /// How many events and received requests were dropped because the event
+    /// buffer or the request buffer was full.
     ///
     /// # Errors
     ///
