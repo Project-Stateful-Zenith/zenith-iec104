@@ -1273,8 +1273,9 @@ fn the_execute_does_not_match_the_select() {
         .unwrap();
     assert!(controlled.is_selected(0x3000));
 
-    // The same address, the same family, a different state.
-    let mismatch = controlling.execute(&single(0x3000, false, false)).unwrap();
+    // The same address, the same family, a different state, from a peer that
+    // does not check its own execute against its select.
+    let mismatch = activation(&single(0x3000, false, false), CA, ORG).unwrap();
     let outcome = controlled
         .on_request(&mismatch, &Known::EVERYTHING)
         .unwrap();
@@ -1302,6 +1303,34 @@ fn the_execute_does_not_match_the_select() {
 }
 
 #[test]
+fn the_controlling_station_refuses_an_execute_that_is_not_its_select() {
+    // TS 604 Table 19: the EXECUTE must "contain exactly the same information
+    // as the SELECT message". The controlling station does not send one that
+    // does not, and the select survives the refusal.
+    let mut controlled = controlled_sbo();
+    let mut controlling = controlling_sbo();
+    let select = controlling.select(&single(0x3000, true, false)).unwrap();
+    let mirror = controlled.on_request(&select, &Known::EVERYTHING).unwrap();
+    controlling
+        .on_response(&mirror.send[0], &Known::EVERYTHING)
+        .unwrap();
+
+    assert_eq!(
+        controlling
+            .execute(&single(0x3000, false, false))
+            .unwrap_err(),
+        CtError::ExecuteMismatch { ioa: 0x3000 }
+    );
+    assert!(controlling.is_selected(0x3000), "the select is kept");
+    let execute = controlling.execute(&single(0x3000, true, false)).unwrap();
+    assert_eq!(
+        execute[9] & 0x81,
+        0x01,
+        "S/E = 0, SCS = 1: the select's state"
+    );
+}
+
+#[test]
 fn a_set_point_threadhold_value_that_differs_also_fails_the_match() {
     let mut controlled = CommandTransmission::controlled(
         CommandMode::SelectAndExecute,
@@ -1322,9 +1351,7 @@ fn a_set_point_threadhold_value_that_differs_also_fails_the_match() {
     controlling
         .on_response(&mirror.send[0], &Known::EVERYTHING)
         .unwrap();
-    let execute = controlling
-        .execute(&normalized(0x3000, 101, false))
-        .unwrap();
+    let execute = activation(&normalized(0x3000, 101, false), CA, ORG).unwrap();
     let outcome = controlled.on_request(&execute, &Known::EVERYTHING).unwrap();
     assert_eq!(
         outcome.reaction,
@@ -3133,6 +3160,55 @@ fn a_command_past_the_maximum_delay_gets_no_response() {
     assert_eq!(command.time, Some(initiated));
 }
 
+/// A tag with `IV` set, or with a field outside its clause 7.2.6.18 range, is
+/// not the command's initiation time: it is refused as too late even when its
+/// fields read as "now".
+#[test]
+fn a_command_with_an_invalid_or_malformed_tag_is_too_late() {
+    let now = time();
+    let invalid = Cp56Time2a {
+        invalid: true,
+        ..now
+    };
+    // Hour 30 of the day before would roll over to 06:30 of `now`'s day.
+    let hour_30 = Cp56Time2a {
+        hours: 30,
+        day_of_month: now.day_of_month - 1,
+        ..now
+    };
+    let six_thirty = Cp56Time2a { hours: 6, ..now };
+    // April 31 would roll over to May 1.
+    let april_31 = Cp56Time2a {
+        day_of_month: 31,
+        months: 4,
+        ..now
+    };
+    let may_1 = Cp56Time2a {
+        day_of_month: 1,
+        months: 5,
+        ..now
+    };
+    // Each wall clock is the instant its tag would read as, so only the
+    // validity check can refuse it.
+    for (tag, wall) in [(invalid, now), (hour_30, six_thirty), (april_31, may_1)] {
+        let mut station = controlled_tagged();
+        let frame = activation(&tagged_single(0x3000, false, tag), CA, ORG).unwrap();
+        let outcome = station
+            .on_request_at(&frame, &Known::EVERYTHING, Instant::now(), Some(wall))
+            .unwrap();
+        assert_eq!(
+            outcome.reaction,
+            Reaction::TooLate {
+                ioa: 0x3000,
+                time: tag
+            },
+            "{tag:?}"
+        );
+        assert!(outcome.send.is_empty(), "no ACTCON of either sign");
+        assert!(!station.is_running(0x3000));
+    }
+}
+
 /// Within the delay the command is served normally, and without a wall clock
 /// (plain `on_request`) nothing is supervised.
 #[test]
@@ -3183,6 +3259,12 @@ fn the_time_tag_arithmetic_crosses_calendar_boundaries() {
     let mar1 = new_year(24, 3, 1, 0, 0, 0).millis_since_2000().unwrap();
     assert_eq!(mar1 - feb29, 86_400_000);
     assert_eq!(new_year(24, 13, 1, 0, 0, 0).millis_since_2000(), None);
+    // Out-of-range fields are refused, not carried into the next field.
+    assert_eq!(new_year(24, 10, 18, 30, 0, 0).millis_since_2000(), None);
+    assert_eq!(new_year(24, 10, 0, 0, 0, 0).millis_since_2000(), None);
+    assert_eq!(new_year(23, 2, 29, 0, 0, 0).millis_since_2000(), None);
+    assert_eq!(new_year(24, 10, 1, 0, 60, 0).millis_since_2000(), None);
+    assert_eq!(new_year(24, 10, 1, 0, 0, 60_000).millis_since_2000(), None);
 }
 
 /// A deactivation the station supports but with no select to stop is a

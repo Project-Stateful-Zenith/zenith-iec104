@@ -1885,6 +1885,14 @@ pub enum CtError {
         /// The information object address.
         ioa: u32,
     },
+    /// An execute whose command is not the message the confirmed select
+    /// carried. TS 60870-5-604 Table 19: *"If the EXECUTE message from the
+    /// Controlling does not contain exactly the same information as the SELECT
+    /// message"*, the controlled station refuses it; the select stays in place.
+    ExecuteMismatch {
+        /// The information object address.
+        ioa: u32,
+    },
     /// A deactivation of an information object address that has no confirmed
     /// select outstanding.
     DeactivationWithoutSelect {
@@ -2216,8 +2224,9 @@ impl CommandTransmission {
 
     /// Whether `command` is past the maximum command delay at the wall-clock
     /// time [`on_request_at`](Self::on_request_at) was given. A tag from the
-    /// future by more than the same margin, or a time that cannot be converted,
-    /// is treated the same way: it cannot be the command's initiation time.
+    /// future by more than the same margin, a tag with `IV` set, or a time with
+    /// a field outside its clause 7.2.6.18 range (on either side) is treated the
+    /// same way: it cannot be the command's initiation time.
     ///
     /// Both times are compared as standard time
     /// ([`Cp56Time2a::standard_millis_since_2000`]), so the `SU` bit of the tag
@@ -2230,6 +2239,10 @@ impl CommandTransmission {
         else {
             return false;
         };
+        // Clause 7.2.6.18: IV = 1 is an invalid time, not the initiation time.
+        if tag.invalid {
+            return true;
+        }
         let (Some(tag), Some(now)) = (
             tag.standard_millis_since_2000(),
             now.standard_millis_since_2000(),
@@ -2409,8 +2422,9 @@ impl CommandTransmission {
     ///
     /// [`CtError::WrongRole`] on the controlled role, [`CtError::WrongCommandSet`]
     /// for a command of the other set, [`CtError::NotACommandState`],
-    /// [`CtError::ExecuteWithoutSelect`], and [`CtError::Layout`] when the
-    /// frame cannot be encoded.
+    /// [`CtError::ExecuteWithoutSelect`], [`CtError::ExecuteMismatch`] when
+    /// `command` is not the confirmed select's element (the select is kept), and
+    /// [`CtError::Layout`] when the frame cannot be encoded.
     pub fn execute(&mut self, command: &Command) -> Result<Vec<u8>, CtError> {
         if self.role != Role::Controlling {
             return Err(CtError::WrongRole);
@@ -2425,6 +2439,13 @@ impl CommandTransmission {
                 .iter()
                 .position(|selected| selected.ioa == command.ioa)
                 .ok_or(CtError::ExecuteWithoutSelect { ioa: command.ioa })?;
+            if !self
+                .selected
+                .get(index)
+                .is_some_and(|selected| selected.state_eq(command))
+            {
+                return Err(CtError::ExecuteMismatch { ioa: command.ioa });
+            }
             self.selected.remove(index);
         } else {
             self.selected.retain(|selected| selected.ioa != command.ioa);

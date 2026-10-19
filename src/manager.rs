@@ -376,7 +376,7 @@ impl Station {
     /// What t1 supervises for this station right now (the unconfirmed I-frames
     /// and a pending act of ours), and what an event's own acknowledgement
     /// progress is measured against.
-    const fn supervision(&self) -> Supervision {
+    fn supervision(&self) -> Supervision {
         Supervision::of(&self.session)
     }
 
