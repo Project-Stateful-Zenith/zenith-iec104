@@ -603,13 +603,13 @@ impl From<AsduError> for CiError {
 }
 
 /// Builds one type-101 frame: `N = 1`, `SQ = 0`, an information object address
-/// of zero (figure 73) and `P/N` as given. The cause is the caller's here and
-/// the clause's in every public builder.
+/// of zero (figure 73), and the `QCC`, `P/N` and `T` as given. The cause is the caller's here
+/// and the clause's in every public builder.
 fn frame(
     cause: Cause,
     negative: bool,
-    request: Request,
-    freeze: FreezeMode,
+    test: bool,
+    qcc: Qcc,
     common_address: u16,
     originator: u8,
     sizes: AddressSizes,
@@ -620,15 +620,13 @@ fn frame(
         count: 1,
         cause,
         negative,
-        test: false,
+        test,
         originator,
         common_address,
     };
     let object = LayoutObject {
         ioa: IOA_IRRELEVANT,
-        value: CCiNa1 {
-            qcc: request.qcc(freeze),
-        },
+        value: CCiNa1 { qcc },
     };
     encode_asdu_with(&header, &[object], sizes)
 }
@@ -681,8 +679,8 @@ pub fn request_with(
     frame(
         CAUSE_ACTIVATION,
         false,
-        request,
-        freeze,
+        false,
+        request.qcc(freeze),
         common_address,
         originator,
         sizes,
@@ -718,9 +716,10 @@ pub struct CounterInterrogation {
     running: Vec<Request>,
     /// Controlled station: the running collections whose data is still owed.
     owed: Vec<Request>,
-    /// Controlled station: the originator address each running collection's
-    /// activation came with, echoed on its data and termination (cl.7.2.3).
-    origins: Vec<(Request, u8)>,
+    /// Controlled station: the originator address and test bit each running
+    /// collection's activation came with, echoed on its termination, and the
+    /// originator on its data too (cl.7.2.3).
+    origins: Vec<(Request, u8, bool)>,
 }
 
 impl CounterInterrogation {
@@ -851,7 +850,7 @@ impl CounterInterrogation {
         self.pending.retain(|(r, _)| *r != request);
         self.running.retain(|r| *r != request);
         self.owed.retain(|r| *r != request);
-        self.origins.retain(|(r, _)| *r != request);
+        self.origins.retain(|(r, _, _)| *r != request);
         had
     }
 
@@ -1084,11 +1083,11 @@ impl CounterInterrogation {
                             freeze,
                             reason,
                         },
-                        send: vec![self.confirmation(request, freeze, true, header.originator)?],
+                        send: vec![self.confirmation(request, freeze, true, &header)?],
                     });
                 }
                 if !data.ready(request) {
-                    return self.confirmation_outcome(request, freeze, true, header.originator);
+                    return self.confirmation_outcome(request, freeze, true, &header);
                 }
                 if freeze == FreezeMode::Read {
                     if !self.running.contains(&request) {
@@ -1097,10 +1096,10 @@ impl CounterInterrogation {
                     if !self.owed.contains(&request) {
                         self.owed.push(request);
                     }
-                    self.origins.retain(|(r, _)| *r != request);
-                    self.origins.push((request, header.originator));
+                    self.origins.retain(|(r, _, _)| *r != request);
+                    self.origins.push((request, header.originator, header.test));
                 }
-                self.confirmation_outcome(request, freeze, false, header.originator)
+                self.confirmation_outcome(request, freeze, false, &header)
             }
             // Clause 7.4.8: "C_CI DEACT and DEACTCON are not used."
             _ => Ok(other()),
@@ -1125,7 +1124,7 @@ impl CounterInterrogation {
             return Err(CiError::WrongRole);
         }
         let request = self.owed.first().copied().ok_or(CiError::NotRunning)?;
-        let frames = collect(data, request, self.sizes, self.origin(request))?;
+        let frames = collect(data, request, self.sizes, self.origin(request).0)?;
         self.owed.remove(0);
         Ok(frames)
     }
@@ -1155,49 +1154,51 @@ impl CounterInterrogation {
         }
         let request = self.running.first().copied().ok_or(CiError::NotRunning)?;
         let mut frames = if self.owed.contains(&request) {
-            collect(data, request, self.sizes, self.origin(request))?
+            collect(data, request, self.sizes, self.origin(request).0)?
         } else {
             Vec::new()
         };
+        let (originator, test) = self.origin(request);
         frames.push(frame(
             CAUSE_ACTIVATION_TERM,
             false,
-            request,
-            FreezeMode::Read,
+            test,
+            request.qcc(FreezeMode::Read),
             self.ca,
-            self.origin(request),
+            originator,
             self.sizes,
         )?);
         self.running.retain(|r| *r != request);
         self.owed.retain(|r| *r != request);
-        self.origins.retain(|(r, _)| *r != request);
+        self.origins.retain(|(r, _, _)| *r != request);
         Ok(frames)
     }
 
-    /// The originator address `request`'s activation came with, or this
-    /// station's own when none is recorded.
-    fn origin(&self, request: Request) -> u8 {
+    /// The originator address and test bit `request`'s activation came with,
+    /// or this station's own and `T = 0` when none is recorded.
+    fn origin(&self, request: Request) -> (u8, bool) {
         self.origins
             .iter()
-            .find(|(r, _)| *r == request)
-            .map_or(self.org, |(_, org)| *org)
+            .find(|(r, _, _)| *r == request)
+            .map_or((self.org, false), |(_, org, test)| (*org, *test))
     }
 
-    /// The confirmation of `request` with `P/N` as given, echoing `originator`.
+    /// The confirmation of `request` with `P/N` as given, echoing the
+    /// activation's originator address and test bit.
     fn confirmation(
         &self,
         request: Request,
         freeze: FreezeMode,
         negative: bool,
-        originator: u8,
+        activation: &Header,
     ) -> Result<Vec<u8>, CiError> {
         Ok(frame(
             CAUSE_ACTIVATION_CON,
             negative,
-            request,
-            freeze,
+            activation.test,
+            request.qcc(freeze),
             self.ca,
-            originator,
+            activation.originator,
             self.sizes,
         )?)
     }
@@ -1210,7 +1211,7 @@ impl CounterInterrogation {
         request: Request,
         freeze: FreezeMode,
         negative: bool,
-        originator: u8,
+        activation: &Header,
     ) -> Result<Outcome, CiError> {
         Ok(Outcome {
             reaction: Reaction::ActivationConfirmed {
@@ -1218,7 +1219,7 @@ impl CounterInterrogation {
                 freeze,
                 negative,
             },
-            send: vec![self.confirmation(request, freeze, negative, originator)?],
+            send: vec![self.confirmation(request, freeze, negative, activation)?],
         })
     }
 }

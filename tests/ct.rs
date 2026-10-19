@@ -1302,6 +1302,46 @@ fn the_execute_does_not_match_the_select() {
     assert!(!controlled.is_selected(0x3000), "and the select is spent");
 }
 
+/// 5-101 cl.7.2.3: a `T = 1` select tests "without controlling the process",
+/// so a `T = 0` execute does not match it, nor a `T = 1` execute a real
+/// select: either is refused like any other mismatch and spends the select.
+#[test]
+fn the_execute_does_not_match_a_select_with_another_test_bit() {
+    let with_test = |mut frame: Vec<u8>| {
+        frame[2] |= 0x80;
+        frame
+    };
+    for (select_test, execute_test) in [(true, false), (false, true)] {
+        let mut controlled = controlled_sbo();
+        let mut select = activation(&single(0x3000, true, true), CA, ORG).unwrap();
+        if select_test {
+            select = with_test(select);
+        }
+        let mirror = controlled.on_request(&select, &Known::EVERYTHING).unwrap();
+        assert!(
+            !header_of(&mirror.send[0]).negative,
+            "the select is confirmed"
+        );
+
+        let mut execute = activation(&single(0x3000, true, false), CA, ORG).unwrap();
+        if execute_test {
+            execute = with_test(execute);
+        }
+        let outcome = controlled.on_request(&execute, &Known::EVERYTHING).unwrap();
+        assert_eq!(
+            outcome.reaction,
+            Reaction::Confirmed {
+                ioa: 0x3000,
+                select: false,
+                negative: true,
+                test: execute_test
+            }
+        );
+        assert!(!controlled.is_running(0x3000), "nothing runs");
+        assert!(!controlled.is_selected(0x3000), "and the select is spent");
+    }
+}
+
 #[test]
 fn the_controlling_station_refuses_an_execute_that_is_not_its_select() {
     // TS 604 Table 19: the EXECUTE must "contain exactly the same information
@@ -2522,7 +2562,12 @@ fn a_mirror_echoes_the_requests_originator_and_test_bit() {
     assert!(header_of(&outcome.send[0]).test, "T is echoed too");
     assert_eq!(header_of(&outcome.send[0]).originator, 0x2A);
 
-    // The termination echoes what the execute arrived with as well.
+    // The termination echoes what the execute arrived with as well. A
+    // `T = 1` execute matches only a `T = 1` select, so the object is selected
+    // again under test conditions first.
+    assert!(controlled.abandon(0x3000));
+    let outcome = controlled.on_request(&flagged, &Known::EVERYTHING).unwrap();
+    assert!(!header_of(&outcome.send[0]).negative);
     let execute = controlling.execute(&command).unwrap();
     let mut flagged = execute;
     flagged[2] |= 0x80;
