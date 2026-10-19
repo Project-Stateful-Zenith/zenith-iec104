@@ -25,11 +25,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use common::*;
-use iec104::asdu::{Cp56Time2a, DoublePointState, Quality, Value};
+use iec104::asdu::{AsduError, Cp56Time2a, DoublePointState, LayoutError, Quality, Value};
 use iec104::ci;
 use iec104::ct::{Command, CommandMode, Family};
 use iec104::params::LinkParams;
-use iec104_tokio::server::{Application, PointConfig, Server, ServerConfig};
+use iec104_tokio::server::{Application, PointConfig, Server, ServerConfig, ServerError};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
@@ -1422,4 +1422,19 @@ async fn the_client_against_the_server() {
     assert_eq!(command.await.unwrap(), Ok(CommandOutcome::Terminated));
     client.shutdown().await;
     server.shutdown().await;
+}
+
+/// A point at an address the configured IOA width cannot carry would make
+/// every interrogation drop the points of its type; the server refuses it at
+/// spawn instead.
+#[tokio::test]
+async fn a_point_address_too_large_for_the_address_sizes_is_refused_at_spawn() {
+    let config = config().point(0x0100_0000, PointConfig::new(Value::Scaled(0)));
+    let (app, _side) = app();
+    assert_eq!(
+        Server::spawn(config, app).err(),
+        Some(ServerError::Layout(LayoutError::Asdu(
+            AsduError::IoaOutOfRange { ioa: 0x0100_0000 }
+        )))
+    );
 }
