@@ -477,12 +477,16 @@ impl<A: Application> Task<A> {
         }
     }
 
-    /// Runs the application's operation in a task of its own.
+    /// Runs the application's operation in a task of its own. An operation
+    /// that panics counts as failed, so its object is still terminated and
+    /// released rather than held until restart.
     fn operate(&self, command: Command) {
         let app = Arc::clone(&self.app);
         let done = self.operated.clone();
         tokio::spawn(async move {
-            let ok = app.operate(command).await;
+            let ok = tokio::spawn(async move { app.operate(command).await })
+                .await
+                .unwrap_or(false);
             let _ = done.send(Operated {
                 ioa: command.ioa,
                 ok,

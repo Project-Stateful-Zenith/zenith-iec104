@@ -769,6 +769,47 @@ async fn clause_7_7_direct_execute_confirmed_operated_terminated() {
     );
 }
 
+/// An application whose first operation panics.
+struct PanicsOnce(AtomicBool);
+
+impl Application for PanicsOnce {
+    fn accept(&self, _command: &Command) -> bool {
+        true
+    }
+
+    async fn operate(&self, _command: Command) -> bool {
+        tokio::task::yield_now().await;
+        assert!(!self.0.swap(false, Ordering::SeqCst), "operation panics");
+        true
+    }
+
+    fn synchronise(&self, _time: Cp56Time2a) {}
+
+    fn reset_counters(&self, _request: ci::Request) {}
+}
+
+/// An operation that panics is a failed one (5.4.19.40): it is terminated
+/// negatively and the object is free for the next execute, not held until
+/// restart.
+#[tokio::test(start_paused = true)]
+async fn a_panicking_operation_fails_and_frees_its_object() {
+    let server = Server::spawn(config(), PanicsOnce(AtomicBool::new(true))).unwrap();
+    let (near, peer) = Peer::pipe();
+    server.attach(near).await.unwrap();
+    let mut master = Master::start(peer, true).await;
+
+    master.send(&single_command(ACT, IOA_4001, 0x01));
+    assert_eq!(master.next().await, single_command(ACTCON, IOA_4001, 0x01));
+    assert_eq!(
+        master.next().await,
+        single_command(ACTTERM_NEGATIVE, IOA_4001, 0x01)
+    );
+
+    master.send(&single_command(ACT, IOA_4001, 0x01));
+    assert_eq!(master.next().await, single_command(ACTCON, IOA_4001, 0x01));
+    assert_eq!(master.next().await, single_command(ACTTERM, IOA_4001, 0x01));
+}
+
 /// TS 60870-5-604 5.4.19.50: a command to an address that takes none is
 /// mirrored with cause 47; one the application refuses gets the negative
 /// confirmation, and nothing is operated.
