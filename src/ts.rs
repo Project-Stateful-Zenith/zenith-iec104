@@ -1254,7 +1254,7 @@ impl TestProcedure {
         };
         Ok(Outcome {
             reaction: Reaction::Requested { command: value },
-            send: vec![crate::ts::answer(asdu, self.ca)?],
+            send: vec![crate::ts::answer_with(asdu, self.ca, self.sizes)?],
         })
     }
 

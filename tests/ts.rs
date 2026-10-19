@@ -1611,3 +1611,30 @@ fn a_station_that_does_not_use_the_function_reports_that_for_either_form() {
         Err(TsError::FunctionNotUsed)
     );
 }
+
+/// The controlled station's confirmation is built with its own address sizes,
+/// not the conventional ones: with a one-octet cause, a two-octet IOA and no
+/// originator, the eight-octet command is answered, not a truncation error.
+#[test]
+fn the_confirmation_uses_the_stations_address_sizes() {
+    let sizes = iec104::asdu::AddressSizes::new(1, 2, false).expect("valid sizes");
+    let controlling =
+        TestProcedure::controlling(Selection::UNTAGGED, 7, 0).with_address_sizes(sizes);
+    let controlled = TestProcedure::controlled(Selection::UNTAGGED, 7, 0).with_address_sizes(sizes);
+
+    let command = controlling
+        .request(untagged_value())
+        .expect("the layout builds it");
+    assert_eq!(command, [104, 1, 6, 7, 0, 0, 0xAA, 0x55]);
+
+    let outcome = controlled
+        .on_request(&command, &Known::EVERYTHING)
+        .expect("a request is this procedure's");
+    assert_eq!(
+        outcome.reaction,
+        Reaction::Requested {
+            command: untagged_value()
+        }
+    );
+    assert_eq!(outcome.send, [vec![104, 1, 7, 7, 0, 0, 0xAA, 0x55]]);
+}
