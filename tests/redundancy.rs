@@ -43,7 +43,7 @@ use iec104::apci::{Apci, SeqNo, UFunction};
 use iec104::asdu::{Cause, Coi, Header, TypeId};
 use iec104::gi::{self, Scope};
 use iec104::init::{FollowUp, end_of_initialisation};
-use iec104::link::{Action, QueueError, Role, State, Timer};
+use iec104::link::{Action, MAX_PENDING_USER_DATA, QueueError, Role, State, Timer};
 use iec104::params::{LinkParams, ParamError};
 use iec104::redundancy::{
     EndInit, GroupError, RedundancyGroup, Replay, ReplayOutcome, Switchover, TickOutcome,
@@ -2330,6 +2330,63 @@ fn clause_10_5_a_failed_connections_queued_data_is_not_lost() {
         group.member(0).expect("a member").queued_user_data(),
         Vec::<Vec<u8>>::new()
     );
+}
+
+/// The group's limit counts a failed connection's data once: after the
+/// capture it is in [`iec104::redundancy::Member::left_behind`], and the
+/// connection's queue mirror and send buffer are stale copies of it. The
+/// group then holds new data until what it really holds reaches
+/// [`MAX_PENDING_USER_DATA`].
+#[test]
+fn the_group_limit_counts_a_failed_connections_data_once() {
+    let mut group = controlling_group(2, 0);
+    start_member(&mut group, 0);
+    let asdu = station_interrogation();
+    let sent = MAX_PENDING_USER_DATA / 2 + 1;
+    for _ in 0..sent {
+        group.send_user_data(0, &asdu).expect("below the limit");
+    }
+
+    group.on_connection_lost(0).expect("member 0");
+    assert_eq!(group.member(0).expect("a member").left_behind().len(), sent);
+    for _ in sent..MAX_PENDING_USER_DATA {
+        assert_eq!(
+            group.send_user_data(0, &asdu),
+            Ok(None),
+            "held for the next connection named"
+        );
+    }
+    assert_eq!(group.held_user_data().len(), MAX_PENDING_USER_DATA - sent);
+    assert_eq!(
+        group.send_user_data(0, &asdu),
+        Err(GroupError::Queue(QueueError::Full))
+    );
+}
+
+/// A failed connection re-established by hand (not through the group) keeps
+/// its stale queue mirror until it is named; the limit counts what its session
+/// really holds, so the left-behind data still counts once.
+#[test]
+fn the_group_limit_ignores_the_stale_mirror_of_a_reestablished_connection() {
+    let mut group = controlling_group(2, 0);
+    start_member(&mut group, 0);
+    let asdu = station_interrogation();
+    let sent = 1000;
+    for _ in 0..sent {
+        group.send_user_data(0, &asdu).expect("below the limit");
+    }
+    group.on_connection_lost(0).expect("member 0");
+    group
+        .member_mut(0)
+        .expect("a member")
+        .session_mut()
+        .on_connection_established();
+
+    let mut accepted = 0;
+    while group.send_user_data(1, &asdu).is_ok() {
+        accepted += 1;
+    }
+    assert_eq!(accepted, MAX_PENDING_USER_DATA - sent);
 }
 
 /// The mirror is dropped entry by entry as the data goes out, so the replay of a
