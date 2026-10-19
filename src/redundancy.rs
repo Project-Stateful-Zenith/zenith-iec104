@@ -988,7 +988,9 @@ impl RedundancyGroup {
                 // and unconfirmed frames are stale copies of it.
                 return sum;
             }
-            sum.saturating_add(member.queued.len())
+            // The session's own queue, not the mirror: a connection
+            // re-established by hand keeps a stale mirror until it is named.
+            sum.saturating_add(member.session.pending_user_data())
                 .saturating_add(member.session.outstanding_frames().len())
         });
         if in_hand >= MAX_PENDING_USER_DATA {

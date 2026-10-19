@@ -2363,6 +2363,32 @@ fn the_group_limit_counts_a_failed_connections_data_once() {
     );
 }
 
+/// A failed connection re-established by hand (not through the group) keeps
+/// its stale queue mirror until it is named; the limit counts what its session
+/// really holds, so the left-behind data still counts once.
+#[test]
+fn the_group_limit_ignores_the_stale_mirror_of_a_reestablished_connection() {
+    let mut group = controlling_group(2, 0);
+    start_member(&mut group, 0);
+    let asdu = station_interrogation();
+    let sent = 1000;
+    for _ in 0..sent {
+        group.send_user_data(0, &asdu).expect("below the limit");
+    }
+    group.on_connection_lost(0).expect("member 0");
+    group
+        .member_mut(0)
+        .expect("a member")
+        .session_mut()
+        .on_connection_established();
+
+    let mut accepted = 0;
+    while group.send_user_data(1, &asdu).is_ok() {
+        accepted += 1;
+    }
+    assert_eq!(accepted, MAX_PENDING_USER_DATA - sent);
+}
+
 /// The mirror is dropped entry by entry as the data goes out, so the replay of a
 /// failed connection never offers an ASDU twice. This is the same *"one ASDU …
 /// on exactly one connection"* requirement of 10.5 (index 128), read from the
