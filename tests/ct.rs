@@ -661,7 +661,8 @@ fn select_and_execute_exchange_between_the_two_roles() {
         Reaction::Confirmed {
             ioa: 0x3000,
             select: true,
-            negative: false
+            negative: false,
+            test: false
         }
     );
     assert_eq!(outcome.send.len(), 1);
@@ -683,7 +684,8 @@ fn select_and_execute_exchange_between_the_two_roles() {
         Reaction::Confirmed {
             ioa: 0x3000,
             select: true,
-            negative: false
+            negative: false,
+            test: false
         }
     );
     assert!(
@@ -718,7 +720,8 @@ fn select_and_execute_exchange_between_the_two_roles() {
         Reaction::Confirmed {
             ioa: 0x3000,
             select: false,
-            negative: false
+            negative: false,
+            test: false
         }
     );
     assert!(!controlled.is_selected(0x3000));
@@ -806,7 +809,8 @@ fn direct_execute_needs_no_select() {
         Reaction::Confirmed {
             ioa: 0x3000,
             select: false,
-            negative: false
+            negative: false,
+            test: false
         }
     );
     assert!(controlled.is_running(0x3000));
@@ -836,7 +840,8 @@ fn a_second_execute_while_the_first_runs_is_refused() {
         Reaction::Confirmed {
             ioa: 0x3000,
             select: false,
-            negative: true
+            negative: true,
+            test: false
         }
     );
     assert!(header_of(&outcome.send[0]).negative, "P/N = 1");
@@ -892,7 +897,8 @@ fn a_station_without_the_select_procedure_refuses_a_select() {
         Reaction::Confirmed {
             ioa: 0x3000,
             select: true,
-            negative: true
+            negative: true,
+            test: false
         }
     );
     assert_eq!(cause_of(&outcome.send[0]), Cause::ActivationCon);
@@ -955,7 +961,8 @@ fn a_second_select_for_the_same_object_is_refused() {
         Reaction::Confirmed {
             ioa: 0x3000,
             select: true,
-            negative: true
+            negative: true,
+            test: false
         }
     );
     assert!(header_of(&outcome.send[0]).negative, "P/N = 1");
@@ -1058,7 +1065,8 @@ fn a_late_execute_is_refused_after_the_select_timeout() {
         Reaction::Confirmed {
             ioa: 0x3000,
             select: false,
-            negative: true
+            negative: true,
+            test: false
         }
     );
     assert!(header_of(&outcome.send[0]).negative, "ACTCONneg");
@@ -1084,7 +1092,8 @@ fn a_lapsed_select_does_not_block_a_new_select() {
         Reaction::Confirmed {
             ioa: 0x3000,
             select: true,
-            negative: false
+            negative: false,
+            test: false
         },
         "the object is selectable again"
     );
@@ -1100,7 +1109,8 @@ fn a_lapsed_select_does_not_block_a_new_select() {
         Reaction::Confirmed {
             ioa: 0x3000,
             select: false,
-            negative: false
+            negative: false,
+            test: false
         }
     );
     // An executed select leaves no deadline behind.
@@ -1162,7 +1172,8 @@ fn the_controlled_station_can_deselect_and_reset() {
         Reaction::Confirmed {
             ioa: 0x3000,
             select: true,
-            negative: false
+            negative: false,
+            test: false
         }
     );
 
@@ -1185,7 +1196,8 @@ fn the_controlled_station_can_deselect_and_reset() {
         Reaction::Confirmed {
             ioa: 0x3000,
             select: true,
-            negative: false
+            negative: false,
+            test: false
         },
         "a reset station accepts a new select"
     );
@@ -1271,7 +1283,8 @@ fn the_execute_does_not_match_the_select() {
         Reaction::Confirmed {
             ioa: 0x3000,
             select: false,
-            negative: true
+            negative: true,
+            test: false
         }
     );
     assert_eq!(cause_of(&outcome.send[0]), Cause::ActivationCon);
@@ -1318,7 +1331,8 @@ fn a_set_point_threadhold_value_that_differs_also_fails_the_match() {
         Reaction::Confirmed {
             ioa: 0x3000,
             select: false,
-            negative: true
+            negative: true,
+            test: false
         }
     );
 }
@@ -1339,7 +1353,8 @@ fn an_execute_at_a_select_and_execute_station_with_no_select_is_negative() {
         Reaction::Confirmed {
             ioa: 0x3000,
             select: false,
-            negative: true
+            negative: true,
+            test: false
         }
     );
 }
@@ -1384,7 +1399,8 @@ fn a_not_allowed_double_command_is_refused_with_pn_1() {
             Reaction::Confirmed {
                 ioa: 0x3000,
                 select: false,
-                negative: true
+                negative: true,
+                test: false
             }
         );
         assert_eq!(cause_of(&outcome.send[0]), Cause::ActivationCon);
@@ -1444,7 +1460,8 @@ fn a_not_allowed_regulating_step_command_is_refused_with_pn_1() {
             Reaction::Confirmed {
                 ioa: 0x3000,
                 select: false,
-                negative: true
+                negative: true,
+                test: false
             }
         );
     }
@@ -1686,7 +1703,8 @@ fn a_bitstring_command_executes_at_the_controlled_station() {
         Reaction::Confirmed {
             ioa: 0x3000,
             select: false,
-            negative: false
+            negative: false,
+            test: false
         }
     );
     assert_eq!(outcome.send[0][9..13], [0x78, 0x56, 0x34, 0x12]);
@@ -1725,7 +1743,8 @@ fn the_termination_policy_is_a_selection_not_a_branch() {
         Reaction::Confirmed {
             ioa: 0x3000,
             select: false,
-            negative: false
+            negative: false,
+            test: false
         }
     );
     assert!(
@@ -1790,7 +1809,8 @@ fn a_negative_termination_is_the_accept_then_fail_alternative() {
         Reaction::Confirmed {
             ioa: 0x3000,
             select: false,
-            negative: false
+            negative: false,
+            test: false
         },
         "accepted positively"
     );
@@ -2281,7 +2301,8 @@ fn every_family_round_trips_through_both_roles() {
                 Reaction::Confirmed {
                     ioa: command.ioa,
                     select: false,
-                    negative: false
+                    negative: false,
+                    test: false
                 },
                 "{:?} tagged={tagged}",
                 command.family()
@@ -2300,7 +2321,8 @@ fn every_family_round_trips_through_both_roles() {
                 Reaction::Confirmed {
                     ioa: command.ioa,
                     select: false,
-                    negative: false
+                    negative: false,
+                    test: false
                 }
             );
             assert!(controlling.is_running(command.ioa));
@@ -2483,7 +2505,8 @@ fn a_mirror_echoes_the_requests_originator_and_test_bit() {
         Reaction::Confirmed {
             ioa: 0x3000,
             select: false,
-            negative: false
+            negative: false,
+            test: true
         }
     );
     let actterm = controlled.terminate(0x3000, true).unwrap();
@@ -2519,7 +2542,8 @@ fn a_refused_select_is_no_select_at_all() {
         Reaction::Confirmed {
             ioa: 0x3000,
             select: true,
-            negative: true
+            negative: true,
+            test: false
         }
     );
     assert!(!controlling.is_awaiting(0x3000), "the select is dropped");
@@ -2582,7 +2606,8 @@ fn a_negative_execute_confirmation_ends_the_run() {
         Reaction::Confirmed {
             ioa: 0x3000,
             select: false,
-            negative: true
+            negative: true,
+            test: false
         }
     );
     assert!(!controlling.is_running(0x3000), "the run is dropped");
@@ -2751,7 +2776,8 @@ fn an_unsolicited_confirmation_records_nothing() {
         Reaction::Confirmed {
             ioa: 0x3000,
             select: true,
-            negative: false
+            negative: false,
+            test: false
         }
     );
     assert!(
@@ -2824,7 +2850,8 @@ fn the_controlled_station_answers_a_not_controllable_object() {
         Reaction::Confirmed {
             ioa: 0x3000,
             select: false,
-            negative: true
+            negative: true,
+            test: false
         }
     );
     assert_eq!(cause_of(&outcome.send[0]), Cause::ActivationCon);
@@ -2887,7 +2914,8 @@ fn the_controlled_station_refuses_a_deactivation_that_is_not_the_select() {
         Reaction::Confirmed {
             ioa: 0x3000,
             select: true,
-            negative: false
+            negative: false,
+            test: false
         }
     );
     assert!(controlled.is_selected(0x3000));
@@ -2985,7 +3013,8 @@ fn a_refused_deactivation_is_not_answered_with_an_activation_confirmation() {
         Reaction::Confirmed {
             ioa: 0x3000,
             select: false,
-            negative: true
+            negative: true,
+            test: false
         }
     );
     assert_eq!(cause_of(&outcome.send[0]), Cause::ActivationCon);
@@ -3049,7 +3078,8 @@ fn a_select_mirror_that_differs_is_reported_not_confirmed() {
         Reaction::Confirmed {
             ioa: 0x3000,
             select: true,
-            negative: false
+            negative: false,
+            test: false
         }
     );
     assert!(controlling.is_selected(0x3000));

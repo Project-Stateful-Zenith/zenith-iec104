@@ -326,7 +326,7 @@ impl<A: Application> Task<A> {
                     let valid = self.validity.on_outcome(&outcome, now());
                     let reaction = outcome.reaction;
                     self.send_all(outcome.send);
-                    if valid && let cs::Reaction::Requested { time } = reaction {
+                    if valid && let cs::Reaction::Requested { time, .. } = reaction {
                         self.app.synchronise(time);
                     }
                 }
@@ -461,13 +461,20 @@ impl<A: Application> Task<A> {
         let reaction = outcome.reaction;
         self.send_all(outcome.send);
         if let ct::Reaction::Confirmed {
+            ioa,
             select: false,
             negative: false,
-            ..
+            test,
         } = reaction
-            && let Ok(Some(command)) = ct::decode_command_with(asdu, self.sizes)
         {
-            self.operate(command);
+            if test {
+                // 5-101 cl.7.2.3: a `T = 1` frame tests "transmission and
+                // equipment without controlling the process". It is not
+                // operated, and the run it started ends as one that worked.
+                self.on_operated(Operated { ioa, ok: true });
+            } else if let Ok(Some(command)) = ct::decode_command_with(asdu, self.sizes) {
+                self.operate(command);
+            }
         }
     }
 

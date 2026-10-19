@@ -351,7 +351,7 @@
 //! let outcome = controlled.on_request(&selected, &Known::EVERYTHING).unwrap();
 //! assert_eq!(
 //!     outcome.reaction,
-//!     Reaction::Confirmed { ioa: 0x3000, select: true, negative: false }
+//!     Reaction::Confirmed { ioa: 0x3000, select: true, negative: false, test: false }
 //! );
 //!
 //! // The confirmation is the command ASDU with only its header changed.
@@ -1754,6 +1754,11 @@ pub enum Reaction {
         select: bool,
         /// `P/N = 1`: a negative confirmation.
         negative: bool,
+        /// `T = 1`: the confirmed frame was sent under test conditions. 5-101
+        /// cl.7.2.3: *"It is used for example to test transmission and
+        /// equipment without controlling the process"*, so a controlled
+        /// station does not operate a `test` execute.
+        test: bool,
     },
     /// The procedure ended (`ACTTERM`, cause `<10>`), positive or negative.
     Terminated {
@@ -2531,7 +2536,7 @@ impl CommandTransmission {
                 return Ok(other());
             };
             let reaction = match header.cause {
-                Cause::ActivationCon => self.on_activation_con(&command, header.negative),
+                Cause::ActivationCon => self.on_activation_con(&command, &header),
                 Cause::ActivationTermination => {
                     if !self.is_running(command.ioa) {
                         return Ok(other());
@@ -2570,7 +2575,8 @@ impl CommandTransmission {
 
     /// The controlling station's handling of an `ACTCON`, select or execute
     /// alike, for [`CommandTransmission::on_response`].
-    fn on_activation_con(&mut self, command: &Command, negative: bool) -> Reaction {
+    fn on_activation_con(&mut self, command: &Command, header: &Header) -> Reaction {
+        let (negative, test) = (header.negative, header.test);
         // The mirror's `S/E` is the command's own, so the frame says
         // which call it answers.
         if command.select() {
@@ -2583,6 +2589,7 @@ impl CommandTransmission {
                     ioa: command.ioa,
                     select: true,
                     negative: true,
+                    test,
                 }
             } else if let Some(index) = self
                 .awaiting
@@ -2600,6 +2607,7 @@ impl CommandTransmission {
                         ioa: command.ioa,
                         select: true,
                         negative: false,
+                        test,
                     }
                 } else {
                     Reaction::NotMirrored { ioa: command.ioa }
@@ -2611,6 +2619,7 @@ impl CommandTransmission {
                     ioa: command.ioa,
                     select: true,
                     negative: false,
+                    test,
                 }
             }
         } else {
@@ -2627,6 +2636,7 @@ impl CommandTransmission {
                 ioa: command.ioa,
                 select: false,
                 negative,
+                test,
             }
         }
     }
@@ -3066,6 +3076,7 @@ impl CommandTransmission {
                     ioa: command.ioa,
                     select,
                     negative,
+                    test: header.test,
                 }
             } else {
                 Reaction::Refused {

@@ -1104,6 +1104,7 @@ impl Task {
                 ioa,
                 select,
                 negative,
+                ..
             } => {
                 let Some((index, stage, call)) = self
                     .commands

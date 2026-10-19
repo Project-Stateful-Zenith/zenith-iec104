@@ -1438,6 +1438,40 @@ fn every_answer_echoes_the_requests_originator() {
     }
 }
 
+/// 5-101 cl.7.2.3: the controlled station answers a `T = 1` request under
+/// test conditions, so the confirmation, the deactivation's confirmation and
+/// the termination echo its test bit.
+#[test]
+fn every_answer_echoes_the_requests_test_bit() {
+    let mut controlled = Interrogation::controlled(ReActivation::Continue, CA, 0);
+    let device = Device::new();
+    let mut act = request(Scope::Station, CA, 0).unwrap();
+    act[2] |= 0x80;
+    let mut frames = controlled
+        .on_request(&act, &Known::EVERYTHING, &device)
+        .unwrap()
+        .send;
+    frames.extend(controlled.complete(&device).unwrap());
+    let terminated = frames.last().unwrap();
+    assert_eq!(
+        Header::parse(terminated).unwrap().cause,
+        CAUSE_ACTIVATION_TERM
+    );
+    assert!(Header::parse(&frames[0]).unwrap().test, "the confirmation");
+    assert!(Header::parse(terminated).unwrap().test, "the termination");
+
+    let mut deact = deactivation(Scope::Station, CA, 0).unwrap();
+    deact[2] |= 0x80;
+    let answer = controlled
+        .on_request(&deact, &Known::EVERYTHING, &device)
+        .unwrap()
+        .send;
+    assert!(
+        Header::parse(&answer[0]).unwrap().test,
+        "the deactivation's confirmation"
+    );
+}
+
 /// A group outside 1..=16 is refused rather than clamped into another group.
 #[test]
 fn a_group_outside_the_standards_range_is_refused() {

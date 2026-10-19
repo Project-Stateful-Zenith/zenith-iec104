@@ -232,7 +232,8 @@ async fn set_point_command() {
             Reaction::Confirmed {
                 ioa: 0x0300,
                 select: false,
-                negative: false
+                negative: false,
+                ..
             },
             Reaction::Terminated { ioa: 0x0300, .. }
         ]

@@ -231,9 +231,11 @@ fn execute(
         ioa,
         select: false,
         negative: false,
+        test,
     } = outcome.reaction
     {
-        if let Ok(command) = asdu::decode_with(frame, sizes) {
+        // 5-101 cl.7.2.3: a `T = 1` command tests the link, not the process.
+        if !test && let Ok(command) = asdu::decode_with(frame, sizes) {
             println!("   executing {:?}", command.objects);
         }
         if commands.is_running(ioa) {

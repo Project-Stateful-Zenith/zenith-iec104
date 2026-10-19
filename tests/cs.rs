@@ -216,7 +216,13 @@ fn the_controlled_station_answers_with_the_time_it_had_before_the_correction() {
         .on_request(&requested, &Known::EVERYTHING, before)
         .expect("a request is this procedure's");
 
-    assert_eq!(outcome.reaction, Reaction::Requested { time: sent });
+    assert_eq!(
+        outcome.reaction,
+        Reaction::Requested {
+            time: sent,
+            test: false
+        }
+    );
     assert_eq!(
         outcome.send.len(),
         1,
@@ -303,6 +309,32 @@ fn the_answer_echoes_the_originator_address_of_the_request() {
         outcome.send[0],
         answer(before, CA, 42).expect("the layout builds it")
     );
+}
+
+/// 5-101 cl.7.2.3: the `T` bit marks an ASDU *"generated during test
+/// conditions"*, used *"to test transmission and equipment without
+/// controlling the process"*. The answer to a `T = 1` request echoes it, the
+/// reaction reports it, and the clock is not counted as synchronised.
+#[test]
+fn a_test_request_is_answered_under_test_and_does_not_synchronise() {
+    let mut activation = request(worked(), CA, 0).expect("the layout builds it");
+    activation[2] |= 0x80;
+    let controlled = ClockSynchronisation::controlled(CA, 0);
+    let outcome = controlled
+        .on_request(&activation, &Known::EVERYTHING, worked())
+        .expect("a request is this procedure's");
+
+    assert_eq!(
+        outcome.reaction,
+        Reaction::Requested {
+            time: worked(),
+            test: true
+        }
+    );
+    assert!(header_of(&outcome.send[0]).test, "the answer echoes T = 1");
+    let mut validity = TimeValidity::new(Duration::from_secs(60));
+    assert!(!validity.on_outcome(&outcome, Instant::now()));
+    assert_eq!(validity.last_synchronised(), None);
 }
 
 // -------------------------------------------------- the reception classification
@@ -394,7 +426,13 @@ fn a_negative_activation_is_still_classified_as_a_request() {
         .on_request(&frame, &Known::EVERYTHING, before)
         .expect("a type-103 frame of this direction");
 
-    assert_eq!(outcome.reaction, Reaction::Requested { time: worked() });
+    assert_eq!(
+        outcome.reaction,
+        Reaction::Requested {
+            time: worked(),
+            test: false
+        }
+    );
     assert_eq!(header_of(&outcome.send[0]).cause, CAUSE_ACTIVATION_CON);
     assert!(
         !header_of(&outcome.send[0]).negative,
@@ -741,7 +779,13 @@ fn the_scripted_exchange() {
     let request_outcome = controlled
         .on_request(&request_frame, &Known::EVERYTHING, before)
         .expect("a request is this procedure's");
-    assert_eq!(request_outcome.reaction, Reaction::Requested { time: sent });
+    assert_eq!(
+        request_outcome.reaction,
+        Reaction::Requested {
+            time: sent,
+            test: false
+        }
+    );
 
     let mut frames = request_outcome.send.into_iter();
     let answer_frame = frames.next().expect("the answer");

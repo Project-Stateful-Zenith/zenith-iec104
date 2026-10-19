@@ -457,6 +457,7 @@ fn command_station(sizes: AddressSizes) -> App {
             ioa,
             select: false,
             negative: false,
+            ..
         } = outcome.reaction
         {
             out.push(
@@ -600,6 +601,7 @@ fn clause_5_4_26_3_the_controlling_station_commands_in_every_address_profile() {
                     ioa,
                     select: false,
                     negative: false,
+                    test: false,
                 },
                 Reaction::Terminated {
                     ioa,
