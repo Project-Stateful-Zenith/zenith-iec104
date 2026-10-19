@@ -768,6 +768,7 @@ fn single_command(station: &mut Station) -> Result<(), String> {
             ioa,
             select,
             negative,
+            ..
         } => {
             if ioa != IOA_COMMAND || select || negative {
                 return Err(format!(
@@ -813,6 +814,7 @@ fn negative_command(station: &mut Station) -> Result<(), String> {
             ioa,
             select,
             negative,
+            ..
         } => {
             if ioa != IOA_REFUSED || select || !negative {
                 return Err(format!(
@@ -855,11 +857,13 @@ fn command_answer(
                 ioa: answered,
                 select,
                 negative: flag,
+                ..
             } if answered == ioa && !select && flag == negative => {
                 confirmed = Some(CtReaction::Confirmed {
                     ioa,
                     select,
                     negative: flag,
+                    test: false,
                 });
             }
             // A termination or a return information belongs to the same

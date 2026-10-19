@@ -317,7 +317,7 @@ impl<A: Application> Task<A> {
                     }
                 }
             }
-            Route::CounterInterrogation => self.on_counter(asdu, known),
+            Route::CounterInterrogation => self.on_counter(asdu, &header, known),
             Route::ClockSync => {
                 // 104 cl.7.6: the answer carries "the local time before it
                 // was synchronized".
@@ -326,7 +326,7 @@ impl<A: Application> Task<A> {
                     let valid = self.validity.on_outcome(&outcome, now());
                     let reaction = outcome.reaction;
                     self.send_all(outcome.send);
-                    if valid && let cs::Reaction::Requested { time } = reaction {
+                    if valid && let cs::Reaction::Requested { time, .. } = reaction {
                         self.app.synchronise(time);
                     }
                 }
@@ -383,7 +383,7 @@ impl<A: Application> Task<A> {
         }
     }
 
-    fn on_counter(&mut self, asdu: &[u8], known: Known) {
+    fn on_counter(&mut self, asdu: &[u8], header: &Header, known: Known) {
         let Ok(outcome) = self.ci.on_request(asdu, &known, &self.image) else {
             return;
         };
@@ -402,6 +402,10 @@ impl<A: Application> Task<A> {
                     .push(Priority::Interrogation, Item::CounterInterrogation);
                 return;
             }
+            // 5-101 cl.7.2.3: a `T = 1` request tests "transmission and
+            // equipment without controlling the process"; it is confirmed,
+            // and no counter is frozen or reset.
+            _ if header.test => return,
             FreezeMode::FreezeWithoutReset => self.image.freeze(request),
             FreezeMode::FreezeWithReset => {
                 self.image.freeze(request);
@@ -461,13 +465,20 @@ impl<A: Application> Task<A> {
         let reaction = outcome.reaction;
         self.send_all(outcome.send);
         if let ct::Reaction::Confirmed {
+            ioa,
             select: false,
             negative: false,
-            ..
+            test,
         } = reaction
-            && let Ok(Some(command)) = ct::decode_command_with(asdu, self.sizes)
         {
-            self.operate(command);
+            if test {
+                // 5-101 cl.7.2.3: a `T = 1` frame tests "transmission and
+                // equipment without controlling the process". It is not
+                // operated, and the run it started ends as one that worked.
+                self.on_operated(Operated { ioa, ok: true });
+            } else if let Ok(Some(command)) = ct::decode_command_with(asdu, self.sizes) {
+                self.operate(command);
+            }
         }
     }
 

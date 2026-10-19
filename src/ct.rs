@@ -351,7 +351,7 @@
 //! let outcome = controlled.on_request(&selected, &Known::EVERYTHING).unwrap();
 //! assert_eq!(
 //!     outcome.reaction,
-//!     Reaction::Confirmed { ioa: 0x3000, select: true, negative: false }
+//!     Reaction::Confirmed { ioa: 0x3000, select: true, negative: false, test: false }
 //! );
 //!
 //! // The confirmation is the command ASDU with only its header changed.
@@ -1754,6 +1754,11 @@ pub enum Reaction {
         select: bool,
         /// `P/N = 1`: a negative confirmation.
         negative: bool,
+        /// `T = 1`: the confirmed frame was sent under test conditions. 5-101
+        /// cl.7.2.3: *"It is used for example to test transmission and
+        /// equipment without controlling the process"*, so a controlled
+        /// station does not operate a `test` execute.
+        test: bool,
     },
     /// The procedure ended (`ACTTERM`, cause `<10>`), positive or negative.
     Terminated {
@@ -2006,6 +2011,9 @@ pub struct CommandTransmission {
     /// Both roles: the selects that are outstanding (confirmed, not yet
     /// executed and not yet deactivated).
     selected: Vec<Command>,
+    /// The controlled station: the selects in `selected` that arrived with
+    /// `T = 1`, by information object address (5-101 cl.7.2.3).
+    test_selects: Vec<u32>,
     /// Both roles: the executes whose procedure still owes its termination.
     /// The controlling station records one when it sends the execute; only
     /// families [`Termination`] terminates are recorded.
@@ -2085,6 +2093,7 @@ impl CommandTransmission {
             sizes: AddressSizes::CONVENTIONAL,
             awaiting: Vec::new(),
             selected: Vec::new(),
+            test_selects: Vec::new(),
             running: Vec::new(),
             reply_to: Vec::new(),
             select_timeout: None,
@@ -2201,6 +2210,7 @@ impl CommandTransmission {
     pub fn reset(&mut self) {
         self.awaiting.clear();
         self.selected.clear();
+        self.test_selects.clear();
         self.running.clear();
         self.reply_to.clear();
         self.deadlines.clear();
@@ -2251,6 +2261,7 @@ impl CommandTransmission {
     /// Removes the select of `ioa` and its deadline.
     fn drop_select(&mut self, ioa: u32) {
         self.selected.retain(|selected| selected.ioa != ioa);
+        self.test_selects.retain(|address| *address != ioa);
         self.deadlines.retain(|(address, _)| *address != ioa);
     }
 
@@ -2552,7 +2563,7 @@ impl CommandTransmission {
                 return Ok(other());
             };
             let reaction = match header.cause {
-                Cause::ActivationCon => self.on_activation_con(&command, header.negative),
+                Cause::ActivationCon => self.on_activation_con(&command, &header),
                 Cause::ActivationTermination => {
                     if !self.is_running(command.ioa) {
                         return Ok(other());
@@ -2591,7 +2602,8 @@ impl CommandTransmission {
 
     /// The controlling station's handling of an `ACTCON`, select or execute
     /// alike, for [`CommandTransmission::on_response`].
-    fn on_activation_con(&mut self, command: &Command, negative: bool) -> Reaction {
+    fn on_activation_con(&mut self, command: &Command, header: &Header) -> Reaction {
+        let (negative, test) = (header.negative, header.test);
         // The mirror's `S/E` is the command's own, so the frame says
         // which call it answers.
         if command.select() {
@@ -2604,6 +2616,7 @@ impl CommandTransmission {
                     ioa: command.ioa,
                     select: true,
                     negative: true,
+                    test,
                 }
             } else if let Some(index) = self
                 .awaiting
@@ -2621,6 +2634,7 @@ impl CommandTransmission {
                         ioa: command.ioa,
                         select: true,
                         negative: false,
+                        test,
                     }
                 } else {
                     Reaction::NotMirrored { ioa: command.ioa }
@@ -2632,6 +2646,7 @@ impl CommandTransmission {
                     ioa: command.ioa,
                     select: true,
                     negative: false,
+                    test,
                 }
             }
         } else {
@@ -2648,6 +2663,7 @@ impl CommandTransmission {
                 ioa: command.ioa,
                 select: false,
                 negative,
+                test,
             }
         }
     }
@@ -2806,6 +2822,9 @@ impl CommandTransmission {
                 return self.refuse_negative(&command, header);
             }
             self.selected.push(command);
+            if header.test {
+                self.test_selects.push(command.ioa);
+            }
             if let Some(deadline) = self
                 .clock
                 .zip(self.select_timeout)
@@ -2824,9 +2843,12 @@ impl CommandTransmission {
             Some(selected) => {
                 // The select is spent either way: a matching execute
                 // consumes it and runs, a mismatched one is refused and
-                // the select-and-execute procedure ends there.
+                // the select-and-execute procedure ends there. A select
+                // and an execute with different `T` (5-101 cl.7.2.3) are
+                // not the same command either.
+                let test = self.test_selects.contains(&command.ioa);
                 self.drop_select(command.ioa);
-                if !selected.state_eq(&command) {
+                if !selected.state_eq(&command) || test != header.test {
                     return self.mirror(&command, header, false, true, CAUSE_ACTIVATION_CON);
                 }
                 self.start(command, header)
@@ -3087,6 +3109,7 @@ impl CommandTransmission {
                     ioa: command.ioa,
                     select,
                     negative,
+                    test: header.test,
                 }
             } else {
                 Reaction::Refused {

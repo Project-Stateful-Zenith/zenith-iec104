@@ -426,6 +426,7 @@ impl StationApp for CtApp {
             ioa,
             select: false,
             negative: false,
+            ..
         } = outcome.reaction
         {
             // The crate confirmed an execute: the process acts on it.

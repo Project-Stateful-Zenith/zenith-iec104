@@ -846,7 +846,8 @@ fn a_command_runs_under_a_narrow_profile() {
         Reaction::Confirmed {
             ioa: 0x0203,
             select: true,
-            negative: false
+            negative: false,
+            test: false
         }
     );
     assert_eq!(outcome.send, [[45, 0x01, 7, 7, 0x03, 0x02, 0x81]]);

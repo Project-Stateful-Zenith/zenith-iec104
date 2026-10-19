@@ -349,7 +349,8 @@ fn clause_5_4_19_1_the_controlling_station_selects_and_executes() {
                 Reaction::Confirmed {
                     ioa,
                     select: true,
-                    negative: false
+                    negative: false,
+                    test: false
                 },
                 "5.4.19.1 (type {type_id}): the mirrored select"
             );
@@ -365,7 +366,8 @@ fn clause_5_4_19_1_the_controlling_station_selects_and_executes() {
                 Reaction::Confirmed {
                     ioa,
                     select: false,
-                    negative: false
+                    negative: false,
+                    test: false
                 },
                 "5.4.19.1 (type {type_id}): the mirrored execute"
             );
@@ -522,7 +524,8 @@ fn clause_5_4_19_20_the_controlling_station_executes_directly() {
                 Reaction::Confirmed {
                     ioa,
                     select: false,
-                    negative: false
+                    negative: false,
+                    test: false
                 },
                 "5.4.19.20 (type {type_id}): the mirrored execute"
             );
@@ -567,6 +570,7 @@ fn clause_5_4_19_30_a_negative_select_confirmation_stops_the_command() {
                         ioa: not_controllable(type_id),
                         select: true,
                         negative: true,
+                        test: false,
                     },
                 ),
                 (not_existing(type_id), Reaction::Discard(Discard::Mirror)),
@@ -655,7 +659,8 @@ fn clause_5_4_19_40_and_50_a_refused_execute_stops_the_command() {
                             Reaction::Confirmed {
                                 ioa,
                                 select: false,
-                                negative: false
+                                negative: false,
+                                test: false
                             },
                             "5.4.19.40/.50 ({mode:?}, type {type_id}): the positive ACTCON"
                         );
@@ -674,7 +679,8 @@ fn clause_5_4_19_40_and_50_a_refused_execute_stops_the_command() {
                             Reaction::Confirmed {
                                 ioa,
                                 select: false,
-                                negative: true
+                                negative: true,
+                                test: false
                             },
                             "5.4.19.40/.50 ({mode:?}, type {type_id}): the ACTCONneg"
                         );
@@ -864,7 +870,8 @@ fn clause_5_4_19_86_the_controlling_station_commands_during_its_interrogation() 
                 Reaction::Confirmed {
                     ioa,
                     select: false,
-                    negative: false
+                    negative: false,
+                    test: false
                 },
                 "5.4.19.86 ({set:?}, type {type_id}): processed during the GI"
             );

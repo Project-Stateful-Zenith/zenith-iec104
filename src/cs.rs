@@ -229,7 +229,7 @@
 //! let before = Cp56Time2a { hours: 12, ..time };
 //! let mut controlled = ClockSynchronisation::controlled(12, 0);
 //! let outcome = controlled.on_request(&asdu, &Known::EVERYTHING, before).unwrap();
-//! assert_eq!(outcome.reaction, Reaction::Requested { time });
+//! assert_eq!(outcome.reaction, Reaction::Requested { time, test: false });
 //! assert_eq!(Header::parse(&outcome.send[0]).unwrap().cause, Cause::ActivationCon);
 //! assert_eq!(&outcome.send[0][9..], &answer(before, 12, 0).unwrap()[9..]);
 //!
@@ -279,11 +279,12 @@ pub const CAUSE_ACTIVATION_CON: Cause = Cause::ActivationCon;
 pub const CAUSE_SPONTANEOUS: Cause = Cause::Spontaneous;
 
 /// Builds one type-103 frame: `N = 1`, `SQ = 0`, an information object address
-/// of zero (figure 75) and `P/N` as given. The cause is the caller's here and
-/// the clause's in every public builder.
+/// of zero (figure 75), `P/N` and `T` as given. The cause is the caller's here
+/// and the clause's in every public builder.
 fn frame(
     cause: Cause,
     negative: bool,
+    test: bool,
     time: Cp56Time2a,
     common_address: u16,
     originator: u8,
@@ -295,7 +296,7 @@ fn frame(
         count: 1,
         cause,
         negative,
-        test: false,
+        test,
         originator,
         common_address,
     };
@@ -348,6 +349,7 @@ pub fn request_with(
     frame(
         CAUSE_ACTIVATION,
         false,
+        false,
         time,
         common_address,
         originator,
@@ -397,6 +399,7 @@ pub fn answer_with(
 ) -> Result<Vec<u8>, LayoutError> {
     frame(
         CAUSE_ACTIVATION_CON,
+        false,
         false,
         pre_sync_time,
         common_address,
@@ -451,6 +454,7 @@ pub fn announcement_with(
     frame(
         CAUSE_SPONTANEOUS,
         false,
+        false,
         time,
         common_address,
         originator,
@@ -468,6 +472,10 @@ pub enum Reaction {
     Requested {
         /// The time the request carried.
         time: Cp56Time2a,
+        /// `T = 1`: the request was sent under test conditions (5-101
+        /// cl.7.2.3, *"without controlling the process"*), so its time is not
+        /// adopted; [`TimeValidity::on_outcome`] does not count it.
+        test: bool,
     },
     /// An activation confirmation arrived (cause 7). `time` is the
     /// pre-synchronisation time it carried, and `negative` is its `P/N` flag
@@ -750,10 +758,17 @@ impl ClockSynchronisation {
             return Ok(other());
         };
         Ok(Outcome {
-            reaction: Reaction::Requested { time },
+            reaction: Reaction::Requested {
+                time,
+                test: header.test,
+            },
             // `pre_sync_time`, never the request's own time (clause 7.6), and
-            // the request's originator, not the station's own (clause 7.2.3).
-            send: vec![answer_with(
+            // the request's originator and test bit, not the station's own
+            // (clause 7.2.3).
+            send: vec![frame(
+                CAUSE_ACTIVATION_CON,
+                false,
+                header.test,
                 pre_sync_time,
                 self.ca,
                 header.originator,
@@ -831,7 +846,7 @@ impl TimeValidity {
     /// it counted as a valid `C_CS ACT`.
     ///
     /// It counts only when the reaction is [`Reaction::Requested`] (a cause-6
-    /// activation with a time to adopt) **and** the answer to send is a
+    /// activation with a time to adopt) with `T = 0` **and** the answer to send is a
     /// positive confirmation. A refused activation ([`Reaction::Refused`], the
     /// clause 7.2.3 mirror with `P/N = 1`), a discarded one, one of another
     /// procedure, and an answer the application turned into a negative
@@ -839,7 +854,7 @@ impl TimeValidity {
     /// the cause of transmission octet) do not count, since the station did
     /// not accept the time.
     pub fn on_outcome(&mut self, outcome: &Outcome, now: Instant) -> bool {
-        let Reaction::Requested { .. } = outcome.reaction else {
+        let Reaction::Requested { test: false, .. } = outcome.reaction else {
             return false;
         };
         let positive = outcome

@@ -687,6 +687,32 @@ async fn clause_7_4_8_counter_interrogation_and_freeze() {
     assert_eq!(side.resets.recv().await, Some(ci::Request::General));
 }
 
+/// 5-101 cl.7.2.3: a `T = 1` counter interrogation is answered under test
+/// conditions and does not control the process: a reset is confirmed with
+/// `T = 1` and no counter is reset; a collection, which only reads, still runs.
+#[tokio::test(start_paused = true)]
+async fn clause_7_2_3_a_test_counter_interrogation_does_not_reset() {
+    let (_server, mut side, mut master) = started(config()).await;
+    master.send(&counter_interrogation(0x80 | ACT, 0xC5));
+    assert_eq!(
+        master.next().await,
+        counter_interrogation(0x80 | ACTCON, 0xC5)
+    );
+    settle().await;
+    assert!(side.resets.try_recv().is_err(), "no counter is reset");
+
+    master.send(&counter_interrogation(0x80 | ACT, 0x05));
+    assert_eq!(
+        master.next().await,
+        counter_interrogation(0x80 | ACTCON, 0x05)
+    );
+    assert_eq!(master.next().await, total(REQCOGEN, 5));
+    assert_eq!(
+        master.next().await,
+        counter_interrogation(0x80 | ACTTERM, 0x05)
+    );
+}
+
 /// 104 cl.7.6: *"After the execution of the clock sync internally the
 /// controlled station generates a `C_CS` ACTCON PDU that contains the local
 /// time before it was synchronized."* The application gets the new time.
@@ -766,6 +792,35 @@ async fn clause_7_7_direct_execute_confirmed_operated_terminated() {
     assert_eq!(
         master.next().await,
         single_command(ACTTERM_NEGATIVE, IOA_4001, 0x00)
+    );
+}
+
+/// 5-101 cl.7.2.3: the test bit marks an ASDU *"generated during test
+/// conditions"*, used *"to test transmission and equipment without
+/// controlling the process"*. A `T = 1` execute is confirmed and terminated
+/// under test conditions, and never operated; a `T = 1` clock synchronisation
+/// is answered under test conditions and does not set the clock.
+#[tokio::test(start_paused = true)]
+async fn clause_7_2_3_a_test_frame_does_not_control_the_process() {
+    let (_server, mut side, mut master) = started(config()).await;
+    master.send(&single_command(0x80 | ACT, IOA_4001, 0x01));
+    assert_eq!(
+        master.next().await,
+        single_command(0x80 | ACTCON, IOA_4001, 0x01)
+    );
+    assert_eq!(
+        master.next().await,
+        single_command(0x80 | ACTTERM, IOA_4001, 0x01)
+    );
+    settle().await;
+    assert!(side.operations.try_recv().is_err(), "nothing is operated");
+
+    master.send(&clock_sync(0x80 | ACT, MASTER_TIME));
+    assert_eq!(master.next().await, clock_sync(0x80 | ACTCON, TIME));
+    settle().await;
+    assert!(
+        side.synchronised.try_recv().is_err(),
+        "the clock is not set"
     );
 }
 

@@ -432,11 +432,12 @@ impl From<AsduError> for GiError {
 }
 
 /// Builds one type-100 frame: `N = 1`, `SQ = 0`, an information object address
-/// of zero (figure 72) and `P/N` as given. The cause is the caller's here and
-/// the clause's in every public builder.
+/// of zero (figure 72), `P/N` and `T` as given. The cause is the caller's here
+/// and the clause's in every public builder.
 fn frame(
     cause: Cause,
     negative: bool,
+    test: bool,
     scope: Scope,
     common_address: u16,
     originator: u8,
@@ -448,7 +449,7 @@ fn frame(
         count: 1,
         cause,
         negative,
-        test: false,
+        test,
         originator,
         common_address,
     };
@@ -500,6 +501,7 @@ pub fn request_with(
     frame(
         CAUSE_ACTIVATION,
         false,
+        false,
         scope,
         common_address,
         originator,
@@ -545,6 +547,7 @@ pub fn deactivation_with(
 ) -> Result<Vec<u8>, LayoutError> {
     frame(
         CAUSE_DEACTIVATION,
+        false,
         false,
         scope,
         common_address,
@@ -594,10 +597,10 @@ pub struct Interrogation {
     running: Vec<Scope>,
     queued: Vec<Scope>,
     awaiting_data: bool,
-    /// Controlled station: the originator address of each positively
-    /// confirmed activation, oldest first, echoed on everything that answers
-    /// it (5-101 cl.7.2.3).
-    origins: Vec<(Scope, u8)>,
+    /// Controlled station: the originator address and test bit of each
+    /// positively confirmed activation, oldest first, echoed on everything
+    /// that answers it (5-101 cl.7.2.3).
+    origins: Vec<(Scope, u8, bool)>,
     /// Controlling station addressing the broadcast common address: each LRU
     /// that has positively confirmed a scope and not yet terminated it, by
     /// its own common address (5-101 cl.7.4.5, see [`Interrogation::on_response`]).
@@ -777,7 +780,7 @@ impl Interrogation {
         self.pending.retain(|s| *s != scope);
         self.running.retain(|s| *s != scope);
         self.queued.retain(|s| *s != scope);
-        self.origins.retain(|(s, _)| *s != scope);
+        self.origins.retain(|(s, _, _)| *s != scope);
         self.lrus.retain(|(s, _)| *s != scope);
         if self.running.is_empty() {
             self.awaiting_data = false;
@@ -1106,7 +1109,7 @@ impl Interrogation {
                 let negative = !current && !queued;
                 self.queued.retain(|s| *s != scope);
                 if !negative {
-                    self.origins.retain(|(s, _)| *s != scope);
+                    self.origins.retain(|(s, _, _)| *s != scope);
                 }
                 if current {
                     self.running.clear();
@@ -1120,11 +1123,7 @@ impl Interrogation {
                 }
                 Ok(Outcome {
                     reaction: Reaction::DeactivationConfirmed { scope, negative },
-                    send: vec![self.deactivation_confirmation(
-                        scope,
-                        negative,
-                        header.originator,
-                    )?],
+                    send: vec![self.deactivation_confirmation(scope, negative, &header)?],
                 })
             }
             _ => Ok(other()),
@@ -1146,7 +1145,7 @@ impl Interrogation {
             // A second activation while one runs: TS 60870-5-604
             // Table 17's note, one branch per option.
             Some(current) => match self.policy {
-                ReActivation::Continue => self.confirmation_outcome(scope, true, header.originator),
+                ReActivation::Continue => self.confirmation_outcome(scope, true, header),
                 ReActivation::Restart => {
                     // "the current GI is stopped": indicated with the
                     // termination that procedure owed, then the second
@@ -1155,8 +1154,8 @@ impl Interrogation {
                     self.running.clear();
                     self.running.push(scope);
                     self.awaiting_data = true;
-                    self.origins.push((scope, header.originator));
-                    let confirmed = self.confirmation(scope, false, header.originator)?;
+                    self.origins.push((scope, header.originator, header.test));
+                    let confirmed = self.confirmation(scope, false, header)?;
                     Ok(Outcome {
                         reaction: Reaction::ActivationConfirmed {
                             scope,
@@ -1169,9 +1168,9 @@ impl Interrogation {
                     // "mirrors the second Interrogation Command with
                     // COT = 7, C_IC_ACTCON"; its data waits for the
                     // first procedure's termination.
-                    let confirmed = self.confirmation(scope, false, header.originator)?;
+                    let confirmed = self.confirmation(scope, false, header)?;
                     self.queued.push(scope);
-                    self.origins.push((scope, header.originator));
+                    self.origins.push((scope, header.originator, header.test));
                     Ok(Outcome {
                         reaction: Reaction::ActivationConfirmed {
                             scope,
@@ -1184,12 +1183,12 @@ impl Interrogation {
             None if data.ready(scope) => {
                 self.running.push(scope);
                 self.awaiting_data = true;
-                self.origins.push((scope, header.originator));
-                self.confirmation_outcome(scope, false, header.originator)
+                self.origins.push((scope, header.originator, header.test));
+                self.confirmation_outcome(scope, false, header)
             }
             // Not ready: a negative confirmation changes no state, so
             // "the station interrogation command may be repeated".
-            None => self.confirmation_outcome(scope, true, header.originator),
+            None => self.confirmation_outcome(scope, true, header),
         }
     }
 
@@ -1217,7 +1216,7 @@ impl Interrogation {
             .copied()
             .filter(|_| self.awaiting_data)
             .ok_or(GiError::NotRunning)?;
-        let frames = collect(data, scope, self.sizes, self.origin(scope))?;
+        let frames = collect(data, scope, self.sizes, self.origin(scope).0)?;
         self.awaiting_data = false;
         Ok(frames)
     }
@@ -1254,7 +1253,7 @@ impl Interrogation {
         }
         let current = self.running.first().copied().ok_or(GiError::NotRunning)?;
         let mut frames = if self.awaiting_data {
-            collect(data, current, self.sizes, self.origin(current))?
+            collect(data, current, self.sizes, self.origin(current).0)?
         } else {
             Vec::new()
         };
@@ -1265,48 +1264,52 @@ impl Interrogation {
         // are part of the second initiated GI are sent with the correct COT."
         while let Some(next) = self.queued.first().copied() {
             self.queued.remove(0);
-            frames.extend(collect(data, next, self.sizes, self.origin(next))?);
+            frames.extend(collect(data, next, self.sizes, self.origin(next).0)?);
             frames.push(self.terminate(next)?);
         }
         Ok(frames)
     }
 
-    /// The originator address the oldest running activation of `scope` came
-    /// with, or this station's own when none is recorded.
-    fn origin(&self, scope: Scope) -> u8 {
+    /// The originator address and test bit the oldest running activation of
+    /// `scope` came with, or this station's own and `T = 0` when none is
+    /// recorded.
+    fn origin(&self, scope: Scope) -> (u8, bool) {
         self.origins
             .iter()
-            .find(|(s, _)| *s == scope)
-            .map_or(self.org, |(_, org)| *org)
+            .find(|(s, _, _)| *s == scope)
+            .map_or((self.org, false), |(_, org, test)| (*org, *test))
     }
 
-    /// The confirmation of `scope` with `P/N` as given, echoing `originator`.
+    /// The confirmation of `scope` with `P/N` as given, echoing the request's
+    /// originator address and test bit.
     fn confirmation(
         &self,
         scope: Scope,
         negative: bool,
-        originator: u8,
+        request: &Header,
     ) -> Result<Vec<u8>, GiError> {
         Ok(frame(
             CAUSE_ACTIVATION_CON,
             negative,
+            request.test,
             scope,
             self.ca,
-            originator,
+            request.originator,
             self.sizes,
         )?)
     }
 
     /// The termination of `scope`'s oldest procedure (`C_IC ACTTERM`), echoing
-    /// its activation's originator, which it retires.
+    /// its activation's originator and test bit, which it retires.
     fn terminate(&mut self, scope: Scope) -> Result<Vec<u8>, GiError> {
-        let originator = self.origin(scope);
-        if let Some(at) = self.origins.iter().position(|(s, _)| *s == scope) {
+        let (originator, test) = self.origin(scope);
+        if let Some(at) = self.origins.iter().position(|(s, _, _)| *s == scope) {
             self.origins.remove(at);
         }
         Ok(frame(
             CAUSE_ACTIVATION_TERM,
             false,
+            test,
             scope,
             self.ca,
             originator,
@@ -1314,19 +1317,21 @@ impl Interrogation {
         )?)
     }
 
-    /// The deactivation's confirmation (`C_IC DEACTCON`), echoing `originator`.
+    /// The deactivation's confirmation (`C_IC DEACTCON`), echoing the request's
+    /// originator address and test bit.
     fn deactivation_confirmation(
         &self,
         scope: Scope,
         negative: bool,
-        originator: u8,
+        request: &Header,
     ) -> Result<Vec<u8>, GiError> {
         Ok(frame(
             CAUSE_DEACTIVATION_CON,
             negative,
+            request.test,
             scope,
             self.ca,
-            originator,
+            request.originator,
             self.sizes,
         )?)
     }
@@ -1337,11 +1342,11 @@ impl Interrogation {
         &self,
         scope: Scope,
         negative: bool,
-        originator: u8,
+        request: &Header,
     ) -> Result<Outcome, GiError> {
         Ok(Outcome {
             reaction: Reaction::ActivationConfirmed { scope, negative },
-            send: vec![self.confirmation(scope, negative, originator)?],
+            send: vec![self.confirmation(scope, negative, request)?],
         })
     }
 }

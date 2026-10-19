@@ -162,6 +162,7 @@ impl Station {
                     ioa,
                     select: false,
                     negative: false,
+                    ..
                 } = outcome.reaction
                 {
                     // The application acts on the command, then terminates it.

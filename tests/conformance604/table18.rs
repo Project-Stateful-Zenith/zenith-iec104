@@ -180,7 +180,7 @@ impl StationApp for ClockedStation {
             .cs
             .on_request(asdu, &station_known(asdu)?, self.clock)
             .map_err(|e| format!("cs: {e:?}"))?;
-        if let Reaction::Requested { time } = outcome.reaction {
+        if let Reaction::Requested { time, .. } = outcome.reaction {
             self.clock = time;
             self.events_due += 1;
         }
@@ -273,7 +273,10 @@ fn clause_5_4_18_1_the_controlled_station_confirms_with_its_time_before_the_sync
     );
     assert_eq!(
         *syncs.lock().expect("the record"),
-        vec![Reaction::Requested { time: time(T_SYNC) }],
+        vec![Reaction::Requested {
+            time: time(T_SYNC),
+            test: false
+        }],
         "5.4.18.1: the station took the controlling station's time"
     );
 }
