@@ -1213,7 +1213,7 @@ impl Interrogation {
     /// Every ASDU comes from the [`DataSource`] and is checked here: its cause
     /// of transmission must be the running scope's, and [`is_interrogated`]
     /// must hold for its type. Each frame echoes the activation's originator
-    /// address (5-101 clause 7.2.3).
+    /// address and test bit (5-101 clause 7.2.3).
     ///
     /// # Errors
     ///
@@ -1231,7 +1231,7 @@ impl Interrogation {
             .copied()
             .filter(|_| self.awaiting_data)
             .ok_or(GiError::NotRunning)?;
-        let frames = collect(data, scope, self.sizes, self.origin(scope).0)?;
+        let frames = collect(data, scope, self.sizes, self.origin(scope))?;
         self.awaiting_data = false;
         Ok(frames)
     }
@@ -1268,7 +1268,7 @@ impl Interrogation {
         }
         let current = self.running.first().copied().ok_or(GiError::NotRunning)?;
         let mut frames = if self.awaiting_data {
-            collect(data, current, self.sizes, self.origin(current).0)?
+            collect(data, current, self.sizes, self.origin(current))?
         } else {
             Vec::new()
         };
@@ -1279,7 +1279,7 @@ impl Interrogation {
         // are part of the second initiated GI are sent with the correct COT."
         while let Some(next) = self.queued.first().copied() {
             self.queued.remove(0);
-            frames.extend(collect(data, next, self.sizes, self.origin(next).0)?);
+            frames.extend(collect(data, next, self.sizes, self.origin(next))?);
             frames.push(self.terminate(next)?);
         }
         Ok(frames)
@@ -1400,7 +1400,7 @@ fn collect(
     data: &dyn DataSource,
     scope: Scope,
     sizes: AddressSizes,
-    originator: u8,
+    (originator, test): (u8, bool),
 ) -> Result<Vec<Vec<u8>>, GiError> {
     let mut raw = Vec::new();
     data.interrogated(scope, &mut raw);
@@ -1418,8 +1418,8 @@ fn collect(
                 got: header.cause,
             });
         }
-        // The data answers the request too, so it echoes its originator.
-        frames.push(crate::asdu::with_originator(&asdu, originator, sizes)?);
+        // The data answers the request too, so it echoes its originator and test bit.
+        frames.push(crate::asdu::with_origin(&asdu, originator, test, sizes)?);
     }
     Ok(frames)
 }

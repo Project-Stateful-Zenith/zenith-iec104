@@ -457,20 +457,27 @@ impl Header {
     }
 }
 
-/// `asdu` with its header's originator address replaced by `originator`, for
-/// a response that must echo the request's (5-101 cl.7.2.3). Unchanged when
-/// the profile carries no originator octet.
-pub(crate) fn with_originator(
+/// `asdu` with its header's originator address and test bit replaced by the
+/// request's, for a response that must echo them (5-101 cl.7.2.3). The
+/// originator stays as it is when the profile carries no originator octet.
+pub(crate) fn with_origin(
     asdu: &[u8],
     originator: u8,
+    test: bool,
     sizes: AddressSizes,
 ) -> Result<Vec<u8>, AsduError> {
     let header = Header::parse_with(asdu, sizes)?;
-    if !sizes.originator_address() || header.originator == originator {
+    let originator = if sizes.originator_address() {
+        originator
+    } else {
+        header.originator
+    };
+    if header.originator == originator && header.test == test {
         return Ok(asdu.to_vec());
     }
     let mut out = Vec::with_capacity(asdu.len());
     Header {
+        test,
         originator,
         ..header
     }

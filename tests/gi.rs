@@ -1519,6 +1519,34 @@ fn every_answer_echoes_the_requests_test_bit() {
     );
 }
 
+/// 5-101 cl.7.2.3: the data answering a `T = 1` interrogation is generated
+/// under test conditions too, so it carries `T = 1`; an interrogation queued
+/// behind it (option 3) answers with its own request's `T = 0`.
+#[test]
+fn the_data_echoes_its_own_requests_test_bit() {
+    let mut controlled = Interrogation::controlled(ReActivation::Queue, CA, 0);
+    let device = Device::new();
+    let mut tested = request(Scope::Station, CA, 0).unwrap();
+    tested[2] |= 0x80;
+    controlled
+        .on_request(&tested, &Known::EVERYTHING, &device)
+        .unwrap();
+    let normal = request(Scope::Station, CA, 0).unwrap();
+    controlled
+        .on_request(&normal, &Known::EVERYTHING, &device)
+        .unwrap();
+    let frames = controlled.complete(&device).unwrap();
+    let tests: Vec<_> = frames
+        .iter()
+        .map(|frame| Header::parse(frame).unwrap().test)
+        .collect();
+    assert_eq!(
+        tests,
+        [true, true, true, false, false, false],
+        "T = 1 data and actterm, then the queued T = 0 data and actterm"
+    );
+}
+
 /// A group outside 1..=16 is refused rather than clamped into another group.
 #[test]
 fn a_group_outside_the_standards_range_is_refused() {

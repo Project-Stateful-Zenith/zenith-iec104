@@ -1124,7 +1124,7 @@ impl CounterInterrogation {
             return Err(CiError::WrongRole);
         }
         let request = self.owed.first().copied().ok_or(CiError::NotRunning)?;
-        let frames = collect(data, request, self.sizes, self.origin(request).0)?;
+        let frames = collect(data, request, self.sizes, self.origin(request))?;
         self.owed.remove(0);
         Ok(frames)
     }
@@ -1154,7 +1154,7 @@ impl CounterInterrogation {
         }
         let request = self.running.first().copied().ok_or(CiError::NotRunning)?;
         let mut frames = if self.owed.contains(&request) {
-            collect(data, request, self.sizes, self.origin(request).0)?
+            collect(data, request, self.sizes, self.origin(request))?
         } else {
             Vec::new()
         };
@@ -1249,7 +1249,7 @@ fn collect(
     data: &dyn CounterSource,
     request: Request,
     sizes: AddressSizes,
-    originator: u8,
+    (originator, test): (u8, bool),
 ) -> Result<Vec<Vec<u8>>, CiError> {
     let mut raw = Vec::new();
     data.totals(request, &mut raw);
@@ -1267,8 +1267,8 @@ fn collect(
                 got: header.cause,
             });
         }
-        // The totals answer the request too, so they echo its originator.
-        frames.push(crate::asdu::with_originator(&asdu, originator, sizes)?);
+        // The totals answer the request too, so they echo its originator and test bit.
+        frames.push(crate::asdu::with_origin(&asdu, originator, test, sizes)?);
     }
     Ok(frames)
 }
