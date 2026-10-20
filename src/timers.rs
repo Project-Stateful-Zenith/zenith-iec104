@@ -333,10 +333,15 @@ impl Supervisor {
                 }
                 Action::SendI { ns, .. } => {
                     timers.frame_sent(now);
-                    if let Some(sent) = self.frames_sent.iter_mut().find(|(seen, _)| seen == ns) {
-                        sent.1 = now;
-                    } else {
-                        self.frames_sent.push_back((*ns, now));
+                    // The queue runs in N(S) order, so a retransmitted frame
+                    // sits at its distance from the front: one look, not a
+                    // scan of up to k entries per frame sent.
+                    let at = self.frames_sent.front().map_or(usize::MAX, |(first, _)| {
+                        usize::from(ns.get().wrapping_sub(first.get()) & 0x7FFF)
+                    });
+                    match self.frames_sent.get_mut(at).filter(|(seen, _)| seen == ns) {
+                        Some(sent) => sent.1 = now,
+                        None => self.frames_sent.push_back((*ns, now)),
                     }
                 }
                 _ => {}
