@@ -146,9 +146,13 @@ pub async fn connect_over(
     let name = ServerName::try_from(server_name.to_string())
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
     let connector = RustlsConnector::from(config.client.clone());
-    let stream = timeout(config.handshake_timeout, connector.connect(name, tcp))
-        .await
-        .map_err(|_| handshake_timed_out())??;
+    let stream = timeout(
+        config.handshake_timeout,
+        connector.connect(name.clone(), tcp),
+    )
+    .await
+    .map_err(|_| handshake_timed_out())??;
+    crate::verify::check_resumed(stream.get_ref().1, config, Some(&name))?;
     Ok(TlsStream {
         inner: stream.into(),
         renewal: Renewal::new(config.key_update_interval),
@@ -167,6 +171,7 @@ pub async fn accept(tcp: TcpStream, config: &TlsConfig) -> io::Result<TlsStream>
     let stream = timeout(config.handshake_timeout, acceptor.accept(tcp))
         .await
         .map_err(|_| handshake_timed_out())??;
+    crate::verify::check_resumed(stream.get_ref().1, config, None)?;
     Ok(TlsStream {
         inner: stream.into(),
         renewal: Renewal::new(config.key_update_interval),
