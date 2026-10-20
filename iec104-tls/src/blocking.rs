@@ -243,7 +243,19 @@ impl TlsStream {
 impl Read for TlsStream {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         // Whatever the session queued (a KeyUpdate the peer asked for) first.
-        self.flush_tls()?;
+        // A send that only timed out does not stop the read: two stations
+        // both stuck writing must still drain each other.
+        match self.flush_tls() {
+            Err(e)
+                if !matches!(
+                    e.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                ) =>
+            {
+                return Err(e);
+            }
+            _ => {}
+        }
         // The socket timeout bounds each pass; this bounds the whole read, so a
         // peer trickling a record one octet at a time cannot hold it forever.
         let deadline = self

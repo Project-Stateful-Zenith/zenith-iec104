@@ -1,7 +1,8 @@
 //! Hardening against misbehaving peers and stale credentials: a handshake
 //! that never finishes, a trickled record, a lone `KeyUpdate`, descriptor
-//! exhaustion, a peer that drains slowly or not at all, an out-of-date CRL, credentials that do not fit together, and
-//! resumption past a certificate's expiry.
+//! exhaustion, a peer that drains slowly or not at all, an out-of-date CRL,
+//! credentials that do not fit together, and resumption past a certificate's
+//! expiry.
 
 // Test code may panic, index and compute freely, as clippy.toml allows inside #[test] functions.
 #![allow(clippy::unwrap_used, clippy::arithmetic_side_effects)]
@@ -252,6 +253,53 @@ fn a_queued_write_is_not_reported_as_failed() {
     }
     tls.shutdown().unwrap();
     assert_eq!(srv.join().unwrap(), data[..n]);
+}
+
+/// Data stuck on the way out does not stop the way in: a station whose own
+/// send has stalled still reads what the peer sent, so two stations both stuck
+/// writing can drain each other.
+#[test]
+fn a_stalled_send_does_not_stop_the_read() {
+    let ca = Ca::new("test CA");
+    let server = station(&ca, 2, &ca).build().unwrap();
+    let client = station(&ca, 1, &ca).build().unwrap();
+    let (listener, port) = narrow_listener();
+    let (go, wait) = mpsc::channel::<()>();
+    let srv = thread::spawn(move || {
+        let (tcp, _) = listener.accept().unwrap();
+        let mut tls = iec104_tls::accept(tcp, &server).unwrap();
+        tls.write_all(b"ping").unwrap();
+        tls.flush().unwrap();
+        // Reads nothing until the test is over.
+        let _ = wait.recv();
+    });
+    let mut tls = narrow_client(port, &client, Duration::from_millis(100));
+    let data: Vec<u8> = (0..=250u8).cycle().take(65536).collect();
+    assert!(tls.write(&data).unwrap() > 0);
+    let kind = tls.flush().unwrap_err().kind();
+    assert!(
+        matches!(kind, io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut),
+        "{kind:?}"
+    );
+    let mut got = [0u8; 4];
+    let started = Instant::now();
+    let mut have = 0;
+    while have < got.len() {
+        match tls.read(&mut got[have..]) {
+            Ok(0) => panic!("closed"),
+            Ok(k) => have += k,
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                assert!(
+                    started.elapsed() < Duration::from_secs(5),
+                    "the read never got past the stalled send"
+                );
+            }
+            Err(e) => panic!("{e}"),
+        }
+    }
+    assert_eq!(&got, b"ping");
+    go.send(()).unwrap();
+    srv.join().unwrap();
 }
 
 /// A CRL whose nextUpdate has passed says nothing about today (RFC 5280
