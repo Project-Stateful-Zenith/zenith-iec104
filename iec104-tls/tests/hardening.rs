@@ -1,6 +1,6 @@
 //! Hardening against misbehaving peers and stale credentials: a handshake
 //! that never finishes, a trickled record, a lone `KeyUpdate`, descriptor
-//! exhaustion, an out-of-date CRL, credentials that do not fit together, and
+//! exhaustion, a peer that drains slowly or not at all, an out-of-date CRL, credentials that do not fit together, and
 //! resumption past a certificate's expiry.
 
 // Test code may panic, index and compute freely, as clippy.toml allows inside #[test] functions.
@@ -10,7 +10,8 @@ mod pki;
 
 use std::io::{self, Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -129,6 +130,128 @@ fn the_blocking_read_timeout_holds_against_a_trickling_record() {
         matches!(kind, io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut),
         "{kind:?}"
     );
+}
+
+/// A listener whose connections have a small receive buffer, and so a small
+/// TCP window.
+fn narrow_listener() -> (TcpListener, u16) {
+    let socket = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::STREAM, None).unwrap();
+    socket.set_recv_buffer_size(4096).unwrap();
+    socket
+        .bind(
+            &"127.0.0.1:0"
+                .parse::<std::net::SocketAddr>()
+                .unwrap()
+                .into(),
+        )
+        .unwrap();
+    socket.listen(1).unwrap();
+    let l = TcpListener::from(socket);
+    let p = l.local_addr().unwrap().port();
+    (l, p)
+}
+
+/// A client over a small send buffer, with `timeout` for writes.
+fn narrow_client(port: u16, client: &TlsConfig, timeout: Duration) -> iec104_tls::TlsStream {
+    let tcp = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    socket2::SockRef::from(&tcp)
+        .set_send_buffer_size(4096)
+        .unwrap();
+    let tls = iec104_tls::connect_over(tcp, "127.0.0.1", client).unwrap();
+    tls.get_ref().set_write_timeout(Some(timeout)).unwrap();
+    tls
+}
+
+/// The write timeout bounds the whole flush, not each send: a peer draining
+/// 2 KiB every 50 ms keeps every send moving, yet a flush of 64 KiB with a
+/// 150 ms write timeout gives up after a few timeouts.
+#[test]
+fn the_blocking_write_timeout_holds_against_a_slow_reader() {
+    let ca = Ca::new("test CA");
+    let server = station(&ca, 2, &ca).build().unwrap();
+    let client = station(&ca, 1, &ca).build().unwrap();
+    let (listener, port) = narrow_listener();
+    let done = Arc::new(AtomicBool::new(false));
+    let srv = thread::spawn({
+        let done = Arc::clone(&done);
+        move || {
+            let (tcp, _) = listener.accept().unwrap();
+            let tls = iec104_tls::accept(tcp, &server).unwrap();
+            let mut raw = tls.get_ref();
+            let started = Instant::now();
+            let mut buf = [0u8; 2048];
+            while !done.load(Ordering::Relaxed) && started.elapsed() < Duration::from_secs(5) {
+                if matches!(raw.read(&mut buf), Ok(0) | Err(_)) {
+                    return;
+                }
+                thread::sleep(Duration::from_millis(50));
+            }
+        }
+    });
+    let mut tls = narrow_client(port, &client, Duration::from_millis(150));
+    let started = Instant::now();
+    let r = tls.write(&vec![0u8; 65536]).and_then(|_| tls.flush());
+    let elapsed = started.elapsed();
+    done.store(true, Ordering::Relaxed);
+    srv.join().unwrap();
+    assert!(
+        elapsed < Duration::from_millis(900),
+        "write and flush took {elapsed:?} with a 150 ms write timeout ({r:?})"
+    );
+    let kind = r.unwrap_err().kind();
+    assert!(
+        matches!(kind, io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut),
+        "{kind:?}"
+    );
+}
+
+/// A write whose data is queued succeeds even when sending it times out, so
+/// the caller does not write it again: once the peer reads, it gets the data
+/// exactly once.
+#[test]
+fn a_queued_write_is_not_reported_as_failed() {
+    let ca = Ca::new("test CA");
+    let server = station(&ca, 2, &ca).build().unwrap();
+    let client = station(&ca, 1, &ca).build().unwrap();
+    let (listener, port) = narrow_listener();
+    let (go, wait) = mpsc::channel::<()>();
+    let srv = thread::spawn(move || {
+        let (tcp, _) = listener.accept().unwrap();
+        let mut tls = iec104_tls::accept(tcp, &server).unwrap();
+        // Not reading until the client's write has stalled.
+        if wait.recv().is_err() {
+            return Vec::new();
+        }
+        let mut got = Vec::new();
+        tls.read_to_end(&mut got).unwrap();
+        got
+    });
+    let mut tls = narrow_client(port, &client, Duration::from_millis(100));
+    let data: Vec<u8> = (0..=250u8).cycle().take(65536).collect();
+    let n = tls.write(&data).unwrap();
+    assert!(n > 0);
+    // The peer reads nothing yet: the rest of the data cannot go out.
+    let kind = tls.flush().unwrap_err().kind();
+    assert!(
+        matches!(kind, io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut),
+        "{kind:?}"
+    );
+    go.send(()).unwrap();
+    let started = Instant::now();
+    loop {
+        match tls.flush() {
+            Ok(()) => break,
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                assert!(
+                    started.elapsed() < Duration::from_secs(5),
+                    "flush never finished"
+                );
+            }
+            Err(e) => panic!("{e}"),
+        }
+    }
+    tls.shutdown().unwrap();
+    assert_eq!(srv.join().unwrap(), data[..n]);
 }
 
 /// A CRL whose nextUpdate has passed says nothing about today (RFC 5280

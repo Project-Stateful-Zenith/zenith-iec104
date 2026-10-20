@@ -141,7 +141,11 @@ impl<S: Socket> Link<S> {
             .encode(&mut frame)
             .map_err(|e| format!("{e:?}"))?;
         log("->", &frame, self.sizes);
-        stream.write_all(&frame).map_err(|e| e.to_string())
+        // A TLS stream's write only queues; the flush puts the frame on the wire.
+        stream
+            .write_all(&frame)
+            .and_then(|()| stream.flush())
+            .map_err(|e| e.to_string())
     }
 
     /// Reads what the socket has (waiting at most the read timeout), feeds each

@@ -15,7 +15,10 @@ use crate::config::TlsConfig;
 ///
 /// Reads and writes follow the TCP socket's timeouts ([`TlsStream::get_ref`]
 /// to set them). A read that times out mid-record keeps what arrived and
-/// continues on the next call. After a failed write the session is unusable.
+/// continues on the next call. A write returns once its data is queued, sending
+/// what the write timeout allows; [`flush`](Write::flush) to wait until all of
+/// it is out. After a write or flush fails with any error but `WouldBlock` or
+/// `TimedOut` the session is unusable.
 pub struct TlsStream {
     conn: Connection,
     sock: TcpStream,
@@ -220,7 +223,17 @@ impl TlsStream {
     }
 
     fn flush_tls(&mut self) -> io::Result<()> {
+        // The socket timeout bounds each send, and a send that moved any byte
+        // succeeds: this bounds the whole flush against a peer draining slowly.
+        let deadline = self
+            .sock
+            .write_timeout()?
+            .and_then(|timeout| Instant::now().checked_add(timeout));
         while self.conn.wants_write() {
+            if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                // The rest stays queued for the next write, flush or read.
+                return Err(io::ErrorKind::WouldBlock.into());
+            }
             self.conn.write_tls(&mut self.sock)?;
         }
         Ok(())
@@ -255,9 +268,15 @@ impl Read for TlsStream {
 
 impl Write for TlsStream {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        // What an earlier write left queued goes first; its error, if any, is
+        // reported here, before `buf` is taken.
+        self.flush_tls()?;
         self.renew_if_due()?;
         let n = self.conn.writer().write(buf)?;
-        self.flush_tls()?;
+        // `buf` is queued and will go out: reporting a failed send now would
+        // make the caller write it twice. The next write, flush or read
+        // retries the send and reports what still fails.
+        let _ = self.flush_tls();
         Ok(n)
     }
 

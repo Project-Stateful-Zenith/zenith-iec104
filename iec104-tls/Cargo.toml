@@ -29,6 +29,8 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["ring",
 iec104-tls = { path = ".", features = ["tokio"] }
 iec104-tokio = { path = "../iec104-tokio" }
 rcgen = "0.14"
+# Small socket buffers, so the tests can stall a TLS write on purpose.
+socket2 = "0.6"
 tokio = { version = "1.53", features = ["io-util", "macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
 
 [lints]
