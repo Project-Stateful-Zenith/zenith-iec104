@@ -1634,7 +1634,13 @@ fn the_deactivation_stops_a_select_and_changes_no_value() {
     );
 
     let outcome = controlled.on_request(&deact, &Known::EVERYTHING).unwrap();
-    assert_eq!(outcome.reaction, Reaction::Deactivated { ioa: 0x3000 });
+    assert_eq!(
+        outcome.reaction,
+        Reaction::Deactivated {
+            ioa: 0x3000,
+            negative: false
+        }
+    );
     assert_eq!(outcome.send.len(), 1);
     let deactcon = &outcome.send[0];
     assert_eq!(cause_of(deactcon), Cause::DeactivationCon);
@@ -1651,7 +1657,13 @@ fn the_deactivation_stops_a_select_and_changes_no_value() {
     let outcome = controlling
         .on_response(deactcon, &Known::EVERYTHING)
         .unwrap();
-    assert_eq!(outcome.reaction, Reaction::Deactivated { ioa: 0x3000 });
+    assert_eq!(
+        outcome.reaction,
+        Reaction::Deactivated {
+            ioa: 0x3000,
+            negative: false
+        }
+    );
     assert!(!controlling.is_selected(0x3000));
     assert_eq!(
         cause_of(&deactivation_confirmation(&command, CA, ORG, false).unwrap()),
@@ -1678,7 +1690,13 @@ fn a_deactivation_with_se_1_is_accepted_and_mirrored_as_it_came() {
     let deact = deactivation(&command, CA, ORG).unwrap();
     assert_eq!(deact[9] & 0x80, 0x80, "the S/E bit is written as given");
     let outcome = controlled.on_request(&deact, &Known::EVERYTHING).unwrap();
-    assert_eq!(outcome.reaction, Reaction::Deactivated { ioa: 0x3000 });
+    assert_eq!(
+        outcome.reaction,
+        Reaction::Deactivated {
+            ioa: 0x3000,
+            negative: false
+        }
+    );
     assert_eq!(outcome.send[0][9] & 0x80, 0x80, "and echoed unchanged");
     assert_eq!(outcome.send[0][9], deact[9]);
 }
@@ -3041,7 +3059,13 @@ fn the_controlled_station_refuses_a_deactivation_that_is_not_the_select() {
     let mut deact = activation(&single(0x3000, true, true), CA, ORG).unwrap();
     deact[2] = 0x08;
     let outcome = controlled.on_request(&deact, &Known::EVERYTHING).unwrap();
-    assert_eq!(outcome.reaction, Reaction::Deactivated { ioa: 0x3000 });
+    assert_eq!(
+        outcome.reaction,
+        Reaction::Deactivated {
+            ioa: 0x3000,
+            negative: false
+        }
+    );
     assert_eq!(cause_of(&outcome.send[0]), Cause::DeactivationCon);
     assert!(!controlled.is_selected(0x3000));
 }
@@ -3444,4 +3468,41 @@ fn with_time_selects_the_tagged_twin() {
     assert_eq!(frame[0], 58);
     assert_eq!(frame[9], 0x01);
     assert_eq!(frame.len(), 9 + 1 + 7);
+}
+
+/// 5-101 cl.7.2.3: `P/N = 1` on the `DEACTCON` refuses the deactivation. The
+/// station that lost the select answers so, and the controlling station
+/// reports the refusal rather than a deactivation.
+#[test]
+fn a_negative_deactcon_is_reported_as_negative() {
+    let mut controlling = CommandTransmission::controlling(
+        CommandMode::SelectAndExecute,
+        CommandSet::Untagged,
+        Termination::All,
+        CA,
+        ORG,
+    );
+    let mut controlled = controlled_sbo();
+    let command = single(0x3000, true, true);
+    let select = controlling.select(&command).unwrap();
+    let mirror = controlled_sbo()
+        .on_request(&select, &Known::EVERYTHING)
+        .unwrap();
+    controlling
+        .on_response(&mirror.send[0], &Known::EVERYTHING)
+        .unwrap();
+    // `controlled` never saw the select: it answers the DEACT negatively.
+    let deact = controlling.deactivate(&command).unwrap();
+    let answer = controlled.on_request(&deact, &Known::EVERYTHING).unwrap();
+    let outcome = controlling
+        .on_response(&answer.send[0], &Known::EVERYTHING)
+        .unwrap();
+    assert_eq!(
+        outcome.reaction,
+        Reaction::Deactivated {
+            ioa: 0x3000,
+            negative: true
+        }
+    );
+    assert!(!controlling.is_selected(0x3000));
 }

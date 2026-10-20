@@ -1198,7 +1198,7 @@ impl Task {
                     (ioa, Ok(CommandOutcome::Terminated))
                 }
             }
-            ct::Reaction::Deactivated { ioa } => {
+            ct::Reaction::Deactivated { ioa, negative } => {
                 let cancelling = self
                     .commands
                     .iter()
@@ -1208,7 +1208,7 @@ impl Task {
                 }
                 // The `P/N` bit of 5-101 cl.7.2.3, on the deactivation's
                 // confirmation: a negative one refuses the deactivation.
-                if header.negative {
+                if negative {
                     (ioa, Err(ClientError::Rejected))
                 } else {
                     (ioa, Ok(CommandOutcome::Confirmed))
