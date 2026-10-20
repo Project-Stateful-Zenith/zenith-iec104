@@ -38,7 +38,7 @@
 //! numbers in and asks for the numbers to stamp on outgoing frames.
 
 use crate::apci::SeqNo;
-use crate::params::{LinkParams, MODULUS};
+use crate::params::{LinkParams, MODULUS, ParamError};
 
 /// One I-format APDU that was sent and is held until its N(S) comes back as an
 /// N(R) (clause 5.1's send buffer).
@@ -89,8 +89,21 @@ impl Sequence {
     /// A fresh connection: both counters are zero (clause 5.1, "After the
     /// establishment of a TCP connection, the send and receive sequence numbers
     /// are set to zero").
-    #[must_use]
-    pub const fn new(params: LinkParams) -> Self {
+    ///
+    /// The parameters are validated as [`Session::with_params`](crate::link::Session::with_params)
+    /// does: a k above `n - 1` would let N(S) wrap onto unacknowledged frames,
+    /// and a k or w of zero never opens the window.
+    ///
+    /// # Errors
+    ///
+    /// The [`ParamError`] of [`LinkParams::validate`] for an inadmissible set.
+    pub fn new(params: LinkParams) -> Result<Self, ParamError> {
+        params.validate()?;
+        Ok(Self::new_unchecked(params))
+    }
+
+    /// [`Sequence::new`] for parameters the caller has already validated.
+    pub(crate) const fn new_unchecked(params: LinkParams) -> Self {
         Self {
             v_s: SeqNo::new(0),
             v_r: SeqNo::new(0),

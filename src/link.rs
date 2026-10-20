@@ -438,7 +438,7 @@ impl Session {
         Self {
             role,
             state: State::Stopped,
-            seq: Sequence::new(LinkParams::default()),
+            seq: Sequence::new_unchecked(LinkParams::default()),
             test_pending: false,
             pending: VecDeque::new(),
             connected: false,
@@ -459,7 +459,7 @@ impl Session {
         Ok(Self {
             role,
             state: State::Stopped,
-            seq: Sequence::new(params),
+            seq: Sequence::new_unchecked(params),
             test_pending: false,
             pending: VecDeque::new(),
             connected: false,
