@@ -455,6 +455,59 @@ fn a_server_certificate_for_another_host_is_refused_unless_the_name_check_is_off
     connect(server, &client, "127.0.0.1").client.unwrap();
 }
 
+/// With the name check off, a server certificate for another host must
+/// still pass every other check. The verifier only forgives rustls' name
+/// error, which is safe only while rustls checks the name last: these pin
+/// that order.
+fn refused_with_the_name_check_off(
+    server: &pki::Leaf,
+    trusts: &Ca,
+    crls: Vec<iec104_tls::CertificateRevocationListDer<'static>>,
+) -> rustls::Error {
+    let server = TlsConfig::builder(server.identity(), vec![trusts.cert.clone()])
+        .build()
+        .unwrap();
+    let client = station(trusts, 1, trusts)
+        .crls(crls)
+        .verify_server_name(false)
+        .build()
+        .unwrap();
+    tls(connect(server, &client, "127.0.0.1").client)
+}
+
+#[test]
+fn the_name_check_off_still_refuses_an_untrusted_ca() {
+    let rogue = Ca::new("rogue CA");
+    let leaf = rogue.leaf(&["rtu-7.example"], 2);
+    assert_eq!(
+        refused_with_the_name_check_off(&leaf, &Ca::new("test CA"), vec![]),
+        rustls::Error::InvalidCertificate(CertificateError::UnknownIssuer)
+    );
+}
+
+#[test]
+fn the_name_check_off_still_refuses_a_revoked_certificate() {
+    let ca = Ca::new("test CA");
+    let leaf = ca.leaf(&["rtu-7.example"], 2);
+    assert_eq!(
+        refused_with_the_name_check_off(&leaf, &ca, vec![ca.crl(&[2])]),
+        rustls::Error::InvalidCertificate(CertificateError::Revoked)
+    );
+}
+
+#[test]
+fn the_name_check_off_still_refuses_an_expired_certificate() {
+    let ca = Ca::new("test CA");
+    let leaf = ca.leaf_expiring(&["rtu-7.example"], 2, 0);
+    thread::sleep(Duration::from_secs(2));
+    assert!(matches!(
+        refused_with_the_name_check_off(&leaf, &ca, vec![]),
+        rustls::Error::InvalidCertificate(
+            CertificateError::Expired | CertificateError::ExpiredContext { .. }
+        )
+    ));
+}
+
 #[test]
 fn a_handshake_the_peer_never_starts_times_out() {
     let ca = Ca::new("test CA");
