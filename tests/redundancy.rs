@@ -4308,3 +4308,49 @@ fn clause_10_5_discard_sends_the_held_data_before_newer_data() {
         "the held data first, then the newer data"
     );
 }
+
+/// 10.5 (index 128): *"one ASDU handed to the group once reaches the wire on
+/// exactly one connection"*. A failed connection re-established by hand (not
+/// through the group) and failing again before it is named leaves only what
+/// its fresh session held (clause 5.1); the earlier failure's data, captured
+/// already, is offered for replay once.
+#[test]
+fn clause_10_5_a_connection_re_established_by_hand_is_captured_once() {
+    let mut group = controlling_group(2, 0);
+    start_member(&mut group, 0);
+    let asdu = station_interrogation();
+    // k = 12 frames on the wire, two more waiting in the clause 5.3 queue.
+    for _ in 0..14 {
+        group
+            .send_user_data(0, &asdu)
+            .expect("the started connection");
+    }
+    group.on_connection_lost(0).expect("member 0");
+    assert_eq!(group.member(0).expect("a member").left_behind().len(), 14);
+
+    group
+        .member_mut(0)
+        .expect("a member")
+        .session_mut()
+        .on_connection_established();
+    group.on_connection_lost(0).expect("member 0");
+    assert_eq!(
+        group.member(0).expect("a member").left_behind().len(),
+        14,
+        "each ASDU is left behind once"
+    );
+
+    group.select(1).expect("a new decision");
+    start_member(&mut group, 1);
+    let ReplayOutcome::Retransmitted { actions, queued } = group
+        .retransmit_unconfirmed(0, Replay::Retransmit)
+        .expect("a replay")
+    else {
+        panic!("a replay");
+    };
+    assert_eq!(
+        sent_i(&actions).len() + queued,
+        14,
+        "each ASDU replayed once"
+    );
+}
