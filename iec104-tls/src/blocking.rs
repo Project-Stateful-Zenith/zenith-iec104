@@ -68,8 +68,11 @@ pub fn connect_over(
 ) -> io::Result<TlsStream> {
     let name = ServerName::try_from(server_name.to_string())
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
-    let conn = ClientConnection::new(config.client.clone(), name).map_err(io::Error::other)?;
-    TlsStream::handshake(conn.into(), tcp, config)
+    let conn =
+        ClientConnection::new(config.client.clone(), name.clone()).map_err(io::Error::other)?;
+    let stream = TlsStream::handshake(conn.into(), tcp, config)?;
+    crate::verify::check_resumed(&stream.conn, config, Some(&name))?;
+    Ok(stream)
 }
 
 /// Runs the server handshake on an accepted TCP connection. The client must
@@ -84,7 +87,9 @@ pub fn connect_over(
 /// Returns an error when the TLS handshake fails or times out.
 pub fn accept(tcp: TcpStream, config: &TlsConfig) -> io::Result<TlsStream> {
     let conn = ServerConnection::new(config.server.clone()).map_err(io::Error::other)?;
-    TlsStream::handshake(conn.into(), tcp, config)
+    let stream = TlsStream::handshake(conn.into(), tcp, config)?;
+    crate::verify::check_resumed(&stream.conn, config, None)?;
+    Ok(stream)
 }
 
 impl TlsStream {

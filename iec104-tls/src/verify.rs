@@ -1,14 +1,21 @@
 //! The peer checks on top of rustls' `WebPKI` verifiers: the allow-list, and
 //! the optional server-name check. Chain, validity period, key usage and
-//! revocation stay rustls' (webpki's) own.
+//! revocation stay rustls' (webpki's) own. And the check of a resumed
+//! session's peer, which rustls skips.
 
+use std::io;
 use std::sync::Arc;
 
 use rustls::client::WebPkiServerVerifier;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
-use rustls::{CertificateError, DigitallySignedStruct, DistinguishedName, Error, SignatureScheme};
+use rustls::{
+    CertificateError, CommonState, DigitallySignedStruct, DistinguishedName, Error, HandshakeKind,
+    SignatureScheme,
+};
+
+use crate::TlsConfig;
 
 /// Refuses a leaf that is not on a non-empty allow-list. The alert is
 /// `access_denied` (rustls' mapping of `ApplicationVerificationFailure`).
@@ -134,4 +141,50 @@ impl ClientCertVerifier for PeerClientVerifier {
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
         self.inner.supported_verify_schemes()
     }
+}
+
+/// Checks the peer of a resumed session again, as a full handshake would, at
+/// the current time; a full handshake passes unchecked, its verifier ran.
+///
+/// rustls 0.23 accepts a resumed session (TLS 1.3 PSK, RFC 8446 2.2; TLS 1.2
+/// ticket, RFC 5077) on the ticket alone: it takes the peer's chain from the
+/// ticket and calls no verifier, on either side (`server/tls13.rs`,
+/// `server/tls12.rs`, `client/tls13.rs`, `client/tls12.rs`). Every resumption
+/// issues fresh tickets, so without this a certificate that expired, was
+/// revoked or left the allow-list would stay accepted for as long as the peer
+/// keeps reconnecting.
+///
+/// `server_name` is the name dialed when this end is the client, `None` when
+/// it is the server. rustls offers no way to send an alert after the
+/// handshake, so the caller drops the connection on an error.
+pub fn check_resumed(
+    common: &CommonState,
+    config: &TlsConfig,
+    server_name: Option<&ServerName<'_>>,
+) -> io::Result<()> {
+    if common.handshake_kind() != Some(HandshakeKind::Resumed) {
+        return Ok(());
+    }
+    let refused = |e: Error| io::Error::new(io::ErrorKind::InvalidData, e);
+    let (leaf, intermediates) = common
+        .peer_certificates()
+        .and_then(<[_]>::split_first)
+        .ok_or_else(|| refused(Error::NoCertificatesPresented))?;
+    let now = UnixTime::now();
+    server_name
+        .map_or_else(
+            || {
+                config
+                    .client_verifier
+                    .verify_client_cert(leaf, intermediates, now)
+                    .map(drop)
+            },
+            |name| {
+                config
+                    .server_verifier
+                    .verify_server_cert(leaf, intermediates, name, &[], now)
+                    .map(drop)
+            },
+        )
+        .map_err(refused)
 }
