@@ -25,11 +25,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use common::*;
-use iec104::asdu::{Cp56Time2a, DoublePointState, Quality, Value};
+use iec104::asdu::{AsduError, Cp56Time2a, DoublePointState, LayoutError, Quality, Value};
 use iec104::ci;
 use iec104::ct::{Command, CommandMode, Family};
 use iec104::params::LinkParams;
-use iec104_tokio::server::{Application, PointConfig, Server, ServerConfig};
+use iec104_tokio::server::{Application, PointConfig, Server, ServerConfig, ServerError};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
@@ -1617,5 +1617,47 @@ async fn an_execute_outliving_its_connection_is_held_until_it_ends() {
     assert_eq!(
         second.next().await,
         single_command(ACTTERM_NEGATIVE, IOA_4001, 0x00)
+    );
+}
+
+/// A point at an address the configured IOA width cannot carry would make
+/// every interrogation drop the points of its type; the server refuses it at
+/// spawn instead.
+#[tokio::test]
+async fn a_point_address_too_large_for_the_address_sizes_is_refused_at_spawn() {
+    let point = config().point(0x0100_0000, PointConfig::new(Value::Scaled(0)));
+    let (station, _side) = app();
+    assert_eq!(
+        Server::spawn(point, station).err(),
+        Some(ServerError::Layout(LayoutError::Asdu(
+            AsduError::IoaOutOfRange { ioa: 0x0100_0000 }
+        )))
+    );
+    let command = config().command(0x0100_0000, Family::Single);
+    let (station, _side) = app();
+    assert_eq!(
+        Server::spawn(command, station).err(),
+        Some(ServerError::Layout(LayoutError::Asdu(
+            AsduError::IoaOutOfRange { ioa: 0x0100_0000 }
+        )))
+    );
+}
+
+/// A common address one octet cannot carry would leave every answer
+/// unencodable, so interrogations would send no point at all.
+#[tokio::test]
+async fn a_common_address_too_large_for_the_address_sizes_is_refused_at_spawn() {
+    let mut config = config();
+    config.common_address = 300;
+    config.sizes = iec104::asdu::AddressSizes::new(1, 3, true).expect("a defined profile");
+    let (app, _side) = app();
+    assert_eq!(
+        Server::spawn(config, app).err(),
+        Some(ServerError::Layout(LayoutError::Asdu(
+            AsduError::CommonAddressOutOfRange {
+                common_address: 300,
+                max: 255
+            }
+        )))
     );
 }
