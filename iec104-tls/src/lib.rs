@@ -141,7 +141,8 @@ pub fn tls_error(error: &io::Error) -> Option<&rustls::Error> {
     error.get_ref()?.downcast_ref::<rustls::Error>()
 }
 
-/// The host part of `host:port` (brackets stripped from an IPv6 address).
+/// The host part of `host:port` (brackets and any `%zone` stripped from an
+/// IPv6 address: a certificate's IP address cannot name a zone).
 fn host(address: &str) -> io::Result<&str> {
     let invalid = || {
         io::Error::new(
@@ -153,7 +154,7 @@ fn host(address: &str) -> io::Result<&str> {
     let host = host
         .strip_prefix('[')
         .and_then(|h| h.strip_suffix(']'))
-        .unwrap_or(host);
+        .map_or(host, |h| h.split_once('%').map_or(h, |(ip, _zone)| ip));
     if host.is_empty() {
         return Err(invalid());
     }
@@ -194,6 +195,8 @@ mod tests {
         assert_eq!(host("127.0.0.1:19998").unwrap(), "127.0.0.1");
         assert_eq!(host("[::1]:19998").unwrap(), "::1");
         assert_eq!(host("rtu-7.example:19998").unwrap(), "rtu-7.example");
+        assert_eq!(host("[fe80::1%2]:19998").unwrap(), "fe80::1");
+        assert_eq!(host("[fe80::1%eth0]:19998").unwrap(), "fe80::1");
         assert!(host("no-port").is_err());
         assert!(host(":19998").is_err());
     }
