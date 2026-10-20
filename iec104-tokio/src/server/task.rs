@@ -37,13 +37,25 @@ struct Operated {
     ok: bool,
 }
 
-/// Where an execute's [`Operated`] goes, with the logical link it arrived on
+/// What an operation's task reports.
+#[derive(Clone, Copy)]
+enum Report {
+    /// The operation ended in time.
+    Operated(Operated),
+    /// The operation outlasted [`ServerConfig::operate_timeout`]: it counts
+    /// as failed, but runs on and its object stays refused.
+    TimedOut(u32),
+    /// A timed-out operation really ended; its result goes nowhere.
+    Ended(u32),
+}
+
+/// Where an execute's [`Report`]s go, with the logical link it arrived on
 /// ([`Task::link`]).
-struct Done(mpsc::UnboundedSender<(u64, Operated)>, u64);
+struct Done(mpsc::UnboundedSender<(u64, Report)>, u64);
 
 impl Done {
-    fn send(&self, done: Operated) -> Result<(), mpsc::error::SendError<(u64, Operated)>> {
-        self.0.send((self.1, done))
+    fn send(&self, report: Report) -> Result<(), mpsc::error::SendError<(u64, Report)>> {
+        self.0.send((self.1, report))
     }
 }
 
@@ -54,6 +66,7 @@ struct Task<A> {
     common_address: u16,
     sizes: iec104::asdu::AddressSizes,
     max_command_delay: Option<std::time::Duration>,
+    operate_timeout: Option<std::time::Duration>,
     counter_mode: ci::CounterMode,
     commands: BTreeMap<u32, Family>,
     image: Image,
@@ -73,8 +86,12 @@ struct Task<A> {
     /// Group members that failed while started, whose unconfirmed data goes
     /// out again on the next started connection.
     failed: Vec<usize>,
-    /// Each operation with the logical link its execute arrived on.
-    operated: mpsc::UnboundedSender<(u64, Operated)>,
+    /// Each operation's reports with the logical link its execute arrived on.
+    operated: mpsc::UnboundedSender<(u64, Report)>,
+    /// The objects with operations that timed out but still run, and how
+    /// many (a family without `ACTTERM` can have several): every select and
+    /// execute to them is refused until the last ends, whatever the link.
+    overrun: BTreeMap<u32, usize>,
     /// The logical links gone so far: an operation outliving its link
     /// (104 cl.10.2) is told apart by it.
     link: u64,
@@ -137,6 +154,7 @@ pub(super) async fn run<A: Application>(
         common_address: ca,
         sizes,
         max_command_delay: config.max_command_delay,
+        operate_timeout: config.operate_timeout,
         counter_mode: config.counter_mode,
         commands: config.commands.clone(),
         image: Image {
@@ -165,6 +183,7 @@ pub(super) async fn run<A: Application>(
         started: false,
         failed: Vec::new(),
         operated,
+        overrun: BTreeMap::new(),
         link: 0,
     };
     if let Some(max) = config.max_command_delay {
@@ -189,11 +208,7 @@ pub(super) async fn run<A: Application>(
                 Some(event) => task.on_event(event).await,
                 None => return,
             },
-            Some((link, done)) = operated_rx.recv() => if link == task.link {
-                task.on_operated(done);
-            } else {
-                task.on_operated_late(done);
-            },
+            Some((link, report)) = operated_rx.recv() => task.on_report(link, report),
         }
         task.release().await;
     }
@@ -512,6 +527,19 @@ impl<A: Application> Task<A> {
                     self.refuse(asdu);
                     return;
                 }
+                // An operation that timed out still runs: a select or execute
+                // gets the same negative confirmation until it ends. A
+                // deactivation goes on to the procedure, which has no select
+                // there to stop (one from before the timeout was dropped with
+                // it, later ones are refused) and answers a negative DEACTCON;
+                // it never cancels the operation.
+                Some(_)
+                    if header.cause == Cause::Activation
+                        && self.overrun.contains_key(&command.ioa) =>
+                {
+                    self.refuse(asdu);
+                    return;
+                }
                 Some(_) => {}
             }
             if header.cause == Cause::Activation && !self.app.accept(&command) {
@@ -552,18 +580,68 @@ impl<A: Application> Task<A> {
     /// Runs the application's operation in a task of its own. An operation
     /// that panics counts as failed, so its object is still terminated and
     /// released rather than held until restart.
+    ///
+    /// One that outlasts [`ServerConfig::operate_timeout`] is terminated
+    /// negatively but not cancelled: dropping it midway would leave the
+    /// equipment in an unknown state. It runs on, its object refused, and
+    /// its eventual result is discarded.
     fn operate(&self, command: Command) {
         let app = Arc::clone(&self.app);
         let done = Done(self.operated.clone(), self.link);
+        let limit = self.operate_timeout;
+        let ioa = command.ioa;
         tokio::spawn(async move {
-            let ok = tokio::spawn(async move { app.operate(command).await })
-                .await
-                .unwrap_or(false);
-            let _ = done.send(Operated {
-                ioa: command.ioa,
-                ok,
-            });
+            let mut operation = tokio::spawn(async move { app.operate(command).await });
+            let joined = match limit {
+                Some(limit) => tokio::time::timeout(limit, &mut operation).await.ok(),
+                None => Some((&mut operation).await),
+            };
+            if let Some(joined) = joined {
+                let ok = matches!(joined, Ok(true));
+                let _ = done.send(Report::Operated(Operated { ioa, ok }));
+            } else {
+                let _ = done.send(Report::TimedOut(ioa));
+                let _ = operation.await;
+                let _ = done.send(Report::Ended(ioa));
+            }
         });
+    }
+
+    /// An operation's report, from the link its execute arrived on or an
+    /// earlier one.
+    fn on_report(&mut self, link: u64, report: Report) {
+        let done = match report {
+            Report::Operated(done) => done,
+            Report::TimedOut(ioa) => {
+                let count = self.overrun.entry(ioa).or_default();
+                *count = count.saturating_add(1);
+                self.terminate(link, Operated { ioa, ok: false });
+                // A select accepted while it ran must not outlive it: the
+                // object takes no command until the operation ends.
+                self.ct.abandon(ioa);
+                return;
+            }
+            // Whatever the link: the object is free once its last operation is.
+            Report::Ended(ioa) => {
+                if let Some(count) = self.overrun.get_mut(&ioa) {
+                    *count = count.saturating_sub(1);
+                    if *count == 0 {
+                        self.overrun.remove(&ioa);
+                    }
+                }
+                return;
+            }
+        };
+        self.terminate(link, done);
+    }
+
+    /// The termination owed for `done`, to the link its execute arrived on.
+    fn terminate(&mut self, link: u64, done: Operated) {
+        if link == self.link {
+            self.on_operated(done);
+        } else {
+            self.on_operated_late(done);
+        }
     }
 
     /// The termination of an operated execute, where its family has one.

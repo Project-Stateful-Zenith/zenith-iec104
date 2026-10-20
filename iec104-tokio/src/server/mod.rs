@@ -204,6 +204,11 @@ pub trait Application: Send + Sync + 'static {
     /// ACTCON and then send a Negative Termination"*), where the family is
     /// terminated ([`ServerConfig::termination`]). It runs in its own task
     /// and may take its time.
+    ///
+    /// Past [`ServerConfig::operate_timeout`] the operation is reported
+    /// failed to the master but is not cancelled. An application that needs
+    /// cancellation times out inside `operate` and returns the equipment to
+    /// a safe state.
     fn operate(&self, command: Command) -> impl Future<Output = bool> + Send;
 
     /// A valid clock synchronisation arrived with `time`: set the station's
@@ -327,6 +332,14 @@ pub struct ServerConfig {
     /// The maximum delay of a time-tagged command (104 cl.8): an older one is
     /// neither answered nor operated. Default `None`: not supervised.
     pub max_command_delay: Option<Duration>,
+    /// How long [`Application::operate`] may run before its execute is
+    /// terminated negatively. The future is not cancelled: it runs on, and
+    /// its object refuses every select and execute (negative ACTCON) until
+    /// it really ends; its result is then discarded. Neither 104 nor TS
+    /// 60870-5-604 fixes a limit. Default `None`: an operation runs for as
+    /// long as it takes, and one that never ends holds its object until
+    /// restart.
+    pub operate_timeout: Option<Duration>,
     /// The station's counter mode (5-101 cl.7.4.8). Default mode C.
     pub counter_mode: CounterMode,
     /// What a second interrogation does while one runs (TS 60870-5-604
@@ -385,6 +398,7 @@ impl ServerConfig {
             termination: Termination::All,
             select_timeout: DEFAULT_SELECT_TIMEOUT,
             max_command_delay: None,
+            operate_timeout: None,
             counter_mode: CounterMode::FreezeAndTransmit,
             reactivation: ReActivation::Continue,
             end_of_initialisation: Some(Coi {
@@ -435,6 +449,7 @@ impl fmt::Debug for ServerConfig {
             .field("termination", &self.termination)
             .field("select_timeout", &self.select_timeout)
             .field("max_command_delay", &self.max_command_delay)
+            .field("operate_timeout", &self.operate_timeout)
             .field("counter_mode", &self.counter_mode)
             .field("reactivation", &self.reactivation)
             .field("end_of_initialisation", &self.end_of_initialisation)
