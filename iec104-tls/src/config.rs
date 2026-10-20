@@ -379,9 +379,12 @@ impl TlsConfigBuilder {
     /// chain, its validity period, the allow-list and the CRLs again.
     ///
     /// When on, a resumed session is **not** validated again (not even
-    /// the certificate's expiry) for as long as its ticket lives. Tickets are
-    /// stateless and rotated by rustls (currently every 6 hours, each valid
-    /// for two periods). Only TLS 1.3 sessions are resumed: our client offers
+    /// the certificate's expiry). Tickets are stateless and rotated by rustls
+    /// (currently every 6 hours, each valid for two periods), but every
+    /// resumption issues fresh tickets, so a peer that reconnects within that
+    /// time keeps resuming with no limit: a certificate that expired, was
+    /// revoked or left the allow-list stays accepted for as long as the peer
+    /// keeps reconnecting. Only TLS 1.3 sessions are resumed: our client offers
     /// no TLS 1.2 tickets, and our server issues and accepts tickets only when
     /// the minimum version is TLS 1.3, because rustls shares one ticketer
     /// between both versions. With TLS 1.2 allowed, the server resumes no
