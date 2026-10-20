@@ -726,8 +726,11 @@ impl Member {
                 return; // this failure is captured already
             }
             // Re-established by hand since the last capture: a new connection,
-            // whose failure this is.
-            self.captured = false;
+            // whose failure this is. Its fresh session started empty (clause
+            // 5.1), so the mirror is trimmed to what that session holds: the
+            // older entries are in `left` already (10.5: "exactly one
+            // connection").
+            self.reestablish();
         }
         self.captured = true;
         self.replayed = false;
