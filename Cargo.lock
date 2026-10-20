@@ -151,6 +151,7 @@ dependencies = [
  "iec104-tokio",
  "rcgen",
  "rustls",
+ "socket2",
  "tokio",
  "tokio-rustls",
 ]
