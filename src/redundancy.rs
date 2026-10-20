@@ -776,8 +776,9 @@ pub struct RedundancyGroup {
     /// Start there is no such gap, and user data is refused.
     switching: bool,
     /// Every member action list the current call produced, in order, for the
-    /// routed `_at` entry points.
-    log: Vec<(usize, Vec<Action>)>,
+    /// routed `_at` entry points: `Some` only while one runs, so the plain
+    /// entry points keep nothing.
+    log: Option<Vec<(usize, Vec<Action>)>>,
 }
 
 impl RedundancyGroup {
@@ -811,7 +812,7 @@ impl RedundancyGroup {
             started: None,
             held: Vec::new(),
             switching: false,
-            log: Vec::new(),
+            log: None,
         })
     }
 
@@ -1023,7 +1024,9 @@ impl RedundancyGroup {
             member.session.send_i_frame(asdu)
         };
         if let Some(action) = sent {
-            self.log.push((index, vec![action.clone()]));
+            if let Some(log) = &mut self.log {
+                log.push((index, vec![action.clone()]));
+            }
             Ok(Some(action))
         } else {
             // Clause 5.3's pending queue, owned by the connection that will
@@ -2243,8 +2246,10 @@ impl RedundancyGroup {
                 member.capture();
             }
         }
-        if !actions.is_empty() {
-            self.log.push((index, actions.to_vec()));
+        if let Some(log) = &mut self.log
+            && !actions.is_empty()
+        {
+            log.push((index, actions.to_vec()));
         }
     }
 
@@ -2260,9 +2265,9 @@ impl RedundancyGroup {
             .iter()
             .map(|member| Supervision::of(&member.session))
             .collect();
-        self.log.clear();
+        self.log = Some(Vec::new());
         let result = call(self);
-        let log = std::mem::take(&mut self.log);
+        let log = self.log.take().unwrap_or_default();
         for ((index, member), before) in self.members.iter_mut().enumerate().zip(before) {
             let actions: Vec<Action> = log
                 .iter()
@@ -2551,5 +2556,37 @@ impl RedundancyGroup {
             }
         }
         outcome
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The plain entry points keep no actions (the log only serves `_at`).
+    #[test]
+    fn plain_entry_points_leave_the_log_empty() {
+        let now = Instant::now();
+        let mut group =
+            RedundancyGroup::uniform(Role::Controlled, LinkParams::default(), 1).expect("group");
+        group.on_connection_established(0, now).expect("member");
+        for _ in 0..10_000 {
+            let answered = group
+                .on_frame(0, Apci::U(UFunction::TestFrAct))
+                .expect("member");
+            assert_eq!(answered, vec![Action::Send(Apci::U(UFunction::TestFrCon))]);
+        }
+        assert!(group.log.as_ref().is_none_or(Vec::is_empty));
+        let routed = group
+            .on_frame_at(0, Apci::U(UFunction::TestFrAct), now)
+            .expect("member");
+        assert_eq!(
+            routed,
+            vec![Routed {
+                member: 0,
+                actions: vec![Action::Send(Apci::U(UFunction::TestFrCon))],
+            }]
+        );
+        assert!(group.log.is_none());
     }
 }
