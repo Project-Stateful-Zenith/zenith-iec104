@@ -111,6 +111,10 @@ and in-process peers; no hardware is needed. Interop suites against
 [c104](https://github.com/Fraunhofer-FIT-DIEN/iec104-python) are ignored by
 default; `scripts/interop.sh` builds the peers and runs them.
 
+To contribute, see [CONTRIBUTING.md](CONTRIBUTING.md). Report security
+problems privately, as [SECURITY.md](SECURITY.md) describes. Changes are
+listed in [CHANGELOG.md](CHANGELOG.md).
+
 ## Disclaimer
 
 > [!WARNING]
