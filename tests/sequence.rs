@@ -6,8 +6,10 @@
 //! The scripted exchanges in `figures_9_to_12_*` reproduce the standard's own
 //! worked diagrams.
 
+#![allow(clippy::expect_used)]
+
 use iec104::apci::SeqNo;
-use iec104::params::LinkParams;
+use iec104::params::{LinkParams, ParamError};
 use iec104::seq::{Sequence, SequenceError};
 
 /// The standard's defaults with k and w overridden.
@@ -20,9 +22,7 @@ fn params(k: u16, w: u16) -> LinkParams {
 }
 
 fn seq(k: u16, w: u16) -> Sequence {
-    let p = params(k, w);
-    assert!(p.validate().is_ok(), "test parameters must be admissible");
-    Sequence::new(p)
+    Sequence::new(params(k, w)).expect("test parameters must be admissible")
 }
 
 const fn n(v: u16) -> SeqNo {
@@ -285,9 +285,29 @@ fn figure_12_an_unacknowledged_last_frame_leaves_the_buffer_held() {
 #[test]
 fn the_default_parameters_are_the_standard_ones() {
     // clause 5.5 and clause 9: k = 12 and w = 8 are the default values.
-    let s = Sequence::new(LinkParams::default());
+    let s = Sequence::new(LinkParams::default()).expect("defaults are admissible");
     assert_eq!(s.v_s(), n(0));
     assert_eq!(Sequence::modulus(), 32768);
     assert_eq!(LinkParams::default().k, 12);
     assert_eq!(LinkParams::default().w, 8);
+}
+
+#[test]
+fn new_refuses_a_k_or_w_outside_the_window_range() {
+    // clause 5.5: k and w lie in 1 ..= n - 1. k = 40000 would let N(S) wrap
+    // onto unacknowledged frames; k = 0 would never open the window.
+    assert_eq!(
+        Sequence::new(params(40_000, 8)).err(),
+        Some(ParamError::KOutOfRange(40_000))
+    );
+    assert_eq!(
+        Sequence::new(params(0, 8)).err(),
+        Some(ParamError::KOutOfRange(0))
+    );
+    assert_eq!(
+        Sequence::new(params(12, 0)).err(),
+        Some(ParamError::WOutOfRange(0))
+    );
+    assert!(Sequence::new(params(LinkParams::max_k(), 8)).is_ok());
+    assert!(Sequence::new(params(12, 8)).is_ok());
 }
