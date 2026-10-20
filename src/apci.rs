@@ -268,7 +268,8 @@ pub enum ParseError {
         /// The second control-field octet received.
         octet2: u8,
     },
-    /// S- or U-format frame carried reserved octets that must be zero.
+    /// Reserved control-field bits were not zero: octets 2–4 of a U-format
+    /// frame, or bit 1 of octet 3 of an I- or S-format frame (figures 6 and 7).
     ReservedOctetNotZero,
     /// An S- or U-format APDU was built with a non-empty ASDU, or an I-format
     /// APDU with an empty one. Neither can be encoded.
@@ -328,6 +329,11 @@ pub fn parse(buf: &[u8]) -> Result<(Apdu<'_>, usize), ParseError> {
             have: buf.len(),
         });
     };
+    // Figures 6 and 7: octet 3 bit 1 of I- and S-frames is a fixed 0.
+    // U-frames check the whole octet below.
+    if cf0 & 0x03 != 0x03 && cf2 & 0x01 != 0 {
+        return Err(ParseError::ReservedOctetNotZero);
+    }
     let apci = if cf0 & 0x01 == 0 {
         // I format (clause 5: octet 1 bit 1 = 0). It always carries an ASDU.
         if length < MIN_LENGTH_I {

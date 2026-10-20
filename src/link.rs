@@ -176,7 +176,7 @@
 //! | `IFormatWithoutAsdu` | active close | clause 5: an I-format APDU always contains an ASDU |
 //! | `BadSFormatOctet` | active close | clause 5, figure 7: S-format octets 1–2 are exactly `0x01 0x00` |
 //! | `UnknownUFunction` | active close | clause 5, figure 8: six U functions, only one active |
-//! | `ReservedOctetNotZero` | active close | clause 5, figures 7/8: the reserved octets are zero |
+//! | `ReservedOctetNotZero` | active close | clause 5, figures 6-8: the reserved control bits are zero |
 //! | `FormatPayloadMismatch`, `AsduTooLong` | none (encoder only) | `Apdu::encode`'s own rejections; no peer can send them |
 //!
 //! The close rows are a decision, not a quotation: the standard names no

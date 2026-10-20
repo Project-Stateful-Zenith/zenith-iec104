@@ -309,6 +309,19 @@ fn i_format_always_carries_an_asdu() {
 }
 
 #[test]
+fn octet_3_bit_1_of_i_and_s_frames_must_be_zero() {
+    // Figures 6 and 7: the low bit of octet 3 is a fixed 0, not part of N(R).
+    assert_eq!(
+        apci::parse(&[0x68, 0x04, 0x01, 0x00, 0x03, 0x00]),
+        Err(ParseError::ReservedOctetNotZero)
+    );
+    assert_eq!(
+        apci::parse(&[0x68, 0x05, 0x00, 0x00, 0x01, 0x00, 0xAA]),
+        Err(ParseError::ReservedOctetNotZero)
+    );
+}
+
+#[test]
 fn only_one_u_function_may_be_set() {
     // Two function bits at once is not one of the six codes.
     for octet1 in [0x0Fu8, 0x1B, 0x63, 0xC3, 0xFF] {
