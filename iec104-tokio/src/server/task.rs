@@ -3,7 +3,7 @@
 //! received ASDU to the procedure [`iec104::dispatch::route`] names, and
 //! empties the send queue into the k window.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use iec104::asdu::{
@@ -88,9 +88,10 @@ struct Task<A> {
     failed: Vec<usize>,
     /// Each operation's reports with the logical link its execute arrived on.
     operated: mpsc::UnboundedSender<(u64, Report)>,
-    /// The objects whose operation timed out but still runs: every select
-    /// and execute to them is refused until it ends, whatever the link.
-    overrun: BTreeSet<u32>,
+    /// The objects with operations that timed out but still run, and how
+    /// many (a family without `ACTTERM` can have several): every select and
+    /// execute to them is refused until the last ends, whatever the link.
+    overrun: BTreeMap<u32, usize>,
     /// The logical links gone so far: an operation outliving its link
     /// (104 cl.10.2) is told apart by it.
     link: u64,
@@ -182,7 +183,7 @@ pub(super) async fn run<A: Application>(
         started: false,
         failed: Vec::new(),
         operated,
-        overrun: BTreeSet::new(),
+        overrun: BTreeMap::new(),
         link: 0,
     };
     if let Some(max) = config.max_command_delay {
@@ -529,10 +530,12 @@ impl<A: Application> Task<A> {
                 // An operation that timed out still runs: a select or execute
                 // gets the same negative confirmation until it ends. A
                 // deactivation goes on to the procedure, which has no select
-                // there to stop (selects are refused) and answers a negative
-                // DEACTCON; it never cancels the operation.
+                // there to stop (one from before the timeout was dropped with
+                // it, later ones are refused) and answers a negative DEACTCON;
+                // it never cancels the operation.
                 Some(_)
-                    if header.cause == Cause::Activation && self.overrun.contains(&command.ioa) =>
+                    if header.cause == Cause::Activation
+                        && self.overrun.contains_key(&command.ioa) =>
                 {
                     self.refuse(asdu);
                     return;
@@ -610,15 +613,30 @@ impl<A: Application> Task<A> {
         let done = match report {
             Report::Operated(done) => done,
             Report::TimedOut(ioa) => {
-                self.overrun.insert(ioa);
-                Operated { ioa, ok: false }
+                let count = self.overrun.entry(ioa).or_default();
+                *count = count.saturating_add(1);
+                self.terminate(link, Operated { ioa, ok: false });
+                // A select accepted while it ran must not outlive it: the
+                // object takes no command until the operation ends.
+                self.ct.abandon(ioa);
+                return;
             }
-            // Whatever the link: the object is free once the operation is.
+            // Whatever the link: the object is free once its last operation is.
             Report::Ended(ioa) => {
-                self.overrun.remove(&ioa);
+                if let Some(count) = self.overrun.get_mut(&ioa) {
+                    *count = count.saturating_sub(1);
+                    if *count == 0 {
+                        self.overrun.remove(&ioa);
+                    }
+                }
                 return;
             }
         };
+        self.terminate(link, done);
+    }
+
+    /// The termination owed for `done`, to the link its execute arrived on.
+    fn terminate(&mut self, link: u64, done: Operated) {
         if link == self.link {
             self.on_operated(done);
         } else {

@@ -27,7 +27,7 @@ use std::time::Duration;
 use common::*;
 use iec104::asdu::{AsduError, Cp56Time2a, DoublePointState, LayoutError, Quality, Value};
 use iec104::ci;
-use iec104::ct::{Command, CommandMode, Family};
+use iec104::ct::{Command, CommandMode, Family, Termination};
 use iec104::params::LinkParams;
 use iec104_tokio::server::{Application, PointConfig, Server, ServerConfig, ServerError};
 use tokio::sync::{mpsc, oneshot};
@@ -997,6 +997,79 @@ async fn an_overrun_object_refuses_selects() {
         single_command(0x40 | DEACTCON, IOA_4001, 0x81)
     );
     assert!(running.send(true).is_ok(), "the operation runs on");
+}
+
+/// `C_SE_NB_1` `<49>` (5-101 cl.7.3.2.5) at 4002, scaled value 0, `QOS` 0:
+/// an execute.
+fn set_point(cause: u8) -> Vec<u8> {
+    let mut asdu = head(49, 1, cause);
+    asdu.extend(IOA_4002);
+    asdu.extend([0x00, 0x00, 0x00]);
+    asdu
+}
+
+/// Without `ACTTERM` for set points, two executes of one object can run at
+/// once. Both timed out, the object stays refused until the second ends too.
+#[tokio::test(start_paused = true)]
+async fn overlapping_overruns_hold_the_object_until_the_last_ends() {
+    let mut config = config().command(4002, Family::SetPointScaled);
+    config.termination = Termination::SetPointsNotTerminated;
+    config.operate_timeout = Some(Duration::from_secs(10));
+    let (_server, mut side, mut master) = started(config).await;
+    master.send(&set_point(ACT));
+    assert_eq!(master.next().await, set_point(ACTCON));
+    let (_, first) = side.operation().await;
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    master.send(&set_point(ACT));
+    assert_eq!(master.next().await, set_point(ACTCON));
+    let (_, second) = side.operation().await;
+    tokio::time::sleep(Duration::from_secs(11)).await;
+
+    first.send(true).unwrap();
+    assert!(master.silent_for(Duration::from_secs(1)).await);
+    master.send(&set_point(ACT));
+    assert_eq!(master.next().await, set_point(ACTCON_NEGATIVE));
+
+    second.send(true).unwrap();
+    assert!(master.silent_for(Duration::from_secs(1)).await);
+    master.send(&set_point(ACT));
+    assert_eq!(master.next().await, set_point(ACTCON));
+    side.operation().await;
+}
+
+/// A select accepted while the execute ran goes with its timeout: it can
+/// be neither deactivated nor executed afterwards.
+#[tokio::test(start_paused = true)]
+async fn a_select_made_before_the_timeout_does_not_survive_it() {
+    let mut config = config();
+    config.command_mode = CommandMode::SelectAndExecute;
+    config.select_timeout = Duration::from_secs(3600);
+    config.operate_timeout = Some(Duration::from_secs(60));
+    let (_server, mut side, mut master) = started(config).await;
+    master.send(&single_command(ACT, IOA_4001, 0x81));
+    assert_eq!(master.next().await, single_command(ACTCON, IOA_4001, 0x81));
+    master.send(&single_command(ACT, IOA_4001, 0x01));
+    assert_eq!(master.next().await, single_command(ACTCON, IOA_4001, 0x01));
+    let (_, running) = side.operation().await;
+    master.send(&single_command(ACT, IOA_4001, 0x81));
+    assert_eq!(master.next().await, single_command(ACTCON, IOA_4001, 0x81));
+    assert_eq!(
+        master.next().await,
+        single_command(ACTTERM_NEGATIVE, IOA_4001, 0x01)
+    );
+
+    master.send(&single_command(DEACT, IOA_4001, 0x81));
+    assert_eq!(
+        master.next().await,
+        single_command(0x40 | DEACTCON, IOA_4001, 0x81)
+    );
+    running.send(true).unwrap();
+    assert!(master.silent_for(Duration::from_secs(1)).await);
+    master.send(&single_command(ACT, IOA_4001, 0x01));
+    assert_eq!(
+        master.next().await,
+        single_command(ACTCON_NEGATIVE, IOA_4001, 0x01)
+    );
 }
 
 /// By default nothing times out: an operation of an hour is still
