@@ -1489,12 +1489,15 @@ fn the_direction_is_decided_by_who_sends_the_frame() {
     // controlling station, which is the control direction and not selected.
     let controlled = FileTransferProcedure::controlled(monitor_only, 12, 0);
     let offered = segment(12, 0, 5, nof(1), nos(1), &[0u8; 4]).unwrap();
+    // A controlled station refuses it with the class-44 mirror (cl.7.2.3).
+    let outcome = controlled.on_asdu(&offered, &Known::EVERYTHING).unwrap();
     assert_eq!(
-        controlled.on_asdu(&offered, &Known::EVERYTHING),
-        Err(FtError::NotSelectedDirection {
-            direction: iec104::asdu::Direction::Control
-        })
+        outcome.reaction,
+        Reaction::Refused {
+            cause: Cause::UnknownTypeId
+        }
     );
+    assert_eq!(outcome.send.len(), 1);
     // The controlling station is the one that may receive it, and reads it as
     // the answer it is.
     assert!(matches!(
@@ -1621,8 +1624,8 @@ fn the_answer_must_be_the_answer_to_the_request_this_station_sent() {
     ));
 
     // A_ACK_SECTION1.req (F_AF, AFQ <3>, NOS 1) is answered by section 2 ready or
-    // by the last section, so neither the answer's NOS nor its type is the
-    // caller's to demand.
+    // by the last section, so the answer's NOS is not the caller's to demand,
+    // and either of the two types answers it.
     let sent = ack(
         12,
         0,
@@ -2037,5 +2040,102 @@ fn only_the_controlled_station_mirrors_a_file_frame_whatever_way_the_file_goes()
     assert!(
         outcome.send.is_empty(),
         "a controlling station sends no COT 44-47"
+    );
+}
+
+/// A controlled station asked for a file transfer it does not serve answers
+/// with the class-44 mirror (5-101 clause 7.2.3), as `ts` and `rd` refuse an
+/// unused function, instead of sending nothing and leaving the controlling
+/// station to time out. A select file (`F_SC_NA_1`, `SCQ` `<1>`, cause 13) from
+/// a monitor-direction master reaches a station serving only the control
+/// direction, and one serving neither.
+#[test]
+fn a_controlled_station_refuses_a_direction_it_does_not_serve_with_the_class_44_mirror() {
+    let asdu = select_file(12, 0, 5, nof(1), nos(0)).unwrap();
+    for selection in [Selection::CONTROL, Selection::NONE] {
+        let station = FileTransferProcedure::controlled(selection, 12, 0);
+        let outcome = station.on_asdu(&asdu, &Known::EVERYTHING).unwrap();
+        assert_eq!(
+            outcome.reaction,
+            Reaction::Refused {
+                cause: Cause::UnknownTypeId
+            },
+            "{selection:?}"
+        );
+        assert_eq!(outcome.send.len(), 1, "{selection:?}: the mirror goes back");
+        let mirror = Header::parse(&outcome.send[0]).unwrap();
+        assert!(mirror.negative, "P/N = 1");
+        assert_eq!(mirror.cause, Cause::UnknownTypeId);
+        assert_eq!(mirror.type_id, TypeId::FScNa1);
+    }
+}
+
+/// The answer must be of the type that answers the request: a file ready
+/// (`F_FR_NA_1`) at the same address and name of file does not answer a call
+/// section, which is answered by its segments and last segment.
+#[test]
+fn an_answer_of_the_wrong_type_is_an_echo_mismatch() {
+    let station = FileTransferProcedure::controlling(Selection::MONITOR, 12, 0);
+    let sent = decode_frame(&call_section(12, 0, 1, nof(2), nos(3)).unwrap()).unwrap();
+    let ready = file_ready(12, 0, 1, nof(2), Lof { value: 999 }, Frq::default()).unwrap();
+    assert_eq!(
+        station.on_answer(&ready, &Known::EVERYTHING, &sent),
+        Err(FtError::EchoMismatch {
+            expected: sent.clone(),
+            got: decode_frame(&ready).unwrap()
+        })
+    );
+    // A select file is answered by that file ready, not by a section ready.
+    let sent = decode_frame(&select_file(12, 0, 1, nof(2), nos(0)).unwrap()).unwrap();
+    assert!(station.on_answer(&ready, &Known::EVERYTHING, &sent).is_ok());
+    let section =
+        section_ready(12, 0, 1, nof(2), nos(1), Lof { value: 9 }, Srq::default()).unwrap();
+    assert!(matches!(
+        station.on_answer(&section, &Known::EVERYTHING, &sent),
+        Err(FtError::EchoMismatch { .. })
+    ));
+    // A call file may be refused with a negative file ready (7.2.6.28), but a
+    // positive one does not answer it.
+    let sent = decode_frame(&call_file(12, 0, 1, nof(2), nos(0)).unwrap()).unwrap();
+    let refused = file_ready(
+        12,
+        0,
+        1,
+        nof(2),
+        Lof { value: 0 },
+        Frq {
+            value: 0,
+            negative_confirm: true,
+        },
+    )
+    .unwrap();
+    assert!(
+        station
+            .on_answer(&refused, &Known::EVERYTHING, &sent)
+            .is_ok()
+    );
+    assert!(matches!(
+        station.on_answer(&ready, &Known::EVERYTHING, &sent),
+        Err(FtError::EchoMismatch { .. })
+    ));
+    // A call section may be answered by a section ready that is not ready.
+    let sent = decode_frame(&call_section(12, 0, 1, nof(2), nos(3)).unwrap()).unwrap();
+    let not_ready = section_ready(
+        12,
+        0,
+        1,
+        nof(2),
+        nos(3),
+        Lof { value: 0 },
+        Srq {
+            value: 0,
+            not_ready: true,
+        },
+    )
+    .unwrap();
+    assert!(
+        station
+            .on_answer(&not_ready, &Known::EVERYTHING, &sent)
+            .is_ok()
     );
 }
