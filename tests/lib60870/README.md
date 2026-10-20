@@ -17,6 +17,7 @@ in `target/interop/bin/`. The suites find them there. Then run:
 ```sh
 cargo test --test lib60870 -- --ignored --test-threads=1                   # the core
 cargo test -p iec104-tokio --test lib60870 -- --ignored --test-threads=1   # the async drivers
+cargo test -p iec104-tls --test lib60870 -- --ignored --test-threads=1     # over TLS
 ```
 
 or `scripts/interop.sh` for every interop suite at once. To use peers built
