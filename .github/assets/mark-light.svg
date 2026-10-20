@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300" role="img" aria-label="Zenith IEC104 mark">
+<title>Zenith IEC104 mark</title>
+<g transform="translate(0 0) scale(1)">
+<circle cx="150" cy="150" r="138" fill="none" stroke="#0a0a0b" stroke-width="3" opacity="0.35"/>
+<path d="M150 22 L157 48 L183 55 L157 62 L150 88 L143 62 L117 55 L143 48 Z" fill="#0a0a0b"/>
+<path d="M62 232 L150 106 L238 232" fill="none" stroke="#0a0a0b" stroke-width="14" stroke-linejoin="miter" stroke-linecap="square"/>
+<path d="M96 232 L150 154 L204 232" fill="none" stroke="#0a0a0b" stroke-width="14" stroke-linejoin="miter" stroke-linecap="square" opacity="0.7"/>
+<path d="M128 232 L150 200 L172 232" fill="none" stroke="#0a0a0b" stroke-width="14" stroke-linejoin="miter" stroke-linecap="square" opacity="0.4"/>
+<rect x="85" y="248" width="18" height="18" fill="#d97706"/>
+<rect x="113" y="248" width="18" height="18" fill="#0a0a0b" opacity="0.55"/>
+<rect x="141" y="248" width="18" height="18" fill="#0a0a0b" opacity="0.55"/>
+<rect x="169" y="248" width="18" height="18" fill="#0a0a0b" opacity="0.55"/>
+<rect x="197" y="248" width="18" height="18" fill="#0a0a0b" opacity="0.55"/>
+</g>
+</svg>
