@@ -228,7 +228,8 @@ pub struct ClientConfig {
     pub retransmit_on_switchover: bool,
     /// How many updates wait at most in each subscriber's channel
     /// ([`Client::subscribe`]); beyond it the subscriber misses updates and
-    /// is told how many ([`Update::Lagged`]). At least 1. Default
+    /// is told how many ([`Update::Lagged`]). At least 2, so the lag report
+    /// and the update after it both fit. Default
     /// [`DEFAULT_UPDATE_BUFFER`], 1000.
     pub update_buffer: usize,
     /// Report every APDU in the driver's events ([`Options::trace`]). The

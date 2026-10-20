@@ -177,7 +177,9 @@ pub(super) struct Subscriber {
 
 impl Subscriber {
     pub(super) fn new(config: &ClientConfig) -> (Self, mpsc::Receiver<Update>) {
-        let (sender, receiver) = mpsc::channel(config.update_buffer.max(1));
+        // Room for `Lagged` and the update behind it, or a lagged subscriber
+        // would only ever receive `Lagged`.
+        let (sender, receiver) = mpsc::channel(config.update_buffer.max(2));
         (Self { sender, lagged: 0 }, receiver)
     }
 

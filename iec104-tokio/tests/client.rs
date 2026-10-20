@@ -679,6 +679,37 @@ async fn a_subscriber_that_does_not_read_is_bounded_and_told_it_lagged() {
     station.close().await;
 }
 
+/// The smallest buffer still recovers: after a lag, a subscriber that reads
+/// steadily gets data again, not only lag reports.
+#[tokio::test(start_paused = true)]
+async fn a_lagged_subscriber_recovers_with_the_smallest_buffer() {
+    let (client, station, _dials) = started(ClientConfig {
+        update_buffer: 1,
+        ..config()
+    })
+    .await;
+    let mut idle = client.subscribe().await.unwrap();
+    let mut reader = client.subscribe().await.unwrap();
+    for _ in 0..5 {
+        station.send(&MEASURAND);
+        assert!(matches!(next_update(&mut reader).await, Update::Data(_)));
+    }
+    while idle.try_recv().is_ok() {}
+    let mut seen = Vec::new();
+    for _ in 0..3 {
+        station.send(&MEASURAND);
+        assert!(matches!(next_update(&mut reader).await, Update::Data(_)));
+        while let Ok(update) = idle.try_recv() {
+            seen.push(update);
+        }
+    }
+    assert!(
+        seen.iter().any(|u| matches!(u, Update::Data(_))),
+        "only lag reports: {seen:?}"
+    );
+    station.close().await;
+}
+
 /// 5-101 cl.7.2.3's mirror answers an interrogation and a clock
 /// synchronisation too: cause 44 with `P/N = 1`.
 #[tokio::test(start_paused = true)]
