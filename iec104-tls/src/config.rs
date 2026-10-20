@@ -379,11 +379,18 @@ impl TlsConfigBuilder {
     /// chain, its validity period, the allow-list and the CRLs again.
     ///
     /// When on, a resumed session is **not** validated again (not even
-    /// the certificate's expiry) for as long as its ticket lives. Tickets are
-    /// stateless and rotated by rustls (currently every 6 hours, each valid
-    /// for two periods). Our client resumes TLS 1.3 sessions only; our server
-    /// keeps no session cache, because rustls keeps TLS 1.2 sessions there
-    /// with no time limit.
+    /// the certificate's expiry). Tickets are stateless and rotated by rustls
+    /// (currently every 6 hours, each valid for two periods), but every
+    /// resumption issues fresh tickets, so a peer that reconnects within that
+    /// time keeps resuming with no limit: a certificate that expired, was
+    /// revoked or left the allow-list stays accepted for as long as the peer
+    /// keeps reconnecting. Only TLS 1.3 sessions are resumed: our client offers
+    /// no TLS 1.2 tickets, and our server issues and accepts tickets only when
+    /// the minimum version is TLS 1.3, because rustls shares one ticketer
+    /// between both versions. With TLS 1.2 allowed, the server resumes no
+    /// session at all, whatever the client offers. The server keeps no
+    /// session cache, because rustls keeps TLS 1.2 sessions there with no
+    /// time limit.
     #[must_use]
     pub const fn session_resumption(mut self, on: bool) -> Self {
         self.resumption = on;
@@ -510,9 +517,10 @@ impl TlsConfigBuilder {
             .map_err(tls)?;
         // No server-side session cache: rustls keeps TLS 1.2 sessions in it
         // with no time limit. Resumption, when on, is by stateless tickets,
-        // which rustls rotates and so expire.
+        // which rustls rotates and so expire. rustls' ticketer serves TLS 1.2
+        // too, so it is installed only when TLS 1.2 is not allowed.
         server.session_storage = Arc::new(NoServerSessionStorage {});
-        if self.resumption {
+        if self.resumption && self.min == Version::Tls13 {
             server.ticketer = rustls::crypto::ring::Ticketer::new().map_err(tls)?;
         } else {
             server.send_tls13_tickets = 0;

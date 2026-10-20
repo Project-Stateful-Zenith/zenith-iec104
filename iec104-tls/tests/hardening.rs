@@ -10,10 +10,11 @@ mod pki;
 
 use std::io::{self, Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use iec104_tls::{TlsConfig, Version};
+use iec104_tls::{TlsConfig, Version, rustls};
 use pki::{Ca, station};
 use rcgen::{CertificateRevocationListParams, KeyIdMethod, SerialNumber, date_time_ymd};
 
@@ -224,9 +225,10 @@ async fn serve_survives_descriptor_exhaustion_by_unauthenticated_peers() {
     }
 }
 
-/// With session resumption on, TLS 1.2 sessions are not resumed (rustls
-/// would keep them with no time limit): a client whose certificate expired
-/// since its first handshake gets a full handshake, which refuses it.
+/// With session resumption on and TLS 1.2 allowed, the server resumes no
+/// session: a client that does offer a TLS 1.2 ticket (rustls' default), and
+/// whose certificate expired since its first handshake, gets a full
+/// handshake, which refuses it.
 #[test]
 fn an_expired_client_certificate_cannot_resume_a_tls12_session() {
     let ca = Ca::new("test CA");
@@ -236,10 +238,13 @@ fn an_expired_client_certificate_cannot_resume_a_tls12_session() {
         .build()
         .unwrap();
     let leaf = ca.leaf_expiring(&["127.0.0.1"], 1, 2);
-    let client = TlsConfig::builder(leaf.identity(), vec![ca.cert.clone()])
-        .session_resumption(true)
+    let ours = TlsConfig::builder(leaf.identity(), vec![ca.cert.clone()])
         .build()
         .unwrap();
+    // Not our client, which offers no TLS 1.2 ticket: rustls' default resumption.
+    let mut client = (*ours.client_config()).clone();
+    client.resumption = rustls::client::Resumption::default();
+    let client = Arc::new(client);
     let (listener, port) = listener();
     let srv = thread::spawn(move || {
         let mut results = Vec::new();
@@ -253,19 +258,19 @@ fn an_expired_client_certificate_cannot_resume_a_tls12_session() {
         }
         results
     });
-    let once = |cfg: &TlsConfig| -> io::Result<()> {
-        let mut tls = iec104_tls::connect(&format!("127.0.0.1:{port}"), cfg)?;
+    let once = || -> io::Result<()> {
+        let name = rustls::pki_types::ServerName::try_from("127.0.0.1").unwrap();
+        let conn = rustls::ClientConnection::new(client.clone(), name).map_err(io::Error::other)?;
+        let mut tls = rustls::StreamOwned::new(conn, TcpStream::connect(("127.0.0.1", port))?);
         let mut b = [0u8; 1];
         tls.read_exact(&mut b)?;
-        tls.shutdown()
+        tls.conn.send_close_notify();
+        tls.flush()
     };
-    once(&client).unwrap();
+    once().unwrap();
     thread::sleep(Duration::from_secs(4));
-    let resumed = once(&client);
-    let fresh_client = TlsConfig::builder(leaf.identity(), vec![ca.cert.clone()])
-        .build()
-        .unwrap();
-    let fresh = once(&fresh_client);
+    let resumed = once();
+    let fresh = iec104_tls::connect(&format!("127.0.0.1:{port}"), &ours).map(drop);
     let results = srv.join().unwrap();
     println!("resumed client: {resumed:?}; fresh client: {fresh:?}");
     println!("server: {results:?}");
@@ -277,4 +282,48 @@ fn an_expired_client_certificate_cannot_resume_a_tls12_session() {
         results[1].is_err(),
         "server accepted a resumed session from a client whose certificate expired"
     );
+}
+
+/// The positive control for the test above: with TLS 1.3 only and resumption
+/// on at both ends, our client's second connection is resumed.
+#[test]
+fn a_tls13_session_is_resumed_when_resumption_is_on() {
+    let ca = Ca::new("test CA");
+    let server = station(&ca, 2, &ca)
+        .versions(Version::Tls13, Version::Tls13)
+        .session_resumption(true)
+        .build()
+        .unwrap();
+    let leaf = ca.leaf(&["127.0.0.1"], 1);
+    let ours = TlsConfig::builder(leaf.identity(), vec![ca.cert.clone()])
+        .versions(Version::Tls13, Version::Tls13)
+        .session_resumption(true)
+        .build()
+        .unwrap();
+    let client = ours.client_config();
+    let (listener, port) = listener();
+    let srv = thread::spawn(move || {
+        for _ in 0..2 {
+            let (tcp, _) = listener.accept().unwrap();
+            let mut s = iec104_tls::accept(tcp, &server).unwrap();
+            s.write_all(b"!").unwrap();
+            let mut rest = Vec::new();
+            let _ = s.read_to_end(&mut rest);
+        }
+    });
+    let once = || -> rustls::HandshakeKind {
+        let name = rustls::pki_types::ServerName::try_from("127.0.0.1").unwrap();
+        let conn = rustls::ClientConnection::new(client.clone(), name).unwrap();
+        let mut tls =
+            rustls::StreamOwned::new(conn, TcpStream::connect(("127.0.0.1", port)).unwrap());
+        let mut b = [0u8; 1];
+        tls.read_exact(&mut b).unwrap();
+        let kind = tls.conn.handshake_kind().unwrap();
+        tls.conn.send_close_notify();
+        tls.flush().unwrap();
+        kind
+    };
+    assert_eq!(once(), rustls::HandshakeKind::Full);
+    assert_eq!(once(), rustls::HandshakeKind::Resumed);
+    srv.join().unwrap();
 }
