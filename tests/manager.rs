@@ -774,6 +774,53 @@ fn clause_9_t1_moves_when_an_acknowledgement_refills_the_k_window() {
     assert_eq!(manager.station(0).unwrap().state(), State::Started);
 }
 
+/// Clause 9's t1, "Time-out of send or test APDUs", runs from when each frame
+/// was sent (figures 17/18 NOTE 2), not from the last acknowledgement. k = 12
+/// frames go out at once and the peer acknowledges one of them 14 s later:
+/// the second frame is then 14 s old and still unconfirmed, so t1 closes the
+/// link at 15 s instead of restarting from the acknowledgement (which would let
+/// a peer acknowledging one frame every 14 s hold the last for 154 s).
+#[test]
+fn clause_9_t1_runs_from_the_oldest_unconfirmed_frames_send_time() {
+    let start = Instant::now();
+    let mut manager = ConnectionManager::new(Role::Controlling, vec![station()]).unwrap();
+    manager.tick(start);
+    manager.on_connection_established(0, start).unwrap();
+    manager.request_start(0, start).unwrap();
+    manager
+        .on_frame(0, Apci::U(UFunction::StartDtCon), start)
+        .unwrap();
+    let asdu = asdu();
+    let params = LinkParams::default();
+    for _ in 0..params.k {
+        manager.send_i_frame(0, &asdu, start).unwrap();
+    }
+    assert_eq!(
+        manager.station(0).unwrap().session().outstanding_i_frames(),
+        params.k
+    );
+
+    let ack_at = start + Duration::from_secs(14);
+    manager
+        .on_frame(0, Apci::S { nr: SeqNo::new(1) }, ack_at)
+        .unwrap();
+    assert!(
+        !actions_of(&manager.tick(ack_at))
+            .contains(&Action::ActiveClose("t1 expired with no confirmation")),
+        "nothing outstanding is t1 old at 14 s"
+    );
+    assert_eq!(
+        manager.station(0).unwrap().timers().deadline(Timer::T1),
+        Some(start + params.t1),
+        "t1 follows the second frame, sent at the start"
+    );
+    assert!(
+        actions_of(&manager.tick(start + params.t1))
+            .contains(&Action::ActiveClose("t1 expired with no confirmation")),
+        "the second frame is t1 old and unconfirmed"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // cl.5.3: the caller's own requests, through the same timer wiring
 // ---------------------------------------------------------------------------

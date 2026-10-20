@@ -101,6 +101,7 @@
 //! }
 //! ```
 
+use std::collections::VecDeque;
 use std::time::Instant;
 
 use crate::apci::{Apci, SeqNo, UFunction};
@@ -278,15 +279,16 @@ impl Timers {
 /// the actions it returned to [`Supervisor::apply`]. On a received frame, call
 /// [`Timers::frame_received`] (and [`Timers::i_frame_received`] for an
 /// I-frame) first.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Supervisor {
     /// When our pending `STARTDT`/`STOPDT`/`TESTFR` act went out, so that
     /// acknowledgement progress on I-frames cannot postpone that act's t1.
     act_sent: Option<Instant>,
-    /// When the oldest I-frame still in the send buffer went out (or, after a
-    /// partial acknowledgement, when that acknowledgement came), so that a
-    /// confirmed act cannot postpone the I-frames' t1.
-    frames_sent: Option<Instant>,
+    /// N(S) and send instant of each I-frame still in the clause 5.1 send
+    /// buffer, oldest first, so that t1 is re-armed from when the oldest
+    /// unconfirmed frame went out (figures 17/18 NOTE 2), not from when an
+    /// acknowledgement came.
+    frames_sent: VecDeque<(SeqNo, Instant)>,
 }
 
 impl Supervisor {
@@ -296,11 +298,20 @@ impl Supervisor {
     /// acknowledgement and cancels t2. t1 follows the *oldest* unconfirmed
     /// frame: it is cancelled once nothing awaits confirmation, and re-armed
     /// when part of what it supervised was acknowledged and something remains.
-    /// It is re-armed from `now` for I-frames left after an acknowledgement, and
-    /// otherwise from the send time of what is still pending: acknowledgements
-    /// of I-frames say nothing about an act, nor a confirmed act about I-frames
-    /// (figures 17/18 NOTE 2). A con never arms t1, because nothing confirms a
-    /// con ([`Timers::frame_sent`]).
+    /// It is re-armed from the send time of what is still pending: the oldest
+    /// I-frame left in the send buffer, or the pending act, whichever went out
+    /// first. Clause 9's t1 is the "Time-out of send or test APDUs", and
+    /// figures 17/18 NOTE 2 make it "the timeout of a sent U-frame or
+    /// I-frame", so each frame is confirmed within t1 of being sent; a peer
+    /// that acknowledges one frame at a time cannot keep the rest waiting
+    /// longer. Acknowledgements of I-frames say nothing about an act, nor a
+    /// confirmed act about I-frames. A con never arms t1, because nothing
+    /// confirms a con ([`Timers::frame_sent`]).
+    ///
+    /// An I-frame is timed from the `apply` that carried its `SendI`; sending it
+    /// again (a retransmission) restarts its time. One this supervisor never
+    /// saw go out (sent through a plain entry point with no clock) is timed
+    /// from the first `apply` that finds it oldest in the send buffer.
     ///
     /// `before` is [`Supervision::of`] the session captured before it saw the
     /// event; the difference is the event's own acknowledgement progress.
@@ -320,7 +331,19 @@ impl Supervisor {
                     timers.frame_sent(now);
                     self.act_sent.get_or_insert(now);
                 }
-                Action::SendI { .. } => timers.frame_sent(now),
+                Action::SendI { ns, .. } => {
+                    timers.frame_sent(now);
+                    // The queue runs in N(S) order, so a retransmitted frame
+                    // sits at its distance from the front: one look, not a
+                    // scan of up to k entries per frame sent.
+                    let at = self.frames_sent.front().map_or(usize::MAX, |(first, _)| {
+                        usize::from(ns.get().wrapping_sub(first.get()) & 0x7FFF)
+                    });
+                    match self.frames_sent.get_mut(at).filter(|(seen, _)| seen == ns) {
+                        Some(sent) => sent.1 = now,
+                        None => self.frames_sent.push_back((*ns, now)),
+                    }
+                }
                 _ => {}
             }
             if matches!(action, Action::Send(Apci::S { .. }) | Action::SendI { .. }) {
@@ -331,22 +354,40 @@ impl Supervisor {
         if !after.act_pending {
             self.act_sent = None;
         }
-        if after.oldest.is_none() {
-            self.frames_sent = None;
-        } else if self.frames_sent.is_none() || after.acknowledged_from(before) {
-            self.frames_sent = Some(now);
-        }
+        self.track_outstanding(session, now);
         if !after.any() {
             timers.confirmation_received();
         } else if after.advanced_from(before) {
             let oldest = self
                 .act_sent
                 .into_iter()
-                .chain(self.frames_sent)
+                .chain(self.frames_sent.front().map(|(_, sent)| *sent))
                 .min()
                 .unwrap_or(now);
             timers.confirmation_received();
             timers.frame_sent(oldest);
+        }
+    }
+
+    /// Drops the send instants of the I-frames an N(R) released and times an
+    /// oldest frame this supervisor never saw go out from `now`.
+    fn track_outstanding(&mut self, session: &Session, now: Instant) {
+        let outstanding = session.outstanding_frames();
+        let Some(oldest) = outstanding.first().map(|frame| frame.ns) else {
+            self.frames_sent.clear();
+            return;
+        };
+        // Clause 5.1: the send buffer holds consecutive N(S), oldest first, so
+        // a number is still outstanding when its distance from the oldest
+        // (modulo 32768) is less than the buffer's length.
+        let held = |ns: SeqNo| {
+            usize::from(ns.get().wrapping_sub(oldest.get()) & 0x7FFF) < outstanding.len()
+        };
+        while self.frames_sent.front().is_some_and(|(ns, _)| !held(*ns)) {
+            self.frames_sent.pop_front();
+        }
+        if self.frames_sent.front().is_none_or(|(ns, _)| *ns != oldest) {
+            self.frames_sent.push_front((oldest, now));
         }
     }
 }
