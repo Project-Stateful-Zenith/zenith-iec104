@@ -1376,7 +1376,7 @@ fn the_discard_rule_runs_first_on_the_controlling_side() {
 }
 
 #[test]
-fn a_mirror_from_the_peer_is_discarded_rather_than_mirrored_back() {
+fn a_mirror_from_the_peer_is_never_mirrored_back() {
     let (controlling, controlled) = roles();
     let reply = unknown_reply(
         &normalized(0x2000),
@@ -1391,8 +1391,40 @@ fn a_mirror_from_the_peer_is_discarded_rather_than_mirrored_back() {
     assert_eq!(outcome.reaction, Reaction::Discard(Discard::Mirror));
     assert_eq!(outcome.send, [] as [std::vec::Vec<u8>; 0]);
 
+    // On the controlling side the mirror is the peer's refusal of the load.
     let outcome = controlling.on_response(&reply, &Known::EVERYTHING).unwrap();
-    assert_eq!(outcome.reaction, Reaction::Discard(Discard::Mirror));
+    assert_eq!(
+        outcome.reaction,
+        Reaction::Refused {
+            ioa: IOA,
+            cause: Cause::UnknownTypeId,
+        }
+    );
+    assert_eq!(outcome.send, [] as [std::vec::Vec<u8>; 0]);
+}
+
+/// The outstation does not know parameter 0x4001 and mirrors the load with
+/// cause 47 (5-101 cl.7.2.3): the controlling station reports the refusal.
+#[test]
+fn a_cause_47_mirror_of_a_load_is_refused_with_its_address() {
+    let (controlling, _) = roles();
+    let reply = unknown_reply(
+        &normalized(0x2000),
+        Unspecified::InformationObjectAddress,
+        CA,
+        ORG,
+        false,
+    )
+    .unwrap();
+
+    let outcome = controlling.on_response(&reply, &Known::EVERYTHING).unwrap();
+    assert_eq!(
+        outcome.reaction,
+        Reaction::Refused {
+            ioa: 0x4001,
+            cause: Cause::UnknownInformationObjectAddress,
+        }
+    );
     assert_eq!(outcome.send, [] as [std::vec::Vec<u8>; 0]);
 }
 

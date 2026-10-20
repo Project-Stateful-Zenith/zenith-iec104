@@ -915,28 +915,16 @@ impl Task {
                     },
                 )
             }
-            // The procedure reports a received 44–47 mirror as a discard; its
-            // type, address and cause are in the mirrored frame (5-101
+            // The peer's 44–47 mirror of the load or activation (5-101
             // cl.7.2.3).
-            pm::Reaction::Discard(Discard::Mirror) => {
-                let sizes = self.config.sizes;
-                let (Some(family), Some(Ok(ioa))) = (
-                    pm::Family::of_type(header.type_id),
-                    frame
-                        .get(sizes.header_len()..)
-                        .map(|object| read_ioa_with(object, sizes)),
-                ) else {
+            pm::Reaction::Refused { ioa, cause } => {
+                let Some(family) = pm::Family::of_type(header.type_id) else {
                     return;
                 };
                 let Some(index) = self.parameters.iter().position(|p| p.is_for(ioa, family)) else {
                     return;
                 };
-                (
-                    index,
-                    Err(ClientError::Refused {
-                        cause: header.cause,
-                    }),
-                )
+                (index, Err(ClientError::Refused { cause }))
             }
             _ => return,
         };

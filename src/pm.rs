@@ -605,7 +605,9 @@ pub enum Reaction {
     /// is clause 7.2.3's 44–47 class for a field the station does not know, 7/9
     /// for the `QPA` refusal of TS 60870-5-604 5.4.21.15, or 7 for a load whose
     /// `QPM` is outside 5-101 cl.7.2.6.24's grammar.
-    /// [`Outcome::send`] holds the frame.
+    /// [`Outcome::send`] holds the frame. On the controlling side
+    /// ([`ParameterLoading::on_response`]) it is the peer's 44–47 mirror of
+    /// this station's load or activation, and nothing is sent.
     Refused {
         /// The information object address the received frame addressed.
         ioa: u32,
@@ -1615,9 +1617,10 @@ impl ParameterLoading {
     /// a station whose [`LocalChange`] is [`LocalChange::Used`]) and an
     /// interrogation readback (causes 20–36).
     ///
-    /// Nothing is sent: a controlling station answers none of these. The
-    /// discard rule runs first (so a peer's 44–47 mirror is a
-    /// [`Reaction::Discard`]), then the type's own cause list.
+    /// Nothing is sent: a controlling station answers none of these. A
+    /// parameter type's 44–47 mirror is the peer's refusal and is a
+    /// [`Reaction::Refused`]; then the discard rule runs, then the type's own
+    /// cause list.
     /// [`Family::is_monitor_cause`] is the list [`mirror`] checks on the way
     /// out, so a cause the received type's figure does not carry (the `P_ME`
     /// types' `<9>`, `P_AC_NA_1`'s `<3>` or `<20>`–`<36>`) is
@@ -1632,6 +1635,17 @@ impl ParameterLoading {
             return Err(PmError::WrongRole);
         }
         let header = Header::parse_with(asdu, self.sizes)?;
+        if is_parameter_type(header.type_id) && is_mirror(&header) {
+            // The peer's refusal of this station's load or activation, so it
+            // is classified before the discard rule (as `ts`, `rd`, `ci` do).
+            return Ok(Outcome {
+                reaction: Reaction::Refused {
+                    ioa: decode(asdu, self.sizes)?.map_or(0, |p| p.ioa),
+                    cause: header.cause,
+                },
+                send: Vec::new(),
+            });
+        }
         if let Some(reason) = discard_reason(&header, known) {
             return Ok(Outcome {
                 reaction: Reaction::Discard(reason),
