@@ -76,6 +76,35 @@ const fn sample_header() -> Header {
     }
 }
 
+/// The plain `encode` reports a header its octets cannot carry instead of
+/// silently appending nothing (issue #40), and still encodes a valid one.
+#[test]
+fn the_plain_encode_reports_a_header_it_cannot_carry() {
+    let mut out = Vec::new();
+    let too_many = Header {
+        count: 200,
+        ..sample_header()
+    };
+    assert_eq!(
+        too_many.encode(&mut out),
+        Err(AsduError::CountOutOfRange { count: 200 })
+    );
+    let reserved = Header {
+        cause: Cause::Reserved(5),
+        ..sample_header()
+    };
+    assert_eq!(
+        reserved.encode(&mut out),
+        Err(AsduError::CauseNotEncodable {
+            cause: Cause::Reserved(5)
+        })
+    );
+    assert!(out.is_empty(), "a refused header appends nothing");
+
+    assert_eq!(sample_header().encode(&mut out), Ok(()));
+    assert_eq!(out, [TypeId::MMeNb1.to_u8(), 0x02, 0x43, 0x07, 0x07, 0x00]);
+}
+
 /// Why the widths must be configured rather than guessed: the conventional
 /// parser cannot read a profile whose header is narrower, and with one octet
 /// too many it reads the CA **past** the header.
@@ -126,7 +155,7 @@ fn the_conventional_names_and_the_sized_names_agree_byte_for_byte() {
     let header = sample_header();
 
     let mut plain = Vec::new();
-    header.encode(&mut plain);
+    header.encode(&mut plain).expect("the header encodes");
     let mut sized = Vec::new();
     header
         .encode_with(&mut sized, AddressSizes::CONVENTIONAL)
@@ -473,7 +502,9 @@ fn a_wider_address_than_the_profile_is_not_a_legal_asdu() {
         common_address: 1,
     };
     let mut conventional = Vec::new();
-    header.encode(&mut conventional);
+    header
+        .encode(&mut conventional)
+        .expect("the header encodes");
     conventional.extend_from_slice(&[0x01, 0x00, 0x00, 0x00, 0x00, 0x00]);
     assert_eq!(conventional.len(), 12);
     assert_eq!(decode_asdu::<MMeNb1>(&conventional).map(|o| o.len()), Ok(1));

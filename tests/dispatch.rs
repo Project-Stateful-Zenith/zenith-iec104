@@ -98,7 +98,7 @@ fn not_implemented_is_one_cause_44_mirror() {
     let sizes = AddressSizes::CONVENTIONAL;
     let reset = header(TypeId::CRpNa1, Cause::Activation);
     let mut asdu = Vec::new();
-    reset.encode(&mut asdu);
+    reset.encode(&mut asdu).expect("the header encodes");
     asdu.extend_from_slice(&[0, 0, 0, 1]); // IOA 0, QRP 1
     let mirror = not_implemented(&reset, &asdu, 7, sizes).expect("answered");
     let answer = Header::parse(&mirror).unwrap();

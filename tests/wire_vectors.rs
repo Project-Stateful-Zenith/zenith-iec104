@@ -208,7 +208,7 @@ fn header_round_trip() {
         common_address: 4711,
     };
     let mut out = Vec::new();
-    h.encode(&mut out);
+    h.encode(&mut out).expect("the header encodes");
     assert_eq!(out.len(), Header::LEN);
     assert_eq!(Header::parse(&out).unwrap(), h);
 }

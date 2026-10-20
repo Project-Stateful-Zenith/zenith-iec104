@@ -76,7 +76,7 @@ pub fn c_ic(cause: u8, negative: bool, ca: u16, qoi: u8) -> Vec<u8> {
         common_address: ca,
     };
     let mut out = Vec::with_capacity(10);
-    header.encode(&mut out);
+    header.encode(&mut out).expect("the header encodes");
     out.extend_from_slice(&[0, 0, 0, qoi]);
     out
 }
@@ -95,7 +95,7 @@ pub fn point_asdu(type_id: u8, cause: u8, ca: u16, ioa: u32, element: &[u8]) -> 
         common_address: ca,
     };
     let mut out = Vec::new();
-    header.encode(&mut out);
+    header.encode(&mut out).expect("the header encodes");
     out.extend_from_slice(&ioa.to_le_bytes()[..3]);
     out.extend_from_slice(element);
     out

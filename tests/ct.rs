@@ -1979,7 +1979,7 @@ fn an_unknown_type_identification_is_mirrored_with_cause_44() {
         common_address: CA,
     };
     let mut frame = Vec::new();
-    header.encode(&mut frame);
+    header.encode(&mut frame).expect("the header encodes");
     frame.extend_from_slice(&[0x00, 0x30, 0x00, 0x01]);
     let known = Known::NOTHING;
     let outcome = controlled.on_request(&frame, &known).unwrap();
@@ -2120,7 +2120,7 @@ fn a_non_command_asdu_at_the_broadcast_address_falls_through_to_other() {
                 common_address,
             };
             let mut frame = Vec::new();
-            header.encode(&mut frame);
+            header.encode(&mut frame).expect("the header encodes");
             frame.extend_from_slice(&[0x00, 0x00, 0x00, 0x14]);
             let outcome = controlled.on_request(&frame, &Known::EVERYTHING).unwrap();
             assert_eq!(

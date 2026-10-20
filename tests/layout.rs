@@ -772,7 +772,9 @@ fn two_objects_are_refused_for_a_single_object_type() {
         })
     );
     let mut none = Vec::new();
-    header(TypeId::MEpTb1, false, 0).encode(&mut none);
+    header(TypeId::MEpTb1, false, 0)
+        .encode(&mut none)
+        .expect("the header encodes");
     assert_eq!(none.len(), 6);
     assert_eq!(decode_asdu::<MEpTb1>(&none).expect("N = 0"), Vec::new());
 
