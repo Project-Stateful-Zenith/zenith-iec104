@@ -81,11 +81,13 @@ fn spawn(port: u16) -> Peer {
     let path = peer_binary("IEC104_LIB60870_SERVER", "full_server");
     let child = Command::new(path)
         .args([port.to_string(), "30".into()])
-        .stdout(if std::env::var_os("IEC104_LIB60870_VERBOSE").is_some() {
-            Stdio::inherit()
-        } else {
-            Stdio::null()
-        })
+        .stdout(
+            if std::env::var("IEC104_LIB60870_VERBOSE").is_ok_and(|v| v == "1") {
+                Stdio::inherit()
+            } else {
+                Stdio::null()
+            },
+        )
         .spawn()
         .expect("the peer starts");
     Peer(child)
