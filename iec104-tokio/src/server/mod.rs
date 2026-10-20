@@ -402,14 +402,16 @@ impl ServerConfig {
         }
     }
 
-    /// Adds the point at `ioa` (replacing one there).
+    /// Adds the point at `ioa` (replacing one there). `ioa` must not be `0`,
+    /// which [`Server::spawn`] refuses.
     #[must_use]
     pub fn point(mut self, ioa: u32, point: PointConfig) -> Self {
         self.points.insert(ioa, point);
         self
     }
 
-    /// Lets `ioa` take commands of `family`.
+    /// Lets `ioa` take commands of `family`. `ioa` must not be `0`, which
+    /// [`Server::spawn`] refuses.
     #[must_use]
     pub fn command(mut self, ioa: u32, family: Family) -> Self {
         self.commands.insert(ioa, family);
@@ -456,6 +458,9 @@ pub enum ServerError {
     WrongKind(u32),
     /// An event's cause must be 3, 11 or 12.
     NotAnEventCause(Cause),
+    /// A point or a command at address `<0>`, which 5-101 cl.7.2.5 defines as
+    /// irrelevant: it names no object, so a point there could never be read.
+    IrrelevantAddress,
     /// The value cannot be encoded.
     Layout(LayoutError),
     /// The driver refused or has stopped.
@@ -472,6 +477,7 @@ impl fmt::Display for ServerError {
             Self::NotAnEventCause(cause) => {
                 write!(f, "cause {} is not an event's (3, 11 or 12)", cause.to_u8())
             }
+            Self::IrrelevantAddress => f.write_str("address 0 is irrelevant and names no object"),
             Self::Layout(e) => write!(f, "layout: {e:?}"),
             Self::Driver(e) => write!(f, "driver: {e}"),
         }
@@ -518,8 +524,9 @@ impl Server {
     ///
     /// # Errors
     ///
-    /// [`ServerError::Layout`] when the common address, or a point's or a
-    /// command's address, does not fit [`ServerConfig::sizes`], and
+    /// [`ServerError::IrrelevantAddress`] when a point or a command is at
+    /// address `<0>`, [`ServerError::Layout`] when the common address, or a
+    /// point's or a command's address, does not fit [`ServerConfig::sizes`], and
     /// [`ServerError::Driver`] when the redundancy group cannot be built from
     /// the configuration (no member, say).
     pub fn spawn<A: Application>(config: ServerConfig, app: A) -> Result<Self, ServerError> {
@@ -533,6 +540,11 @@ impl Server {
                     max,
                 },
             )));
+        }
+        // 5-101 cl.7.2.5: `<0>` is "irrelevant", so a point there could be
+        // interrogated but never read.
+        if config.points.contains_key(&0) || config.commands.contains_key(&0) {
+            return Err(ServerError::IrrelevantAddress);
         }
         let max = config.sizes.max_ioa();
         if let Some(&ioa) = config

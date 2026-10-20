@@ -1643,6 +1643,25 @@ async fn a_point_address_too_large_for_the_address_sizes_is_refused_at_spawn() {
     );
 }
 
+/// 5-101 cl.7.2.5 defines address `<0>` as irrelevant: a point there would go
+/// out in interrogation answers but could never be read, so the server refuses
+/// a point or a command at it at spawn.
+#[tokio::test]
+async fn a_point_or_command_at_address_0_is_refused_at_spawn() {
+    let point = config().point(0, PointConfig::new(Value::Scaled(0)));
+    let (station, _side) = app();
+    assert_eq!(
+        Server::spawn(point, station).err(),
+        Some(ServerError::IrrelevantAddress)
+    );
+    let command = config().command(0, Family::Single);
+    let (station, _side) = app();
+    assert_eq!(
+        Server::spawn(command, station).err(),
+        Some(ServerError::IrrelevantAddress)
+    );
+}
+
 /// A common address one octet cannot carry would leave every answer
 /// unencodable, so interrogations would send no point at all.
 #[tokio::test]
