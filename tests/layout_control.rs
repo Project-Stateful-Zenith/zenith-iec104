@@ -734,7 +734,9 @@ fn two_objects_are_refused_for_a_control_type() {
     // a received one decodes to nothing, but the writer does not produce one.
     assert!(encode_asdu::<CCsNa1>(&header(TypeId::CCsNa1, false, 0), &[]).is_err());
     let mut none = Vec::new();
-    header(TypeId::CCsNa1, false, 0).encode(&mut none);
+    header(TypeId::CCsNa1, false, 0)
+        .encode(&mut none)
+        .expect("the header encodes");
     assert_eq!(none.len(), Header::LEN);
     assert_eq!(decode_asdu::<CCsNa1>(&none).expect("N = 0"), Vec::new());
 

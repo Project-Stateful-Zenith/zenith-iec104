@@ -173,7 +173,7 @@ fn a_bcr_object_area_survives_the_body_cursor() {
             common_address: 12,
         };
         let mut out = Vec::new();
-        header.encode(&mut out);
+        header.encode(&mut out).expect("the header encodes");
         // object 1: reading 1, sequence 3, carry set
         out.extend_from_slice(&[0x03, 0x02, 0x01, 0x01, 0x00, 0x00, 0x00, 0x23]);
         // object 2: reading -2, sequence 31, invalid
@@ -238,7 +238,7 @@ fn a_test_command_body_round_trips() {
         common_address: 1,
     };
     let mut asdu = Vec::new();
-    header.encode(&mut asdu);
+    header.encode(&mut asdu).expect("the header encodes");
     asdu.extend_from_slice(&body);
 
     let mut cursor = BodyReader::from_asdu(&asdu).expect("header");

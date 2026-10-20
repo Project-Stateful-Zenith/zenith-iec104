@@ -393,11 +393,15 @@ impl Header {
     /// Appends the conventional 6-octet header to `out`.
     ///
     /// Thin wrapper over [`Header::encode_with`] with
-    /// [`AddressSizes::CONVENTIONAL`]. A header that form refuses (a count
-    /// above 127, a cause with no 6-bit code of its own) appends nothing; use
-    /// the `_with` form to see the error.
-    pub fn encode(&self, out: &mut Vec<u8>) {
-        let _ = self.encode_with(out, AddressSizes::CONVENTIONAL);
+    /// [`AddressSizes::CONVENTIONAL`]; on an error nothing is appended.
+    ///
+    /// # Errors
+    ///
+    /// As [`Header::encode_with`]: a count above 127, a cause with no 6-bit
+    /// code of its own, or (never, with two octets) a common address out of
+    /// range.
+    pub fn encode(&self, out: &mut Vec<u8>) -> Result<(), AsduError> {
+        self.encode_with(out, AddressSizes::CONVENTIONAL)
     }
 
     /// Appends the header to `out` with the address sizes `sizes` fixes.

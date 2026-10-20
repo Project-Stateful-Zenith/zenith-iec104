@@ -90,7 +90,7 @@ fn handmade(
         // The writer refuses N = 0 for a single-object type; the reader must
         // still cope with one arriving, so it is written by hand.
         let mut frame = Vec::new();
-        header.encode(&mut frame);
+        header.encode(&mut frame).expect("the header encodes");
         return frame;
     }
     let objects = vec![LayoutObject {

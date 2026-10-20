@@ -78,7 +78,8 @@ fn header(type_id: TypeId, count: u8, sequence: bool, cause: Cause, ca: u16) -> 
         originator: 0,
         common_address: ca,
     }
-    .encode(&mut out);
+    .encode(&mut out)
+    .expect("the header encodes");
     out
 }
 

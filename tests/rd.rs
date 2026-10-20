@@ -173,7 +173,8 @@ fn handmade_mirror(asdu: &[u8], cause: Cause) -> Vec<u8> {
         negative: true,
         ..header_of(asdu)
     }
-    .encode(&mut out);
+    .encode(&mut out)
+    .expect("the header encodes");
     out.extend_from_slice(&asdu[Header::LEN..]);
     out
 }
@@ -600,7 +601,7 @@ fn answer_refuses_a_command_with_no_object() {
         common_address: CA,
     };
     let mut command = Vec::new();
-    empty.encode(&mut command);
+    empty.encode(&mut command).expect("the header encodes");
     assert_eq!(
         answer(
             &LayoutObject {
@@ -1228,7 +1229,7 @@ fn on_request_refuses_a_frame_that_is_not_the_command() {
         common_address: CA,
     };
     let mut asdu = Vec::new();
-    empty.encode(&mut asdu);
+    empty.encode(&mut asdu).expect("the header encodes");
     assert_eq!(
         serving
             .on_request(&asdu, &Known::EVERYTHING, &source)
@@ -1459,7 +1460,7 @@ fn a_source_frame_without_the_one_object_is_refused() {
         common_address: CA,
     };
     let mut frame = Vec::new();
-    none.encode(&mut frame);
+    none.encode(&mut frame).expect("the header encodes");
     assert_eq!(
         serving
             .on_request(&command, &Known::EVERYTHING, &Says(frame))
@@ -1475,7 +1476,8 @@ fn a_source_frame_without_the_one_object_is_refused() {
         count: 2,
         ..none
     }
-    .encode(&mut frame);
+    .encode(&mut frame)
+    .expect("the header encodes");
     assert_eq!(
         serving
             .on_request(&command, &Known::EVERYTHING, &Says(frame))

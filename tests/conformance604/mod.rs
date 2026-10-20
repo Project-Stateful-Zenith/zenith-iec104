@@ -147,7 +147,7 @@ fn build_asdu(type_id: u8, cause: u8, ca: u16, test: bool, body: &[u8]) -> Vec<u
         common_address: ca,
     };
     let mut out = Vec::with_capacity(Header::LEN + body.len());
-    header.encode(&mut out);
+    header.encode(&mut out).expect("the header encodes");
     out.extend_from_slice(body);
     out
 }

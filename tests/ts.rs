@@ -133,7 +133,7 @@ fn handmade_untagged_raw(
         common_address,
     };
     let mut frame = Vec::new();
-    header.encode(&mut frame);
+    header.encode(&mut frame).expect("the header encodes");
     frame.extend_from_slice(&[0x00, 0x00, 0x00]);
     frame.extend_from_slice(&fbp_octets);
     frame
@@ -911,7 +911,7 @@ fn a_command_with_no_information_object_is_nothing_to_answer() {
             common_address: CA,
         };
         let mut frame = Vec::new();
-        header.encode(&mut frame);
+        header.encode(&mut frame).expect("the header encodes");
         frame
     };
     assert_eq!(empty.len(), Header::LEN);
