@@ -2094,4 +2094,48 @@ fn an_answer_of_the_wrong_type_is_an_echo_mismatch() {
         station.on_answer(&section, &Known::EVERYTHING, &sent),
         Err(FtError::EchoMismatch { .. })
     ));
+    // A call file may be refused with a negative file ready (7.2.6.28), but a
+    // positive one does not answer it.
+    let sent = decode_frame(&call_file(12, 0, 1, nof(2), nos(0)).unwrap()).unwrap();
+    let refused = file_ready(
+        12,
+        0,
+        1,
+        nof(2),
+        Lof { value: 0 },
+        Frq {
+            value: 0,
+            negative_confirm: true,
+        },
+    )
+    .unwrap();
+    assert!(
+        station
+            .on_answer(&refused, &Known::EVERYTHING, &sent)
+            .is_ok()
+    );
+    assert!(matches!(
+        station.on_answer(&ready, &Known::EVERYTHING, &sent),
+        Err(FtError::EchoMismatch { .. })
+    ));
+    // A call section may be answered by a section ready that is not ready.
+    let sent = decode_frame(&call_section(12, 0, 1, nof(2), nos(3)).unwrap()).unwrap();
+    let not_ready = section_ready(
+        12,
+        0,
+        1,
+        nof(2),
+        nos(3),
+        Lof { value: 0 },
+        Srq {
+            value: 0,
+            not_ready: true,
+        },
+    )
+    .unwrap();
+    assert!(
+        station
+            .on_answer(&not_ready, &Known::EVERYTHING, &sent)
+            .is_ok()
+    );
 }

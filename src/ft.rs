@@ -1081,25 +1081,50 @@ fn answers(sent: &Frame, answered: &Frame) -> bool {
 /// Whether `answered` is of a type that answers `sent`, in the order of
 /// 5-104 clause 7.11's table (the module's first section) and 5-101 clause
 /// 7.4.11's transfer figures (indices 131–133): call directory → `F_DR`;
-/// select file → `F_FR`; call file and select section → `F_SR`; call section
-/// → its segments (`F_SG`) and its last segment (`F_LS`); a positive section
+/// select file → `F_FR`; call file → `F_SR`, or a negative `F_FR`; select
+/// section → `F_SR`; call section → its segments (`F_SG`) and its last
+/// segment (`F_LS`), or an `F_SR` that is not ready; a positive section
 /// acknowledgement → the next section ready (`F_SR`) or the last section
 /// (`F_LS`), a negative one → the same section again (`F_SG`, `F_LS`, 604
 /// `5.4.23.1`); and 104 clause 8.9's `QueryLog` → the file ready (`F_FR`).
 ///
 /// The rest (deactivate or delete file, deactivate section, acknowledge file)
 /// close a step rather than ask for a frame, so no type is demanded of them.
+/// A spontaneous directory (cause 3) is not an answer: route it outside
+/// [`FileTransferProcedure::on_answer`], which refuses it unless a call
+/// directory is outstanding.
 const fn answers_type(sent: &Frame, answered: &Frame) -> bool {
     match sent {
         Frame::Sc { scq, .. } => match scq.action {
             SCQ_CALL_DIRECTORY => matches!(answered, Frame::Directory { .. }),
             Scq::SELECT_FILE => matches!(answered, Frame::FileReady { .. }),
-            Scq::REQUEST_FILE | Scq::SELECT_SECTION => {
-                matches!(answered, Frame::SectionReady { .. })
-            }
-            Scq::REQUEST_SECTION => {
-                matches!(answered, Frame::Segment { .. } | Frame::LastSection { .. })
-            }
+            // 7.2.6.28: a file ready with BS1 set is the negative confirm of
+            // a request too, not only of a select.
+            Scq::REQUEST_FILE => matches!(
+                answered,
+                Frame::SectionReady { .. }
+                    | Frame::FileReady {
+                        frq: Frq {
+                            negative_confirm: true,
+                            ..
+                        },
+                        ..
+                    }
+            ),
+            Scq::SELECT_SECTION => matches!(answered, Frame::SectionReady { .. }),
+            // 7.2.6.29: a section ready with bit 8 set says it is not ready.
+            Scq::REQUEST_SECTION => matches!(
+                answered,
+                Frame::Segment { .. }
+                    | Frame::LastSection { .. }
+                    | Frame::SectionReady {
+                        srq: Srq {
+                            not_ready: true,
+                            ..
+                        },
+                        ..
+                    }
+            ),
             _ => true,
         },
         Frame::Ack { afq, .. } => match afq.action {
