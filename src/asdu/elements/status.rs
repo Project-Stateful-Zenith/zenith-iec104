@@ -418,10 +418,19 @@ impl Vti {
         }
     }
 
-    /// The octet. `Value` is masked to its 7 bits; bit 8 is `Transient`.
+    /// The octet; bit 8 is `Transient`. A `Value` outside `-64..=63` clamps
+    /// to `-64` / `63` before it is written into its 7 bits, so it saturates
+    /// rather than wrapping to the opposite sign.
     #[must_use]
     pub const fn raw(&self) -> u8 {
-        (self.value.cast_unsigned() & 0x7F) | if self.transient { 0x80 } else { 0 }
+        let value = if self.value > 63 {
+            63
+        } else if self.value < -64 {
+            -64
+        } else {
+            self.value
+        };
+        (value.cast_unsigned() & 0x7F) | if self.transient { 0x80 } else { 0 }
     }
 
     /// Reads one octet.

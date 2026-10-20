@@ -526,6 +526,34 @@ fn vti_round_trip_covers_the_whole_range() {
     }
 }
 
+/// Clause 7.2.6.5: a `Value` outside `-64..=63` clamps to the nearest end on
+/// encode; it never wraps into the opposite sign.
+#[test]
+fn vti_out_of_range_value_clamps_on_encode() {
+    for (value, expected) in [
+        (63, 63),
+        (-64, -64),
+        (64, 63),
+        (100, 63),
+        (i8::MAX, 63),
+        (-65, -64),
+        (i8::MIN, -64),
+    ] {
+        for transient in [false, true] {
+            let mut out = Vec::new();
+            Vti { value, transient }.encode(&mut out);
+            assert_eq!(
+                Vti::parse(&out).unwrap(),
+                Vti {
+                    value: expected,
+                    transient
+                },
+                "value {value}"
+            );
+        }
+    }
+}
+
 /// Clause 7.2.6.5: every prefix of a valid VTI is `TooShort { need: 1, .. }`.
 #[test]
 fn vti_truncation_is_a_typed_error() {
