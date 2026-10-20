@@ -10,6 +10,11 @@ the controlling station (master) and the controlled station (outstation).
 | `iec104-tokio` | async drivers on Tokio, and a procedure-level `Client` and `Server` built on them |
 | `iec104-tls` | IEC 104 over mutual TLS on rustls, blocking and async |
 
+> [!NOTE]
+> This repository is a clone of an internal production repository. It may
+> lag behind the internal one in releases and patches, though we try to
+> patch issues here that we catch internally.
+
 ## How it is built
 
 `iec104` is **sans-IO**. It opens no sockets, reads no clock, spawns no
