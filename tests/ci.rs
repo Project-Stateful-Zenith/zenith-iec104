@@ -1497,6 +1497,30 @@ fn every_answer_echoes_the_requests_originator() {
     }
 }
 
+/// 5-101 cl.7.2.3: the totals answering a `T = 1` counter read are generated
+/// under test conditions too, so they carry `T = 1`; a later `T = 0` read
+/// answers with `T = 0`.
+#[test]
+fn the_totals_echo_their_own_requests_test_bit() {
+    let device = Device::new();
+    let mut controlled = CounterInterrogation::controlled(CounterMode::FreezeAndTransmit, CA, 0);
+    for test in [true, false] {
+        let mut act = request(Request::General, FreezeMode::Read, CA, 0).unwrap();
+        if test {
+            act[2] |= 0x80;
+        }
+        controlled
+            .on_request(&act, &Known::EVERYTHING, &device)
+            .unwrap();
+        let mut frames = controlled.interrogated(&device).unwrap();
+        frames.extend(controlled.complete(&device).unwrap());
+        assert_eq!(frames.len(), 3, "two totals, actterm");
+        for frame in &frames {
+            assert_eq!(Header::parse(frame).unwrap().test, test);
+        }
+    }
+}
+
 /// A counter group outside 1..=4 is refused rather than clamped.
 #[test]
 fn a_counter_group_outside_the_standards_range_is_refused() {

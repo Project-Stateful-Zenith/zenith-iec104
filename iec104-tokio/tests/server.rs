@@ -689,7 +689,8 @@ async fn clause_7_4_8_counter_interrogation_and_freeze() {
 
 /// 5-101 cl.7.2.3: a `T = 1` counter interrogation is answered under test
 /// conditions and does not control the process: a reset is confirmed with
-/// `T = 1` and no counter is reset; a collection, which only reads, still runs.
+/// `T = 1` and no counter is reset; a collection, which only reads,
+/// still runs and its totals carry `T = 1` too.
 #[tokio::test(start_paused = true)]
 async fn clause_7_2_3_a_test_counter_interrogation_does_not_reset() {
     let (_server, mut side, mut master) = started(config()).await;
@@ -706,7 +707,7 @@ async fn clause_7_2_3_a_test_counter_interrogation_does_not_reset() {
         master.next().await,
         counter_interrogation(0x80 | ACTCON, 0x05)
     );
-    assert_eq!(master.next().await, total(REQCOGEN, 5));
+    assert_eq!(master.next().await, total(0x80 | REQCOGEN, 5));
     assert_eq!(
         master.next().await,
         counter_interrogation(0x80 | ACTTERM, 0x05)
