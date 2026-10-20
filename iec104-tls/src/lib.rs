@@ -1,4 +1,4 @@
-//! TLS for [`iec104`]: 104 over mutually authenticated TLS, with
+//! TLS for `iec104`: 104 over mutually authenticated TLS, with
 //! [rustls](https://docs.rs/rustls) and its *ring* provider.
 //!
 //! 104 over TLS is the plain 104 byte stream inside a TLS session, so this
@@ -130,7 +130,7 @@ pub use rustls::{CipherSuite, ProtocolVersion};
 ///
 /// From secondary sources (lib60870 and c104 examples, vendor documentation);
 /// **not verified** against IEC 62351-3. Plain 104 uses 2404
-/// ([`iec104::params::PORT`]).
+/// (`iec104::params::PORT`).
 pub const DEFAULT_TLS_PORT: u16 = 19998;
 
 /// The TLS error inside an I/O error from [`connect`], [`accept`] or a
