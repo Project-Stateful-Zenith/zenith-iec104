@@ -602,8 +602,9 @@ pub enum Reaction {
         cause: Cause,
     },
     /// A refusal: the received ASDU mirrored with `P/N = 1` and `cause`, which
-    /// is clause 7.2.3's 44–47 class for a field the station does not know, or
-    /// 7/9 for the `QPA` refusal of TS 60870-5-604 5.4.21.15.
+    /// is clause 7.2.3's 44–47 class for a field the station does not know, 7/9
+    /// for the `QPA` refusal of TS 60870-5-604 5.4.21.15, or 7 for a load whose
+    /// `QPM` is outside 5-101 cl.7.2.6.24's grammar.
     /// [`Outcome::send`] holds the frame.
     Refused {
         /// The information object address the received frame addressed.
@@ -1375,7 +1376,9 @@ impl ParameterLoading {
     ///
     /// Every refusal the standard defines is an answer here, not an error or a
     /// silence: a `QPA` the profile does not use is mirrored with `P/N = 1` (TS
-    /// 60870-5-604 5.4.21.15); a cause the type does not define in the control
+    /// 60870-5-604 5.4.21.15), and so is a load whose `QPM` [`load`] would
+    /// refuse to build (5-101 cl.7.2.6.24: a `KPA` not used or reserved, or a
+    /// set `LPC`/`POP`); a cause the type does not define in the control
     /// direction is mirrored with clause 7.2.3's cause 45, and a parameter
     /// addressed to the broadcast CASDU with cause 46; a field the caller's
     /// [`Known`] does not know is mirrored with its class's cause 44–47.
@@ -1449,6 +1452,24 @@ impl ParameterLoading {
                         },
                     )
                 } else {
+                    // 5-101 cl.7.2.6.24: a `QPM` the builders refuse (`KPA`
+                    // not used/reserved, `LPC`/`POP` set) is not accepted on
+                    // reception either; it is mirrored with `P/N = 1`.
+                    if parameter
+                        .qpm()
+                        .is_some_and(|qpm| Self::check_qpm(qpm).is_err())
+                    {
+                        return self.answer(
+                            &parameter,
+                            &header,
+                            CAUSE_ACTIVATION_CON,
+                            true,
+                            Reaction::Refused {
+                                ioa: parameter.ioa,
+                                cause: CAUSE_ACTIVATION_CON,
+                            },
+                        );
+                    }
                     // TS 60870-5-604 5.4.21.10: a negative threshold value or
                     // smoothing factor is "considered as invalid and not
                     // activated". The ACTCONneg carries the old value, which
@@ -1760,7 +1781,7 @@ impl ParameterLoading {
         self.answer(parameter, header, con, false, accepted)
     }
 
-    /// Checks a `QPM` this station sends against 5-101 cl.7.2.6.24: `LPC` and
+    /// Checks a `QPM` against 5-101 cl.7.2.6.24: `LPC` and
     /// `POP` zero, `KPA` one of the four kinds or the private range.
     const fn check_qpm(qpm: Qpm) -> Result<(), PmError> {
         if qpm.local_parameter_change || qpm.parameter_not_in_operation {
