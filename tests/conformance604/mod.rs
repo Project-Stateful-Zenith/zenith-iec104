@@ -941,6 +941,19 @@ pub fn exchange(request: &[u8], wait: u64) -> Result<Exchange, String> {
     Ok(Exchange { reply, report })
 }
 
+/// One request the station must not answer, without waiting for an answer that
+/// is not coming: the station writes whatever it owes for a frame before its
+/// next read, so by the time it has read the peer's close, its report lists
+/// every frame it sent. A case asserts "no answer" on `sent`.
+pub fn unanswered(request: &[u8]) -> Result<StationReport, String> {
+    let station = ControlledStation::start()?;
+    let mut peer = Peer::connect(station.addr())?;
+    peer.start_data_transfer()?;
+    peer.send_i(SeqNo::new(0), SeqNo::new(0), request)?;
+    peer.close()?;
+    station.join()
+}
+
 /// The same, requiring the mirror the codec negatives are about.
 pub fn mirror_of(request: &[u8]) -> Result<(Apci, Vec<u8>, StationReport), String> {
     let exchange = exchange(request, 5)?;

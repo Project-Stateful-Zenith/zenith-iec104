@@ -43,7 +43,7 @@
 
 use crate::conformance604::{
     BROADCAST_TYPES, CA, HELD_IOA, ORIGINATOR, apci_of, asdu, asdu_test, asdu_with_body,
-    controlling_discard, controlling_exchange, exchange, mirror_of,
+    controlling_discard, controlling_exchange, mirror_of, unanswered,
 };
 use iec104::apci::{Apci, SeqNo, UFunction};
 use iec104::asdu::{
@@ -450,16 +450,10 @@ fn clause_5_4_10_10_a_broadcast_casdu_on_a_permitted_type_is_not_rejected() {
             0xFFFF,
             &broadcast_object_area(type_id),
         );
-        let exchange =
-            exchange(&request, 1).unwrap_or_else(|why| panic!("5.4.10.10 (type {type_id}): {why}"));
-        assert!(
-            exchange.reply.is_none(),
-            "5.4.10.10 (type {type_id}): a permitted broadcast ASDU is not mirrored: {:?}",
-            exchange.reply
-        );
+        let report =
+            unanswered(&request).unwrap_or_else(|why| panic!("5.4.10.10 (type {type_id}): {why}"));
         assert_eq!(
-            exchange
-                .report
+            report
                 .sent
                 .iter()
                 .map(|frame| apci_of(frame).expect("a sent frame"))
@@ -481,15 +475,9 @@ fn clause_5_4_10_10_a_broadcast_casdu_on_a_permitted_type_is_not_rejected() {
 #[test]
 fn clause_5_4_10_10_a_system_type_at_the_stations_own_address_is_not_mirrored() {
     let request = asdu(100, Cause::Activation.to_u8(), CA, 0, 0x14);
-    let exchange = exchange(&request, 1).unwrap_or_else(|why| panic!("5.4.10.10 (own CA): {why}"));
-    assert!(
-        exchange.reply.is_none(),
-        "5.4.10.10: C_IC_NA_1 at the station's own address with IOA 0 is not mirrored: {:?}",
-        exchange.reply
-    );
+    let report = unanswered(&request).unwrap_or_else(|why| panic!("5.4.10.10 (own CA): {why}"));
     assert_eq!(
-        exchange
-            .report
+        report
             .sent
             .iter()
             .map(|frame| apci_of(frame).expect("a sent frame"))

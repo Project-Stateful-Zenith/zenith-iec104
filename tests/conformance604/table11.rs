@@ -51,8 +51,8 @@
 use crate::conformance604::{
     CA, HELD_IOA, SAMPLE_SEGMENT_LEN, apci_of, asdu_with_body, assert_sample_element_is_legal,
     control_cause, control_direction_type_ids, controlling_discard, controlling_exchange,
-    element_len, exchange, mirror_of, monitor_cause, monitor_direction_type_ids,
-    sample_object_area,
+    element_len, mirror_of, monitor_cause, monitor_direction_type_ids, sample_object_area,
+    unanswered,
 };
 use iec104::apci::{Apci, UFunction};
 use iec104::asdu::{Cause, Direction, Discard, Header, TypeId, Unspecified, cause_is_defined};
@@ -198,20 +198,14 @@ fn clause_5_4_11_1_a_defined_object_address_is_not_mirrored() {
         );
         // The sample's values are checked as well as its geometry above.
         assert_sample_element_is_legal(type_id, &request[Header::LEN + 3..]);
-        let exchange = exchange(&request, 1).unwrap_or_else(|why| {
+        let report = unanswered(&request).unwrap_or_else(|why| {
             panic!(
                 "5.4.11.1 (type {type_id}): the controlled station takes a request it knows: {why}"
             )
         });
 
-        assert!(
-            exchange.reply.is_none(),
-            "5.4.11.1 (type {type_id}): an ASDU the station knows is not mirrored: {:?}",
-            exchange.reply
-        );
         assert_eq!(
-            exchange
-                .report
+            report
                 .sent
                 .iter()
                 .map(|frame| apci_of(frame).expect("a sent frame"))
