@@ -100,6 +100,8 @@ struct PendingInterrogation {
     sent: Instant,
     confirmed: bool,
     objects: Vec<Asdu>,
+    /// Answers that could not be decoded, so are missing from `objects`.
+    undecodable: usize,
     /// Empty for the client's own interrogation on a new started connection.
     replies: Vec<Reply<Vec<Asdu>>>,
     /// A deactivation sent for this scope, its deadline and its caller.
@@ -112,6 +114,8 @@ struct PendingCounter {
     sent: Instant,
     confirmed: bool,
     objects: Vec<Asdu>,
+    /// Answers that could not be decoded, so are missing from `objects`.
+    undecodable: usize,
     replies: Vec<Reply<Vec<Asdu>>>,
 }
 
@@ -547,6 +551,7 @@ impl Task {
                 sent: Self::now(),
                 confirmed: false,
                 objects: Vec::new(),
+                undecodable: 0,
                 replies: reply.into_iter().collect(),
                 stop: None,
             }),
@@ -624,6 +629,7 @@ impl Task {
                 sent: Self::now(),
                 confirmed: false,
                 objects: Vec::new(),
+                undecodable: 0,
                 replies: vec![reply],
             }),
             Err(e) => {
@@ -1045,11 +1051,11 @@ impl Task {
                 return;
             }
             gi::Reaction::Interrogated { scope } => {
-                if let (Some(pending), Some(asdu)) = (
-                    self.interrogations.iter_mut().find(|p| p.scope == scope),
-                    decoded,
-                ) {
-                    pending.objects.push(asdu);
+                if let Some(pending) = self.interrogations.iter_mut().find(|p| p.scope == scope) {
+                    match decoded {
+                        Some(asdu) => pending.objects.push(asdu),
+                        None => pending.undecodable = pending.undecodable.saturating_add(1),
+                    }
                 }
                 return;
             }
@@ -1078,8 +1084,9 @@ impl Task {
                 _ => ClientError::Interrogation(gi::GiError::NotRunning),
             }));
         }
+        let result = finish(result, pending.objects, pending.undecodable);
         for reply in pending.replies {
-            let _ = reply.send(result.clone().map(|()| pending.objects.clone()));
+            let _ = reply.send(result.clone());
         }
     }
 
@@ -1105,11 +1112,11 @@ impl Task {
                 (request, Ok(()))
             }
             ci::Reaction::Counted { request } => {
-                if let (Some(pending), Some(asdu)) = (
-                    self.counters.iter_mut().find(|p| p.request == request),
-                    decoded,
-                ) {
-                    pending.objects.push(asdu);
+                if let Some(pending) = self.counters.iter_mut().find(|p| p.request == request) {
+                    match decoded {
+                        Some(asdu) => pending.objects.push(asdu),
+                        None => pending.undecodable = pending.undecodable.saturating_add(1),
+                    }
                 }
                 return;
             }
@@ -1130,8 +1137,9 @@ impl Task {
         };
         let pending = self.counters.remove(index);
         self.ci.abandon(request);
+        let result = finish(result, pending.objects, pending.undecodable);
         for reply in pending.replies {
-            let _ = reply.send(result.clone().map(|()| pending.objects.clone()));
+            let _ = reply.send(result.clone());
         }
     }
 
@@ -1441,4 +1449,21 @@ impl Task {
             }
         }
     }
+}
+
+/// The answer of a terminated interrogation: its objects, or
+/// [`ClientError::Incomplete`] when some of its answers could not be decoded.
+fn finish(
+    result: Result<(), ClientError>,
+    objects: Vec<Asdu>,
+    undecodable: usize,
+) -> Result<Vec<Asdu>, ClientError> {
+    result?;
+    if undecodable > 0 {
+        return Err(ClientError::Incomplete {
+            undecodable,
+            objects,
+        });
+    }
+    Ok(objects)
 }

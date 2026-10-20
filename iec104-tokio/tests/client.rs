@@ -593,6 +593,61 @@ async fn a_counter_interrogation_returns_the_totals() {
     assert!(matches!(totals[0].objects, Objects::MItNa1(_)));
 }
 
+/// An answer that cannot be decoded (here a measurand cut short of its
+/// `QDS`) is not silently left out: the interrogation ends with
+/// `Incomplete`, carrying the answers that were decoded.
+#[tokio::test(start_paused = true)]
+async fn an_undecodable_interrogation_answer_makes_it_incomplete() {
+    let (client, mut station, _dials) = started(config()).await;
+    let call = spawn_interrogation(&client, Scope::Station);
+    assert_eq!(station.next().await, interrogation(ACT, 20));
+    station.send(&interrogation(ACTCON, 20));
+    let truncated = measurand(20);
+    station.send(&truncated[..truncated.len() - 1]);
+    station.send(&measurand(20));
+    station.send(&interrogation(ACTTERM, 20));
+    match call.await.unwrap() {
+        Err(ClientError::Incomplete {
+            undecodable,
+            objects,
+        }) => {
+            assert_eq!(undecodable, 1);
+            assert_eq!(objects.len(), 1);
+            assert!(matches!(objects[0].objects, Objects::MMeNb1(_)));
+        }
+        other => panic!("expected Incomplete, got {other:?}"),
+    }
+}
+
+/// The same for a counter interrogation: a total cut short of its sequence
+/// octet.
+#[tokio::test(start_paused = true)]
+async fn an_undecodable_total_makes_the_counter_interrogation_incomplete() {
+    let (client, mut station, _dials) = started(config()).await;
+    let caller = client.clone();
+    let call = tokio::spawn(async move {
+        caller
+            .counter_interrogate(ci::Request::General, FreezeMode::Read)
+            .await
+    });
+    assert_eq!(station.next().await, counter_interrogation(ACT, 0x05));
+    station.send(&counter_interrogation(ACTCON, 0x05));
+    station.send(&TOTAL[..TOTAL.len() - 1]);
+    station.send(&TOTAL);
+    station.send(&counter_interrogation(ACTTERM, 0x05));
+    match call.await.unwrap() {
+        Err(ClientError::Incomplete {
+            undecodable,
+            objects,
+        }) => {
+            assert_eq!(undecodable, 1);
+            assert_eq!(objects.len(), 1);
+            assert!(matches!(objects[0].objects, Objects::MItNa1(_)));
+        }
+        other => panic!("expected Incomplete, got {other:?}"),
+    }
+}
+
 /// 5-101 figure 95: a freeze (`FRZ` 1 in bits 7–8, `0x40`) is confirmed and
 /// not terminated.
 #[tokio::test(start_paused = true)]

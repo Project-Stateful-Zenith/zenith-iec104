@@ -372,6 +372,16 @@ pub enum ClientError {
     /// are sent"* and no `ACTTERM` follows. What arrived before the stop was
     /// reported to the subscribers.
     Deactivated,
+    /// An interrogation or counter interrogation terminated, but `undecodable`
+    /// of its answers could not be decoded (each was reported to the
+    /// subscribers as [`Update::Undecodable`]). `objects` holds the answers
+    /// that were decoded: a partial image.
+    Incomplete {
+        /// How many answers could not be decoded.
+        undecodable: usize,
+        /// The answers that were decoded, in order.
+        objects: Vec<Asdu>,
+    },
     /// The interrogation procedure refused the request.
     Interrogation(iec104::gi::GiError),
     /// The counter interrogation procedure refused the request.
@@ -424,6 +434,10 @@ impl fmt::Display for ClientError {
             Self::SelectMismatch => f.write_str("the execute is not the command that was selected"),
             Self::NoClock => f.write_str("a time-tagged command needs a clock"),
             Self::Deactivated => f.write_str("the interrogation was stopped"),
+            Self::Incomplete { undecodable, .. } => write!(
+                f,
+                "{undecodable} answers of the interrogation could not be decoded"
+            ),
             Self::Interrogation(e) => write!(f, "interrogation: {e:?}"),
             Self::CounterInterrogation(e) => write!(f, "counter interrogation: {e:?}"),
             Self::Command(e) => write!(f, "command: {e:?}"),
@@ -652,7 +666,8 @@ impl Client {
     ///
     /// The interrogation procedure's refusal ([`ClientError::Interrogation`]),
     /// the station's ([`ClientError::Rejected`], [`ClientError::Refused`]),
-    /// [`ClientError::Deactivated`] after a stop, [`ClientError::Timeout`],
+    /// [`ClientError::Deactivated`] after a stop, [`ClientError::Incomplete`]
+    /// when some answers could not be decoded, [`ClientError::Timeout`],
     /// [`ClientError::ConnectionLost`], [`ClientError::NotStarted`] when no
     /// connection is started, and
     /// [`ClientError::Driver`] once the client has stopped.
@@ -691,7 +706,8 @@ impl Client {
     ///
     /// The procedure's refusal ([`ClientError::CounterInterrogation`],
     /// [`ClientError::Busy`]), the station's ([`ClientError::Rejected`],
-    /// [`ClientError::Refused`]), [`ClientError::Timeout`], [`ClientError::ConnectionLost`],
+    /// [`ClientError::Refused`]), [`ClientError::Incomplete`] when some totals
+    /// could not be decoded, [`ClientError::Timeout`], [`ClientError::ConnectionLost`],
     /// [`ClientError::NotStarted`] when no connection is started, and
     /// [`ClientError::Driver`] once the client has stopped.
     pub async fn counter_interrogate(
