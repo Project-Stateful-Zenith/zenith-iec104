@@ -39,7 +39,10 @@ pub enum Direction {
 }
 
 /// One line for an APDU `conn` sent or received.
-#[cfg_attr(not(any(feature = "log", feature = "tracing")), allow(unused))]
+#[cfg_attr(
+    not(any(feature = "log", feature = "tracing")),
+    allow(unused, clippy::missing_const_for_fn)
+)]
 pub fn apdu(direction: Direction, conn: usize, frame: &[u8], sizes: AddressSizes) {
     #[cfg(any(feature = "log", feature = "tracing"))]
     if enabled(Level::Debug) {
@@ -57,7 +60,10 @@ pub fn apdu(direction: Direction, conn: usize, frame: &[u8], sizes: AddressSizes
 
 /// One line for a driver event that changes a connection's state. APDUs and
 /// delivered ASDUs have their own line ([`apdu`]) and none here.
-#[cfg_attr(not(any(feature = "log", feature = "tracing")), allow(unused))]
+#[cfg_attr(
+    not(any(feature = "log", feature = "tracing")),
+    allow(unused, clippy::missing_const_for_fn)
+)]
 pub fn event(event: &Event) {
     #[cfg(any(feature = "log", feature = "tracing"))]
     match event {
