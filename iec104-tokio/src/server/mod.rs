@@ -175,6 +175,13 @@ pub use crate::client::Clock;
 /// station"* and leaves the delay to the system.
 pub const DEFAULT_SELECT_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// The default operation timeout: 60 s.
+///
+/// Neither 104 nor TS 60870-5-604 fixes one. A minute is well past the travel of a breaker or a motor-driven
+/// switch, and past the time a controlling station usually waits for the
+/// termination.
+pub const DEFAULT_OPERATE_TIMEOUT: Duration = Duration::from_secs(60);
+
 /// The default size of the event buffer: 1000 events.
 pub const DEFAULT_EVENT_BUFFER: usize = 1000;
 
@@ -327,6 +334,13 @@ pub struct ServerConfig {
     /// The maximum delay of a time-tagged command (104 cl.8): an older one is
     /// neither answered nor operated. Default `None`: not supervised.
     pub max_command_delay: Option<Duration>,
+    /// How long [`Application::operate`] may run. Past it the operation has
+    /// failed: its future is dropped (so it stops at its next `.await`), the
+    /// execute is terminated negatively and its object takes the next one.
+    /// `None` lets an operation run for as long as it takes, and one that
+    /// never ends then holds its object until restart. Default
+    /// [`DEFAULT_OPERATE_TIMEOUT`], 60 s.
+    pub operate_timeout: Option<Duration>,
     /// The station's counter mode (5-101 cl.7.4.8). Default mode C.
     pub counter_mode: CounterMode,
     /// What a second interrogation does while one runs (TS 60870-5-604
@@ -385,6 +399,7 @@ impl ServerConfig {
             termination: Termination::All,
             select_timeout: DEFAULT_SELECT_TIMEOUT,
             max_command_delay: None,
+            operate_timeout: Some(DEFAULT_OPERATE_TIMEOUT),
             counter_mode: CounterMode::FreezeAndTransmit,
             reactivation: ReActivation::Continue,
             end_of_initialisation: Some(Coi {
@@ -435,6 +450,7 @@ impl fmt::Debug for ServerConfig {
             .field("termination", &self.termination)
             .field("select_timeout", &self.select_timeout)
             .field("max_command_delay", &self.max_command_delay)
+            .field("operate_timeout", &self.operate_timeout)
             .field("counter_mode", &self.counter_mode)
             .field("reactivation", &self.reactivation)
             .field("end_of_initialisation", &self.end_of_initialisation)

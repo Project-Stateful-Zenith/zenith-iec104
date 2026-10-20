@@ -54,6 +54,7 @@ struct Task<A> {
     common_address: u16,
     sizes: iec104::asdu::AddressSizes,
     max_command_delay: Option<std::time::Duration>,
+    operate_timeout: Option<std::time::Duration>,
     counter_mode: ci::CounterMode,
     commands: BTreeMap<u32, Family>,
     image: Image,
@@ -137,6 +138,7 @@ pub(super) async fn run<A: Application>(
         common_address: ca,
         sizes,
         max_command_delay: config.max_command_delay,
+        operate_timeout: config.operate_timeout,
         counter_mode: config.counter_mode,
         commands: config.commands.clone(),
         image: Image {
@@ -549,16 +551,25 @@ impl<A: Application> Task<A> {
         }
     }
 
-    /// Runs the application's operation in a task of its own. An operation
-    /// that panics counts as failed, so its object is still terminated and
-    /// released rather than held until restart.
+    /// Runs the application's operation in a task of its own.
+    ///
+    /// An operation that panics, or outlasts [`ServerConfig::operate_timeout`] and is
+    /// dropped, counts as failed, so its object is still terminated and
+    /// released rather than held until restart. Each operation reports once,
+    /// so a dropped one leaves no late result behind.
     fn operate(&self, command: Command) {
         let app = Arc::clone(&self.app);
         let done = Done(self.operated.clone(), self.link);
+        let limit = self.operate_timeout;
         tokio::spawn(async move {
-            let ok = tokio::spawn(async move { app.operate(command).await })
-                .await
-                .unwrap_or(false);
+            let mut operation = tokio::spawn(async move { app.operate(command).await });
+            let joined = match limit {
+                Some(limit) => tokio::time::timeout(limit, &mut operation).await.ok(),
+                None => Some((&mut operation).await),
+            };
+            // Drops the application's future if it is still running.
+            operation.abort();
+            let ok = matches!(joined, Some(Ok(true)));
             let _ = done.send(Operated {
                 ioa: command.ioa,
                 ok,
