@@ -82,9 +82,9 @@
 //!
 //! # Concurrency
 //!
-//! Every call may run alongside the others. TS 60870-5-604 Table 19: *"Command
-//! function during a running general interrogation is processed and executed
-//! without waiting for the GI to finish."* A second call for what is already
+//! Every call may run alongside the others. TS 60870-5-604 Table 19: a
+//! command arriving while a general interrogation runs is handled and
+//! executed at once, not after the GI ends. A second call for what is already
 //! outstanding (a command, select, execute or cancel for the same object
 //! address, a counter interrogation of the same group with another qualifier,
 //! a second clock synchronisation, test command, reset process or stop of the
@@ -107,7 +107,7 @@
 //!
 //! On each new started connection the client runs a station interrogation of
 //! its own ([`ClientConfig::interrogate_on_start`]): TS 60870-5-604 5.4.13.10
-//! *"begins the General Interrogation procedure"* after re-establishment. Its
+//! starts a general interrogation after re-establishment. Its
 //! data arrives as updates.
 //!
 //! # Process image
@@ -219,8 +219,8 @@ pub struct ClientConfig {
     /// `true`.
     pub interrogate_on_start: bool,
     /// Redundancy group: replay a failed connection's unconfirmed ASDUs on the
-    /// next started one (104 cl.10.5 leaves the choice *"to the
-    /// application"*), and keep waiting for the answers they are owed. Default
+    /// next started one (104 cl.10.5 leaves the choice to the application),
+    /// and keep waiting for the answers they are owed. Default
     /// `false`: they are discarded, and what waited for them ends as on a lost
     /// connection ([`ClientError::OutcomeUnknown`] for an execute, a reset
     /// process or a parameter request, [`ClientError::ConnectionLost`] for the
@@ -333,8 +333,8 @@ pub enum ClientError {
     /// command, select or execute, did not operate.
     Rejected,
     /// The station confirmed a command and then terminated it negatively
-    /// (TS 60870-5-604 5.4.19.40: *"first accept the command with a Positive
-    /// ACTCON and then send a Negative Termination"*).
+    /// (TS 60870-5-604 5.4.19.40: a positive `ACTCON` followed by a negative
+    /// termination).
     Failed,
     /// The station mirrored the request with one of the causes 44–47
     /// (5-101 cl.7.2.3): it has no such type, cause, common address or object.
@@ -346,11 +346,10 @@ pub enum ClientError {
     /// was not sent (TS 60870-5-604 5.4.19.1).
     NotMirrored,
     /// [`Client::execute`] for an object whose confirmed select carries
-    /// another command. TS 60870-5-604 Table 19: *"If the EXECUTE message
-    /// from the Controlling does not contain exactly the same information as
-    /// the SELECT message, then the Controlled mirrors the same ASDU with
-    /// COT=7, `C_SC/DC/SE/RC_ACTCONneg`"*. Nothing was sent and the select is
-    /// kept.
+    /// another command. TS 60870-5-604 Table 19: an execute whose information
+    /// differs in any way from its select is mirrored by the controlled
+    /// station with COT = 7 and P/N = 1 (`C_SC/DC/SE/RC_ACTCONneg`). Nothing
+    /// was sent and the select is kept.
     SelectMismatch,
     /// No answer within the configured [`Timeouts`]. For a command, only a
     /// select ends this way; nothing operated.
@@ -368,8 +367,8 @@ pub enum ClientError {
     NoClock,
     /// The interrogation was stopped by [`Client::stop_interrogation`] before
     /// its termination. TS 60870-5-604 5.4.17.50: after the `C_IC_DEACTCON`
-    /// *"No further Information Objects that are part of the GI for that QOI
-    /// are sent"* and no `ACTTERM` follows. What arrived before the stop was
+    /// the station sends no more objects belonging to that QOI's
+    /// interrogation, and no `ACTTERM` follows. What arrived before the stop was
     /// reported to the subscribers.
     Deactivated,
     /// An interrogation or counter interrogation terminated, but `undecodable`
@@ -676,8 +675,8 @@ impl Client {
     }
 
     /// Stops the running interrogation of `scope` (TS 60870-5-604 5.4.17.50):
-    /// *"The Controlling station sends an Interrogation Command with COT = 8,
-    /// `C_IC_DEACT`"*, and the station answers with `C_IC_DEACTCON`. Returns at
+    /// the controlling station sends the interrogation command again with
+    /// COT = 8 (`C_IC_DEACT`), and the station answers with `C_IC_DEACTCON`. Returns at
     /// that answer; a negative one is [`ClientError::Rejected`]. Either way
     /// the waiting [`Client::interrogate`] calls end with
     /// [`ClientError::Deactivated`], since no termination follows.
@@ -777,8 +776,8 @@ impl Client {
     }
 
     /// Withdraws a select confirmed by [`Client::select`]: the deactivation
-    /// of TS 60870-5-604 5.4.19.10, *"The Controlling station sends the same
-    /// Command message with COT=8, `C_SC/DC/SE/RC_DEACT`, and S/E=1 (SELECT)"*.
+    /// of TS 60870-5-604 5.4.19.10: the controlling station repeats the
+    /// command with COT = 8 (`C_SC/DC/SE/RC_DEACT`) and S/E = 1 (select).
     /// Returns at the station's `DEACTCON`; a negative one is
     /// [`ClientError::Rejected`].
     ///
@@ -823,13 +822,13 @@ impl Client {
     }
 
     /// The test procedure (104 cl.7.10) with `C_TS_TA_1` `<107>`, the form
-    /// 104 Table 4 carries: `tsc` and `time` are the caller's (104 cl.8.8,
-    /// *"The requesting station may choose any value of TSC"*). Returns at
-    /// the `ACTCON`, which must echo both: *"The TSC in the response shall
-    /// match the request, and the time in the response shall also exactly
-    /// match the time in the request."* A confirmation that does not is
-    /// [`ClientError::Test`] (`EchoMismatch`), TS 60870-5-604 5.4.22.1's
-    /// *"Mismatching values of TSC are detected by the Primary station"*.
+    /// 104 Table 4 carries: `tsc` and `time` are the caller's (104 cl.8.8
+    /// leaves the TSC value to the requesting station). Returns at the
+    /// `ACTCON`, which must echo both: cl.8.8 requires the response's TSC to
+    /// equal the request's and its time to equal the request's time exactly.
+    /// A confirmation that does not is [`ClientError::Test`]
+    /// (`EchoMismatch`): TS 60870-5-604 5.4.22.1 has the primary station
+    /// detect a TSC mismatch.
     ///
     /// One test runs at a time; a second is [`ClientError::Busy`].
     ///
@@ -850,10 +849,10 @@ impl Client {
     /// given: `<1>` general reset of process, `<2>` reset of pending
     /// information with time tag.
     ///
-    /// 104 cl.7.1, figure 22: the station *"confirms back the `Reset_Process`
-    /// and gives an active close call to its TCP"*, and the controlling
-    /// station *"tries to connect the controlled station by giving cyclic
-    /// active opens"*. The client does that on its own (every t0) and, with
+    /// 104 cl.7.1, figure 22: the station confirms the `Reset_Process` and
+    /// then actively closes its TCP connection, and the controlling station
+    /// keeps issuing active opens to reconnect to it. The client does that on
+    /// its own (every t0) and, with
     /// [`ClientConfig::interrogate_on_start`], interrogates the station once
     /// it is started again. A reset that got no answer may or may not have
     /// happened: it ends with [`ClientError::OutcomeUnknown`] and is not sent
@@ -871,9 +870,9 @@ impl Client {
 
     /// Loads a parameter of measured values (104 cl.7.9, `P_ME ACT`, types
     /// 110–112) and returns the parameter now in operation, read from the
-    /// `P_ME ACTCON`. 5-101 cl.7.4.9: *"In either case (positive or negative
-    /// acceptance), the parameter value returned in the ASDU `P_ME` ACTCON is
-    /// the value (new or old) of the parameter now in operation."* A negative
+    /// `P_ME ACTCON`. 5-101 cl.7.4.9: whether the load is accepted or not,
+    /// the value in the `P_ME` `ACTCON` is the one in operation afterwards
+    /// (the new one or the old one). A negative
     /// confirmation is therefore [`ClientError::ParameterRejected`] with the
     /// old value.
     ///

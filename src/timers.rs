@@ -19,9 +19,8 @@
 //! The defaults are [`LinkParams::default`]'s, and the admissible ranges are
 //! the ones [`LinkParams::validate`] enforces. This type takes the same [`LinkParams`]
 //! the session does, so a project selects its time-outs once, per connection.
-//! Clause 10.7 states that requirement for redundant connections: "It should be
-//! possible to set the values of the timers t0 to t3 individually for each
-//! connection within a redundancy group."
+//! Clause 10.7 states that requirement for redundant connections: t0 to t3
+//! should be settable separately for each connection of a redundancy group.
 //!
 //! # Which event arms, retriggers and cancels which timer
 //!
@@ -37,10 +36,9 @@
 //! | an acknowledgement went out | [`Timers::acknowledgement_sent`] | cancel t2 |
 //! | the clock advanced | [`Timers::expired`] | report what is due, once each |
 //!
-//! The rules those rows implement, in the standard's words:
+//! The rules those rows implement:
 //!
-//! - **t1**: "t1 is the timeout of a sent U-frame or I-frame" (figures 17/18,
-//!   NOTE 2). Figures 15 and 16 mark `Time-out t1` on the STARTDT act and STOPDT
+//! - **t1** times out a sent U-frame or I-frame (figures 17/18, NOTE 2). Figures 15 and 16 mark `Time-out t1` on the STARTDT act and STOPDT
 //!   act, and figure 14 draws its expiry as `Time-out t1` → `Active close`. It is
 //!   armed by the *oldest* unconfirmed frame: a further send does not push the
 //!   deadline out, because that would let a peer that never confirms anything
@@ -49,8 +47,8 @@
 //!   "Time-out for acknowledges in case of no data messages", drawn in figure 10.
 //!   It measures from the first I-frame still unacknowledged, so a later
 //!   arrival does not restart it either.
-//! - **t3** is retriggered by activity: "The reception of every frame – I frame,
-//!   S frame or U frame – retriggers timer t3" (clause 5.2). Its expiry sends the
+//! - **t3** is retriggered by activity: every received frame, I, S or U,
+//!   restarts it (clause 5.2). Its expiry sends the
 //!   TESTFR act of figure 13, after which the station is idle again. So t3,
 //!   unlike t0 to t2, is *periodic* and restarts itself on every expiry.
 //! - **t0** covers the connection attempt, which is the caller's socket and not
@@ -177,7 +175,7 @@ impl Timers {
 
     /// A U-frame or an I-frame went out: start supervising it with t1.
     ///
-    /// Figures 17/18 NOTE 2: "t1 is the timeout of a sent U-frame or I-frame".
+    /// Figures 17/18 NOTE 2: t1 times out a sent U-frame or I-frame.
     /// Only the *first* unconfirmed frame arms it; the module doc explains why a
     /// later send must not move the deadline.
     ///
@@ -202,8 +200,7 @@ impl Timers {
     /// Any frame arrived (I, S or U format, and whether or not it is acted on):
     /// retrigger t3.
     ///
-    /// Clause 5.2: "The reception of every frame – I frame, S frame or U frame –
-    /// retriggers timer t3."
+    /// Clause 5.2: every received frame, I, S or U, restarts t3.
     pub fn frame_received(&mut self, now: Instant) {
         self.t3 = now.checked_add(self.params.t3);
     }
@@ -301,8 +298,8 @@ impl Supervisor {
     /// It is re-armed from the send time of what is still pending: the oldest
     /// I-frame left in the send buffer, or the pending act, whichever went out
     /// first. Clause 9's t1 is the "Time-out of send or test APDUs", and
-    /// figures 17/18 NOTE 2 make it "the timeout of a sent U-frame or
-    /// I-frame", so each frame is confirmed within t1 of being sent; a peer
+    /// figures 17/18 NOTE 2 make it the time-out of a sent U-frame or I-frame,
+    /// so each frame is confirmed within t1 of being sent; a peer
     /// that acknowledges one frame at a time cannot keep the rest waiting
     /// longer. Acknowledgements of I-frames say nothing about an act, nor a
     /// confirmed act about I-frames. A con never arms t1, because nothing
@@ -396,7 +393,7 @@ impl Supervisor {
 /// has not confirmed, and whether one of its own U-frame *acts* is still waiting
 /// for the con that ends that procedure.
 ///
-/// Figures 17/18 NOTE 2: *"t1 is the timeout of a sent U-frame or I-frame"*.
+/// Figures 17/18 NOTE 2: t1 times out a sent U-frame or I-frame.
 /// The oldest N(S) and the flag are both needed to tell an event that made
 /// acknowledgement progress from one that did not.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

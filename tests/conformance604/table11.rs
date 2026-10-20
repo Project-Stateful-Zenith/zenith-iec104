@@ -1,15 +1,15 @@
 //! 604 Table 11, *"Information object address conformance test procedures"*,
 //! PDF page index 54 (printed 53), procedure `5.4.11.1`.
 //!
-//! The row is quoted verbatim on the test. Its `Reference` column is
+//! The row is paraphrased on the test. Its `Reference` column is
 //! `IEC 60870-5-101:2003, 7.2.3`: the same clause the type-identification and
 //! cause cases of Table 10 come from, whose table pairs the four unknown-field
 //! classes with the causes 44, 45, 46 and 47.
 //!
 //! # The NOTE, and what "each supported ASDU" means here
 //!
-//! The block's NOTE, on the same page, is *"These tests are performed correctly
-//! **for each supported ASDU**."*, so one sample is not the procedure. The three
+//! The block's NOTE, on the same page, asks for the tests to be run **for each
+//! supported ASDU**, so one sample is not the procedure. The three
 //! cases below therefore loop over the whole supported set, and each of them
 //! first asserts that the set holds more than one type, so a filter that
 //! silently matched nothing could not pass in place of the NOTE:
@@ -34,11 +34,11 @@
 //! # Direction
 //!
 //! Both halves of the row are driven, as §5.1 makes the direction part of the
-//! test. The **controlled**-station half (the row's own words, *"received by the
-//! controlled station"*) is driven over a loopback socket, as §5.1's COT44-47
+//! test. The **controlled**-station half (the row names the controlled station
+//! as the receiver) is driven over a loopback socket, as §5.1's COT44-47
 //! exception requires: 47 is one of the four causes only a controlled station
-//! may send. The **controlling**-station half (*"Any message received by the
-//! controlling station containing an undefined IOA is ignored (or discarded)"*)
+//! may send. The **controlling**-station half (a message reaching the
+//! controlling station with an undefined IOA is ignored or discarded)
 //! is driven by the interoperability harness's `interop::Station` against the
 //! mock `MonitorPeer`, with the crate's monitor-direction rule
 //! `asdu::unknown::discard_reason` as the verdict. Each sample carries the cause
@@ -78,12 +78,11 @@ fn sample_element_octets(type_id: u8) -> usize {
 /// `Test` column *"OBJECT ADDRESS"*, `Reference` `IEC 60870-5-101:2003, 7.2.3`,
 /// `Required` `PICS, 9.5`, the block's mandatory (`M`) row:
 ///
-/// > If COT=47 is supported, any ASDU with undefined IOA in control direction
-/// > is mirrored by the controlled station with P/N = 1: negative confirmation
-/// > of activation using COT = 47 (unknown IOA)
+/// Requirement: a controlled station that supports cause 47 answers a
+/// control-direction ASDU addressed to an undefined IOA by mirroring it with
+/// P/N = 1, a negative activation confirmation carrying cause 47 (unknown IOA).
 ///
-/// and the row's NOTE, same page: *"These tests are performed correctly for each
-/// supported ASDU."*
+/// The row's NOTE, same page, asks for this for every supported ASDU type.
 ///
 /// DUT: the **controlled** station. The station holds data for exactly one
 /// information object address, so an ASDU addressed to any other one is
@@ -148,11 +147,11 @@ fn clause_5_4_11_1_an_undefined_object_address_is_mirrored_with_cause_47() {
         assert_eq!(
             header.cause.to_u8(),
             47,
-            "5.4.11.1 (type {type_id}): \"using COT = 47 (unknown IOA)\""
+            "5.4.11.1 (type {type_id}): the mirror carries cause 47, unknown IOA"
         );
         assert!(
             header.negative,
-            "5.4.11.1 (type {type_id}): \"mirrored … with P/N = 1\""
+            "5.4.11.1 (type {type_id}): the mirror has P/N = 1"
         );
         assert_eq!(
             header.common_address, CA,
@@ -161,7 +160,7 @@ fn clause_5_4_11_1_an_undefined_object_address_is_mirrored_with_cause_47() {
         assert_eq!(
             &reply[Header::LEN..],
             &request[Header::LEN..],
-            "5.4.11.1 (type {type_id}): \"mirrored\" — the object area, address included, is copied"
+            "5.4.11.1 (type {type_id}): a mirror copies the object area, address included"
         );
     }
 }
@@ -226,8 +225,8 @@ fn clause_5_4_11_1_a_defined_object_address_is_not_mirrored() {
 /// The **controlling** station's half of the same procedure, same page,
 /// `Required` `PICS, 9.5`:
 ///
-/// > Any message received by the controlling station containing an undefined IOA
-/// > is ignored (or discarded)
+/// Requirement: the controlling station ignores, or discards, every message it
+/// receives that carries an undefined IOA.
 ///
 /// DUT: the **controlling** station. An ASDU addressed to an information object
 /// the station holds no data for arrives in the monitor direction; the station's
@@ -281,8 +280,8 @@ fn clause_5_4_11_1_an_undefined_object_address_in_the_monitor_direction_is_disca
         assert_eq!(
             controlling_discard(&exchange.asdu).expect("the controlling station's answers"),
             Some(Discard::Unspecified(Unspecified::InformationObjectAddress)),
-            "5.4.11.1 (type {type_id}): \"Any message received by the controlling station \
-             containing an undefined IOA is ignored (or discarded)\""
+            "5.4.11.1 (type {type_id}): the controlling station ignores (or discards) a \
+             message with an undefined IOA"
         );
         assert!(
             !exchange.sent.iter().any(|apci| apci.is_i_format()),

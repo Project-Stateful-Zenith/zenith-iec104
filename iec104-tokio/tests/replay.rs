@@ -136,9 +136,9 @@ async fn an_acknowledgement_received_before_a_write_failure_counts() {
     }
 }
 
-/// 10.2's manual switchover: *"first issuing a `STOPDT_ACT` on the currently
-/// started connection and then a `STARTDT_ACT` on the selected new started
-/// connection"*. Connection 0 is stopped, not closed (10.7 closes only one
+/// 10.2's manual switchover: a `STOPDT_ACT` on the connection that is
+/// started now, then a `STARTDT_ACT` on the one chosen to take over.
+/// Connection 0 is stopped, not closed (10.7 closes only one
 /// that is not stopped), and has failed nothing: no failure is reported.
 #[tokio::test(start_paused = true)]
 async fn a_manual_switchover_is_not_a_failure() {

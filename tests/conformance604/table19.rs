@@ -7,7 +7,8 @@
 //! Every row's `Reference` column names IEC 60870-5-101:2003 clause **7.4.7**
 //! (*"Selections from command transmission"*, PDF page index 126) and IEC
 //! 60870-5-5 clause 6.8; the time-tagged rows name IEC 60870-5-104:2006 clause
-//! **8** (PDF page index 74) and 9.6. The rows are quoted verbatim on the tests.
+//! **8** (PDF page index 74) and 9.6. Each test paraphrases its row and names
+//! its procedure and page.
 //!
 //! # The station under test
 //!
@@ -24,47 +25,44 @@
 //!
 //! # "Every supported ASDU"
 //!
-//! The table's header, *"These procedures are passed only if the mandatory
-//! procedures and test cases are passed for every supported ASDU according to
-//! the PICS"*, and row `5.4.19.80` (*"The tests in this table are performed
-//! correctly by every supported ASDU according to the PICS"*) make each case a
+//! The table's header (the procedures pass only when the mandatory procedures
+//! and test cases pass for each ASDU the PICS declares) and row `5.4.19.80`
+//! (the table's tests must succeed for each such ASDU) make each case a
 //! loop. The station supports every command type 5-104 clause 6 selects, in
 //! both command sets: `<45>`–`<51>` for an untagged station and `<58>`–`<64>`
-//! for a time-tagged one (5-104 clause 9, index 102: *"Either the ASDUs of the
-//! set <45> – <51> or of the set <58> – <64> are used."*). The select-and-execute
-//! rows name *"a Single, Double, Regulating step or Setpoint Command"*, so they
-//! loop over the six selectable families; the direct-execute rows add
-//! *"Bitstring"*, so they loop over all seven. The bitstring has no qualifier
+//! for a time-tagged one (5-104 clause 9, index 102: one of the two sets is in
+//! use, never both). The select-and-execute rows cover single, double,
+//! regulating step and setpoint commands, so they loop over the six selectable
+//! families; the direct-execute rows add the bitstring command, so they loop
+//! over all seven. The bitstring has no qualifier
 //! and therefore no `S/E` bit (5-101 clause 7.3.2.7, figure 70, index 103).
 //!
 //! # Where the expected octets come from
 //!
 //! Each request is built octet by octet from 5-101 clause 7.3.2's layouts
-//! ([`command`]), and each expected answer from the rows' own words: a
-//! *mirror* is the same ASDU with only the cause octet changed ([`mirrored`]):
-//! *"The Controlled station mirrors the same ASDU with COT=7"*, *"with COT=9"*,
-//! *"with COT=10"*, and `P/N = 1` for *"`ACTCONneg`"*. The return information's
-//! type is 5-101 clause 7.4.7's NOTE (*"a single command (type identification
-//! 45) is used to control an object that is monitored as a single-point (type
-//! identification 1, 2 and 30)"*, and the same for 46/3/31 and 47/5/32), and
-//! its cause is the row's *"COT=11 (`RETURN_INF` caused by a remote command)"*.
+//! ([`command`]), and each expected answer from what the rows require: a
+//! *mirror* is the same ASDU with only the cause octet changed ([`mirrored`]),
+//! sent back by the controlled station with cause 7, 9 or 10, and with
+//! `P/N = 1` for an `ACTCONneg`. The return information's type follows 5-101
+//! clause 7.4.7's NOTE, which pairs each command type with the monitored type
+//! of its object: 45 with single-point 1, 2 and 30, 46 with 3/31, 47 with
+//! 5/32; its cause is the row's 11 (`RETURN_INF` caused by a remote command).
 //!
 //! # Not automated, and why
 //!
-//! - *"Command execution in progress shall be completed with status change and
-//!   ACTTERM … within the configured delay in the controlling station"* and the
-//!   `5.4.19.40` *"configured delay in the controlling station"*: the crate
+//! - The rows' requirement that a running command finish, with its status
+//!   change and `ACTTERM`, inside a delay the controlling station configures,
+//!   and the same delay in `5.4.19.40`: the crate
 //!   keeps no clock, and the controlling station's delay is the caller's
 //!   (`CommandTransmission::abandon`). The controlling half checks that the
 //!   termination and the status change are classified; the delay is not the
 //!   crate's to supervise.
-//! - *"The Controlling station stops the Command function with an indication at
-//!   user level"* (`Required` `PIXIT`): the user level is the application's. The
+//! - The controlling station ending the command function with an indication
+//!   to its user (`Required` `PIXIT`): the user level is the application's. The
 //!   controlling half checks the indication the crate gives (the negative
 //!   `Reaction`) and that the procedure is stopped (no execute can follow).
-//! - The PIXIT alternative of `5.4.19.40` (*"the Controlled station can first
-//!   accept the command with a Positive ACTCON and then send a Negative
-//!   Termination"*): the station under test takes the mandatory branch, the
+//! - The PIXIT alternative of `5.4.19.40` (the controlled station confirms the
+//!   command positively first and then terminates it negatively): the station under test takes the mandatory branch, the
 //!   negative `ACTCON`. The alternative's frame is driven under `5.4.19.50`,
 //!   where the row offers it for a not-controllable object.
 //! - `5.4.19.90`, *"COMPATIBILITY WITH OTHER TEST CASES"*: the whole suite, not
@@ -150,21 +148,21 @@ pub fn controllable(type_id: u8) -> u32 {
     0x3000 + u32::from(type_id)
 }
 
-/// An object the station has but will not control: 5.4.19.30/.50's *"not
-/// controllable … Information object"*.
+/// An object the station has but will not control: 5.4.19.30/.50's
+/// not-controllable information object.
 pub fn not_controllable(type_id: u8) -> u32 {
     0x4000 + u32::from(type_id)
 }
 
-/// An address the station has no object for: 5.4.19.30/.50's *"not existing
-/// Information object"*.
+/// An address the station has no object for: 5.4.19.30/.50's not-existing
+/// information object.
 pub fn not_existing(type_id: u8) -> u32 {
     0x5000 + u32::from(type_id)
 }
 
 /// An object whose execution is accepted and then fails: the station answers
-/// with 5.4.19.50's PIXIT alternative, *"first accept the command with a
-/// Positive ACTCON and then send a Negative Termination"*.
+/// with 5.4.19.50's PIXIT alternative: a positive `ACTCON` first, then a
+/// negative termination.
 pub fn fails_after_accept(type_id: u8) -> u32 {
     0x6000 + u32::from(type_id)
 }
@@ -252,8 +250,8 @@ pub fn with_state(request: &[u8], state: u8) -> Vec<u8> {
     out
 }
 
-/// The mirror of `request` the rows spell out: *"mirrors the same ASDU with
-/// COT=…"*, so only the cause octet changes. `P/N` (bit 7 of that octet, 5-101
+/// The mirror of `request` the rows describe: the same ASDU sent back with a
+/// new cause, so only the cause octet changes. `P/N` (bit 7 of that octet, 5-101
 /// clause 7.2.3) is set for a negative answer; the test bit is kept.
 pub fn mirrored(request: &[u8], cause: u8, negative: bool) -> Vec<u8> {
     let mut out = request.to_vec();
@@ -272,9 +270,8 @@ pub const fn negative(asdu: &[u8]) -> bool {
 }
 
 /// The monitor types 5-101 clause 7.4.7's NOTE names for a command type's
-/// object (*"single-point (type identification 1, 2 and 30)"*, *"double-point
-/// (type identification 3, 4 or 31)"*, *"step position information (type
-/// identifications 5, 6 and 32)"*), or `None` for the set-point and bitstring
+/// object (single-point: 1, 2 and 30; double-point: 3, 4 or 31; step
+/// position: 5, 6 and 32), or `None` for the set-point and bitstring
 /// families, which 5-104 clause 7.7's `A_RETURN_INF` row (`M_SP, M_DP, M_ST`)
 /// does not cover.
 pub const fn return_types(type_id: u8) -> Option<[u8; 3]> {
@@ -289,8 +286,7 @@ pub const fn return_types(type_id: u8) -> Option<[u8; 3]> {
 // ------------------------------------------------------ the station's glue
 
 /// What the station's application saw, for the rows about the process
-/// (*"The value of the Object(s) does not change at all during this command
-/// procedure"*).
+/// (no object's value may change at all while the command procedure runs).
 #[derive(Debug, Default, Clone)]
 pub struct CtLog {
     /// The crate's reaction to every command frame, in order.
@@ -311,8 +307,8 @@ pub struct CtApp {
 
 impl CtApp {
     /// A station of `mode` using the command set `set`, terminating every
-    /// family (5-101 clause 7.4.7's `ACTTERM`, and `C_SE ACTTERM` *"if
-    /// supported as in the PICS"*). A select-and-execute station drops a select
+    /// family (5-101 clause 7.4.7's `ACTTERM`, and `C_SE ACTTERM` where the PICS
+    /// declares it). A select-and-execute station drops a select
     /// not executed within two seconds; a time-tagged station accepts a command
     /// up to ten seconds old (5-104 clause 8's *"maximum allowable delay"*) and
     /// its clock reads two seconds after [`tag_time`].
@@ -517,9 +513,9 @@ pub fn finish(master: Master, station: ControlledStation, log: &Arc<Mutex<CtLog>
 }
 
 /// Reads the two frames that follow a positive execute confirmation, in
-/// whichever order they come (Table 19: *"regardless of the order in which they
-/// occur"*), and asserts them: the `ACTTERM`, *"The Controlled station mirrors
-/// the previous Command message with COT=10"*, and, for the families 5-104
+/// whichever order they come (Table 19 accepts either order), and asserts
+/// them: the `ACTTERM`, the controlled station's mirror of the command with
+/// cause 10, and, for the families 5-104
 /// clause 7.7 returns, the return information with cause 11 whose type 5-101
 /// clause 7.4.7's NOTE pairs with the command.
 pub fn expect_completion(master: &mut Master, execute: &[u8], row: &str) {
@@ -538,7 +534,7 @@ pub fn expect_completion(master: &mut Master, execute: &[u8], row: &str) {
             assert_eq!(
                 frame,
                 mirrored(execute, 10, false),
-                "{row} (type {type_id}): \"mirrors the previous Command message with COT=10\""
+                "{row} (type {type_id}): the ACTTERM, mirrored with cause 10"
             );
             terminated = true;
         } else {
@@ -554,7 +550,7 @@ pub fn expect_completion(master: &mut Master, execute: &[u8], row: &str) {
             assert_eq!(
                 cause_of(&frame),
                 11,
-                "{row} (type {type_id}): \"COT=11 (RETURN_INF caused by a remote command)\""
+                "{row} (type {type_id}): cause 11, RETURN_INF caused by a remote command"
             );
             assert_eq!(
                 read_ioa(&frame[Header::LEN..]).expect("the RETURN_INF address"),
@@ -578,26 +574,17 @@ pub fn expect_completion(master: &mut Master, execute: &[u8], row: &str) {
 /// **`5.4.19.1`**, *"Command transmission – sequential procedure: Select and
 /// Execute"*, `Reference` `IEC 60870-5-101:2003, 7.4.7`, every step `M`:
 ///
-/// > The Controlling station sends a Single, Double, Regulating step or Setpoint
-/// > Command message … with COT = 6, C_SC/DC/SE/RC_ACT, and S/E=1 (SELECT) to the
-/// > Controlled station
-/// >
-/// > The Controlled station mirrors the same ASDU with COT=7,
-/// > C_SC/DC/SE/RC_ACTCON, to the Controlling station
-/// >
-/// > The Controlling station sends the same Command message with COT=6,
-/// > C_SC/DC/SE/RC_ACT, and S/E=0 (EXECUTE) to the Controlled station
-/// >
-/// > The Controlled station mirrors the same ASDU with COT=7,
-/// > C_SC/DC/SE/RC_ACTCON, to the Controlling station
-///
-/// then *"The Controlled station generates an event (`RETURN_INF`) with COT=11"*
-/// (`Required` `PICS, 9.6`, COT 11/12) and *"The Controlled station mirrors the
-/// previous Command message with COT=10, `C_SC/DC/SE/RC_ACTTERM` (for SE if
-/// supported as in the PICS)"* (`PICS, 9.6`, `C_SE ACTTERM used`: this station
-/// uses it). Index 71 adds *"Command function EXECUTE after SELECT shall be
-/// received within the configured delay in the controlled station"* (`M`): the
-/// station's select timeout is two seconds and the execute follows at once.
+/// the controlling station selects a single, double, regulating step or
+/// setpoint command (cause 6, `ACT`, `S/E` = 1) and the controlled station
+/// sends the same ASDU back with cause 7 (`ACTCON`); the controlling station
+/// then sends the identical command as the execute (cause 6, `S/E` = 0), which
+/// is again sent back with cause 7. After that the controlled station reports
+/// the `RETURN_INF` event with cause 11 (`Required` `PICS, 9.6`, COT 11/12) and
+/// sends the command back with cause 10 as the `ACTTERM` (`PICS, 9.6`; for
+/// set-points only where the PICS declares `C_SE ACTTERM used`, which this
+/// station does). Index 71 adds that the execute must arrive at the controlled
+/// station within its configured delay after the select (`M`): the station's
+/// select timeout is two seconds and the execute follows at once.
 ///
 /// DUT: the **controlled** station, both command sets, the six selectable
 /// types of each; the object executes exactly once per type.
@@ -614,14 +601,14 @@ fn clause_5_4_19_1_select_and_execute_every_selectable_type() {
             assert_eq!(
                 master.recv("5.4.19.1: the select's ACTCON"),
                 mirrored(&select, 7, false),
-                "5.4.19.1 (type {type_id}): the select is \"mirrored … with COT=7\""
+                "5.4.19.1 (type {type_id}): the select is mirrored with cause 7"
             );
             let execute = command(type_id, ioa, false);
             master.send(&execute);
             assert_eq!(
                 master.recv("5.4.19.1: the execute's ACTCON"),
                 mirrored(&execute, 7, false),
-                "5.4.19.1 (type {type_id}): the execute is \"mirrored … with COT=7\""
+                "5.4.19.1 (type {type_id}): the execute is mirrored with cause 7"
             );
             expect_completion(&mut master, &execute, "5.4.19.1");
             expected.push(ioa);
@@ -638,10 +625,9 @@ fn clause_5_4_19_1_select_and_execute_every_selectable_type() {
 /// `5.4.19.1`, `Reference` `IEC 60870-5-101:2003, 7.4.7` and `7.2.1`,
 /// `Required` `M`:
 ///
-/// > If the EXECUTE message from the Controlling does not contain exactly the
-/// > same information as the SELECT message, then the Controlled mirrors the same
-/// > ASDU with COT=7, C_SC/DC/SE/RC_ACTCONneg (Negative ACTCON), to the
-/// > Controlling station
+/// when the execute's content differs in any way from its select, the
+/// controlled station sends the execute back with cause 7 as a negative
+/// `ACTCON`.
 ///
 /// DUT: the **controlled** station, both sets, the six selectable types. The
 /// execute carries another command value than its select ([`altered`]); the
@@ -665,8 +651,7 @@ fn clause_5_4_19_1_an_execute_that_differs_from_its_select_is_negative() {
             assert_eq!(
                 master.recv("5.4.19.1: the mismatched execute's answer"),
                 mirrored(&execute, 7, true),
-                "5.4.19.1 (type {type_id}): \"mirrors the same ASDU with COT=7, \
-                 C_SC/DC/SE/RC_ACTCONneg\""
+                "5.4.19.1 (type {type_id}): mirrored negative with cause 7"
             );
         }
         let log = finish(master, station, &log);
@@ -684,20 +669,13 @@ fn clause_5_4_19_1_an_execute_that_differs_from_its_select_is_negative() {
 /// **`5.4.19.10`**, *"Command transmission – sequential procedure: Select and
 /// Deactivation"*, `Reference` `IEC 60870-5-101:2003, 7.4.7`, every step `M`:
 ///
-/// > The Controlling station sends the same Command message with COT=8,
-/// > C_SC/DC/SE/RC_DEACT, and S/E=1 (SELECT) to the Controlled station
-/// >
-/// > The Controlled station mirrors the same ASDU with COT=9,
-/// > C_SC/DC/SE/RC_DEACTCON, to the Controlling station
-/// >
-/// > Both the Controlling and Controlled stations have deactivated the Command
-/// > transmission procedure
-/// >
-/// > The value of the Object(s) does not change at all during this command
-/// > procedure
+/// after a select, the controlling station sends the identical command with
+/// cause 8 (`DEACT`) and `S/E` = 1; the controlled station sends it back with
+/// cause 9 (`DEACTCON`). Neither station then has the command procedure active,
+/// and no object's value changes at any point of the procedure.
 ///
 /// DUT: the **controlled** station, both sets, the six selectable types. That
-/// the station *"has deactivated"* the procedure is observed on the wire: an
+/// the station has deactivated the procedure is observed on the wire: an
 /// execute after the `DEACTCON` has no select to repeat and is answered with
 /// the `ACTCONneg` of the select-and-execute function (the same answer
 /// `5.4.25.3` asks for a direct execute of such an object). Nothing executes.
@@ -713,14 +691,14 @@ fn clause_5_4_19_10_select_and_deactivation() {
             assert_eq!(
                 master.recv("5.4.19.10: the select's ACTCON"),
                 mirrored(&select, 7, false),
-                "5.4.19.10 (type {type_id}): the select is \"mirrored … with COT=7\""
+                "5.4.19.10 (type {type_id}): the select is mirrored with cause 7"
             );
             let deact = mirrored(&select, 8, false);
             master.send(&deact);
             assert_eq!(
                 master.recv("5.4.19.10: the DEACTCON"),
                 mirrored(&select, 9, false),
-                "5.4.19.10 (type {type_id}): \"mirrors the same ASDU with COT=9\""
+                "5.4.19.10 (type {type_id}): mirrored with cause 9"
             );
             let execute = command(type_id, ioa, false);
             master.send(&execute);
@@ -734,7 +712,7 @@ fn clause_5_4_19_10_select_and_deactivation() {
         let log = finish(master, station, &log);
         assert!(
             log.executed.is_empty(),
-            "5.4.19.10 ({set:?}): \"The value of the Object(s) does not change at all\": {:?}",
+            "5.4.19.10 ({set:?}): no object's value changes: {:?}",
             log.executed
         );
     }
@@ -746,16 +724,11 @@ fn clause_5_4_19_10_select_and_deactivation() {
 /// **`5.4.19.20`**, *"Command transmission – sequential procedure: Direct
 /// Execute"*, `Reference` `IEC 60870-5-101:2003, 7.4.7`:
 ///
-/// > The Controlling station sends a Single, Double, Regulating step, Setpoint or
-/// > Bitstring Command message … with COT = 6, C_SC/DC/SE/RC_ACT and S/E=0
-/// > (EXECUTE) to the Controlled station
-/// >
-/// > The Controlled station mirrors the same ASDU with COT=7,
-/// > C_SC/DC/SE/RC_ACTCON, to the Controlling station
-///
-/// (both `M`), then the `RETURN_INF` with COT 11 and the ACTTERM, *"The
-/// Controlled station mirrors the previous Command message with COT=10"*
-/// (`PICS, 9.6`).
+/// a single, double, regulating step, setpoint or bitstring command goes
+/// straight to the controlled station as an execute (cause 6, `ACT`, `S/E` = 0),
+/// which sends the same ASDU back with cause 7 (`ACTCON`) (both `M`); then
+/// come the `RETURN_INF` with cause 11 and the `ACTTERM`, the command sent back
+/// with cause 10 (`PICS, 9.6`).
 ///
 /// DUT: the **controlled** station of the direct-execute function, both sets,
 /// all seven types each (the bitstring included, as the row names it).
@@ -772,7 +745,7 @@ fn clause_5_4_19_20_direct_execute_every_type() {
             assert_eq!(
                 master.recv("5.4.19.20: the ACTCON"),
                 mirrored(&execute, 7, false),
-                "5.4.19.20 (type {type_id}): \"mirrors the same ASDU with COT=7\""
+                "5.4.19.20 (type {type_id}): mirrored with cause 7"
             );
             expect_completion(&mut master, &execute, "5.4.19.20");
             expected.push(ioa);
@@ -788,8 +761,8 @@ fn clause_5_4_19_20_direct_execute_every_type() {
 // ------------------------------------------------------------------ 5.4.19.30
 
 /// The negative answer 5.4.19.30/.50 allow for an object that does not exist:
-/// the `ACTCONneg`, or *"instead mirror the same ASDU with COT=47 (unknown
-/// Information Object Address) … (if supported (see PICS clause 8.5)"*.
+/// the `ACTCONneg`, or, where the PICS (clause 8.5) declares it, the same ASDU
+/// sent back with cause 47 (unknown information object address).
 fn assert_unknown_object_refused(answer: &[u8], request: &[u8], row: &str) {
     let type_id = request[0];
     assert!(
@@ -804,19 +777,13 @@ fn assert_unknown_object_refused(answer: &[u8], request: &[u8], row: &str) {
 /// Negative Confirmation by Controlled station (Abort)"*, `Reference`
 /// `IEC 60870-5-101:2003, 7.4.7` and `7.2.3`, `IEC 60870-5-104:2006, 6`:
 ///
-/// > The Controlling station sends a Single, Double, Regulating step or Setpoint
-/// > Command message … with COT = 6, C_SC/DC/SE/RC_ACT, and S/E=1 (SELECT) to the
-/// > Controlled station for a not controllable or not existing Information
-/// > object
-/// >
-/// > The Controlled station mirrors the same ASDU with COT=7,
-/// > C_SC/DC/SE/RC_ACTCONneg (Negative ACTCON) to the controlling station. In
-/// > case of a not existing Information object, the controlled station could
-/// > instead mirror the same ASDU with COT=47 (unknown Information Object
-/// > Address) to the Controlling station (if supported (see PICS clause 8.5)
-/// >
-/// > The value of the Object(s) does not change at all during this command
-/// > procedure
+/// the controlling station selects a single, double, regulating step or
+/// setpoint command (cause 6, `ACT`, `S/E` = 1) on an information object that
+/// is not controllable or does not exist. The controlled station sends the same
+/// ASDU back with cause 7 as a negative `ACTCON`; for an object that does not
+/// exist it may send it back with cause 47 (unknown information object address)
+/// instead, where the PICS (clause 8.5) declares that cause. No object's value
+/// changes at any point of the procedure.
 ///
 /// DUT: the **controlled** station, both sets, the six selectable types, one
 /// not-controllable and one not-existing object each. An execute that follows
@@ -832,8 +799,7 @@ fn clause_5_4_19_30_a_select_of_a_refused_object_is_negative() {
             assert_eq!(
                 master.recv("5.4.19.30: the not-controllable select's answer"),
                 mirrored(&select, 7, true),
-                "5.4.19.30 (type {type_id}): \"mirrors the same ASDU with COT=7, \
-                 C_SC/DC/SE/RC_ACTCONneg\""
+                "5.4.19.30 (type {type_id}): mirrored negative with cause 7"
             );
             let execute = command(type_id, not_controllable(type_id), false);
             master.send(&execute);
@@ -850,7 +816,7 @@ fn clause_5_4_19_30_a_select_of_a_refused_object_is_negative() {
         let log = finish(master, station, &log);
         assert!(
             log.executed.is_empty(),
-            "5.4.19.30 ({set:?}): \"The value of the Object(s) does not change at all\": {:?}",
+            "5.4.19.30 ({set:?}): no object's value changes: {:?}",
             log.executed
         );
     }
@@ -860,8 +826,8 @@ fn clause_5_4_19_30_a_select_of_a_refused_object_is_negative() {
 /// 9), index 76, procedure `5.4.19.50`, the same row in both, `Reference`
 /// `IEC 60870-5-101:2003, 7.4.7` and `7.2.3`, `Required` `M`:
 ///
-/// > The controlled station does not accept and responds with a P/N=1 if a not
-/// > allowed command (e.g. DCO=0 or 3; RCO=0 or 3) is received
+/// a command with a value that is not allowed (for example a `DCO` or `RCO`
+/// state of 0 or 3) is refused, and the answer carries `P/N` = 1.
 ///
 /// DUT: the **controlled** station, a select-and-execute station (the select
 /// and the execute) and a direct-execute station (the execute), both sets. The
@@ -892,7 +858,7 @@ fn clause_5_4_19_30_and_50_a_not_allowed_command_state_is_negative() {
                             master.recv("5.4.19.30/.50: the not-allowed command's answer"),
                             mirrored(&request, 7, true),
                             "5.4.19.30/.50 ({mode:?}, type {type_id}, state {state}): \
-                             \"responds with a P/N=1\""
+                             the answer carries P/N = 1"
                         );
                     }
                 }
@@ -900,7 +866,7 @@ fn clause_5_4_19_30_and_50_a_not_allowed_command_state_is_negative() {
             let log = finish(master, station, &log);
             assert!(
                 log.executed.is_empty(),
-                "5.4.19.30/.50 ({mode:?}, {set:?}): \"does not accept\": {:?}",
+                "5.4.19.30/.50 ({mode:?}, {set:?}): the command is refused: {:?}",
                 log.executed
             );
         }
@@ -915,15 +881,10 @@ fn clause_5_4_19_30_and_50_a_not_allowed_command_state_is_negative() {
 /// after configured delay in the controlling station"*, `Reference`
 /// `IEC 60870-5-101:2003, 7.4.7`, `7.2.3`, each step `M`:
 ///
-/// > The Controlling station sends the same Command message with COT=6,
-/// > C_SC/DC/SE/RC_ACT, and S/E=0 (EXECUTE) to the Controlled station AFTER the
-/// > configured delay in the controlling station
-/// >
-/// > The Controlled station mirrors the same ASDU with COT=7,
-/// > C_SC/DC/SE/RC_ACTCONneg (Negative ACTCON) to the Controlling station
-/// >
-/// > The value of the Object(s) does not change at all during this command
-/// > procedure
+/// the execute (the select's command again, cause 6, `ACT`, `S/E` = 0) reaches
+/// the controlled station only once the configured delay has passed; the
+/// controlled station sends it back with cause 7 as a negative `ACTCON`, and no
+/// object's value changes at any point of the procedure.
 ///
 /// DUT: the **controlled** station, both sets, the six selectable types; its
 /// configured delay is 150 ms and the executes follow 400 ms after the selects.
@@ -956,14 +917,13 @@ fn clause_5_4_19_40_an_execute_after_the_configured_delay_is_negative() {
             assert_eq!(
                 master.recv("5.4.19.40: the late execute's answer"),
                 mirrored(&execute, 7, true),
-                "5.4.19.40 (type {type_id}): \"mirrors the same ASDU with COT=7, \
-                 C_SC/DC/SE/RC_ACTCONneg\""
+                "5.4.19.40 (type {type_id}): mirrored negative with cause 7"
             );
         }
         let log = finish(master, station, &log);
         assert!(
             log.executed.is_empty(),
-            "5.4.19.40 ({set:?}): \"The value of the Object(s) does not change at all\": {:?}",
+            "5.4.19.40 ({set:?}): no object's value changes: {:?}",
             log.executed
         );
     }
@@ -976,24 +936,17 @@ fn clause_5_4_19_40_an_execute_after_the_configured_delay_is_negative() {
 /// Execute with Negative Confirmation by Controlled station"*, `Reference`
 /// `IEC 60870-5-101:2003, 7.4.7` and `7.2.3`, `IEC 60870-5-104:2006, 6`:
 ///
-/// > The Controlling station sends a Single, Double, Regulating step, Setpoint or
-/// > Bitstring Command message … with COT = 6, C_SC/DC/SE/RC_ACT, and S/E=0
-/// > (EXECUTE) to the Controlled station for a not-controllable or not existing
-/// > Information object
-/// >
-/// > The Controlled station mirrors the same ASDU with COT=7,
-/// > C_SC/DC/SE/RC_ACTCONneg (Negative ACTCON), to the Controlling station. In
-/// > case of a not existing Information object, the controlled station could
-/// > instead mirror the same ASDU with COT=47 (unknown Information Object
-/// > Address) to the Controlling station (if supported (see PICS clause 8.5)
-/// >
-/// > The Controlled station does NOT change the status of the (Process)
-/// > Information Object that is associated with the command object
+/// a single, double, regulating step, setpoint or bitstring command goes as an
+/// execute (cause 6, `ACT`, `S/E` = 0) to an information object that is not
+/// controllable or does not exist. The controlled station sends the same ASDU
+/// back with cause 7 as a negative `ACTCON`; for an object that does not exist
+/// it may send it back with cause 47 (unknown information object address)
+/// instead, where the PICS (clause 8.5) declares that cause. The state of the
+/// process object behind the command object must not change.
 ///
-/// and the PIXIT alternative, *"in case of a not-controllable Information
-/// object, the Controlled station can first accept the command with a Positive
-/// ACTCON and then send a Negative Termination by mirroring the previous
-/// Command message with COT=10 … and P/N=1"*.
+/// The PIXIT alternative, for a not-controllable object only: the controlled
+/// station confirms the command positively first, then terminates it
+/// negatively by sending the command back with cause 10 and `P/N` = 1.
 ///
 /// DUT: the **controlled** station of the direct-execute function, both sets,
 /// all seven types: a not-controllable object, a not-existing one, and an
@@ -1010,8 +963,7 @@ fn clause_5_4_19_50_a_direct_execute_of_a_refused_object_is_negative() {
             assert_eq!(
                 master.recv("5.4.19.50: the not-controllable execute's answer"),
                 mirrored(&execute, 7, true),
-                "5.4.19.50 (type {type_id}): \"mirrors the same ASDU with COT=7, \
-                 C_SC/DC/SE/RC_ACTCONneg\""
+                "5.4.19.50 (type {type_id}): mirrored negative with cause 7"
             );
 
             let execute = command(type_id, not_existing(type_id), false);
@@ -1024,20 +976,19 @@ fn clause_5_4_19_50_a_direct_execute_of_a_refused_object_is_negative() {
             assert_eq!(
                 master.recv("5.4.19.50: the alternative's positive ACTCON"),
                 mirrored(&execute, 7, false),
-                "5.4.19.50 (type {type_id}): \"first accept the command with a Positive ACTCON\""
+                "5.4.19.50 (type {type_id}): the alternative's positive ACTCON first"
             );
             assert_eq!(
                 master.recv("5.4.19.50: the alternative's negative ACTTERM"),
                 mirrored(&execute, 10, true),
-                "5.4.19.50 (type {type_id}): \"a Negative Termination by mirroring the previous \
-                 Command message with COT=10 … and P/N=1\""
+                "5.4.19.50 (type {type_id}): then a negative termination, mirrored with cause 10 \
+                 and P/N = 1"
             );
         }
         let log = finish(master, station, &log);
         assert!(
             log.executed.is_empty(),
-            "5.4.19.50 ({set:?}): \"does NOT change the status of the (Process) Information \
-             Object\": {:?}",
+            "5.4.19.50 ({set:?}): no process object changes its state: {:?}",
             log.executed
         );
     }
@@ -1050,18 +1001,15 @@ fn clause_5_4_19_50_a_direct_execute_of_a_refused_object_is_negative() {
 /// sequential procedure: Command received WITHIN configured delay"*,
 /// `Reference` `IEC 60870-5-104:2006, 8` and `9.6`, each step `M`:
 ///
-/// > The Controlled station accepts the Command message if the time difference
-/// > between time tag in the Command message and the local time in the
-/// > Controlled station is less than or equal to the configured maximum
-/// > allowable delay of commands
-/// >
-/// > After accepting the command, normal command processing continues (see
-/// > above)
+/// a command whose time tag lies no further from the controlled station's local
+/// time than the configured maximum allowable command delay (equal still
+/// counts) is accepted, and from there the command is processed as in the rows
+/// above.
 ///
 /// DUT: the **controlled** station of the time-tagged set, direct execute, all
 /// seven types `<58>`–`<64>`. The station's maximum delay is ten seconds and
 /// its clock reads exactly ten seconds after each command's tag: the row's
-/// *"less than or equal to"* boundary.
+/// equal-to boundary, which still accepts.
 #[test]
 fn clause_5_4_19_60_a_command_within_the_configured_delay_is_processed() {
     let app = CtApp::new(CommandMode::Direct, CommandSet::Tagged)
@@ -1083,15 +1031,15 @@ fn clause_5_4_19_60_a_command_within_the_configured_delay_is_processed() {
     let log = finish(master, station, &log);
     assert_eq!(
         log.executed, expected,
-        "5.4.19.60: \"normal command processing continues\""
+        "5.4.19.60: the accepted commands are processed normally"
     );
 }
 
 /// Sends every time-tagged request of `requests` to a station whose clock is
 /// `wall_clock`, then a probe command whose tag equals that clock, and asserts
 /// that the first answer is the probe's: the requests got **no** protocol
-/// response, as 5-104 clause 8 (index 74) says, *"the controlled station does not
-/// return a positive ACTCON nor a negative ACTCON"*. The station answers frames
+/// response, as 5-104 clause 8 (index 74) requires: neither a positive nor a
+/// negative `ACTCON` comes back. The station answers frames
 /// in the order they arrive, so an answer to any request would come first.
 /// Returns the log without the probe's own execution.
 fn no_response_to(
@@ -1131,17 +1079,12 @@ fn no_response_to(
 /// sequential procedure: Command received AFTER configured delay"*, `Reference`
 /// `IEC 60870-5-104:2006, 8` and `9.6`, each step `M`:
 ///
-/// > The Controlled station accepts the Command message if the time difference
-/// > between time tag in the Command message and the local time in the
-/// > Controlled station exceeds the configured maximum allowable delay of
-/// > commands [and passes it to the controlled station application to identify
-/// > that a command was received "too late"]
-/// >
-/// > [After accepting the command, NO protocol response is returned (the ASDU IS
-/// > NOT MIRRORED with COT=7, C_SC/DC/SE/RC_ACTCON), to the Controlling station]
-/// >
-/// > [NO command process is activated in the Controlled station and therefore NO
-/// > status change occurs]
+/// a command whose time tag lies further from the controlled station's local
+/// time than the configured maximum allowable command delay is still taken in,
+/// and handed to the station's application marked as "too late"; no protocol
+/// answer goes back (in particular no `ACTCON` mirror with cause 7), no command
+/// process starts, and so no status changes. (The row brackets these three
+/// steps.)
 ///
 /// DUT: the **controlled** station of the time-tagged set, all seven types as a
 /// direct execute and the six selectable ones as a select, whose clock reads
@@ -1170,7 +1113,7 @@ fn clause_5_4_19_70_a_command_after_the_configured_delay_gets_no_response() {
         );
         assert!(
             log.executed.is_empty(),
-            "5.4.19.70 ({mode:?}): \"NO status change occurs\": {:?}",
+            "5.4.19.70 ({mode:?}): no status changes: {:?}",
             log.executed
         );
     }
@@ -1180,8 +1123,8 @@ fn clause_5_4_19_70_a_command_after_the_configured_delay_gets_no_response() {
 /// **`5.4.19.75`**, *"Command transmission – Command received with time tag in
 /// the future"*, `Reference` `IEC 60870-5-104:2006, 8`, `Required` `M`:
 ///
-/// > The Controlled station behaves in the same way as described in test case
-/// > "Command received AFTER configured delay"
+/// the controlled station behaves as in the "Command received AFTER configured
+/// delay" case, `5.4.19.70`.
 ///
 /// DUT: the **controlled** station of the time-tagged set, all seven types as a
 /// direct execute, whose clock reads 11:59:49.999, 10.001 s **before** the
@@ -1215,15 +1158,15 @@ fn clause_5_4_19_75_a_command_from_the_future_gets_no_response() {
 /// **`5.4.19.85`**, *"Command transmission – Commands with or without time
 /// tag"*, `Reference` `IEC 60870-5-104:2006, 9.5`, `Required` `PICS, 9.5`:
 ///
-/// > Either the ASDUs of the set <45> – <51> or of the set <58> – <64> are used
-/// > or configured at the same time
+/// only one of the two sets, <45> – <51> or <58> – <64>, is in use or
+/// configured at a time.
 ///
 /// DUT: the **controlled** station, each set against every type of the other.
 /// A type outside the station's set is one it does not implement, so the
-/// expected answer is 5-101 clause 7.2.3's (index 42): *"ASDUs in the control
-/// direction with undefined values in the data unit identifier … are mirrored
-/// by the controlled station with bit "P/N := <1> negative confirm""* and cause
-/// 44 for the type identification. Nothing executes.
+/// expected answer is 5-101 clause 7.2.3's (index 42): a control-direction ASDU
+/// with an undefined value in its data unit identifier comes back from the
+/// controlled station with `P/N` = 1 (negative confirmation) and, for the type
+/// identification, cause 44. Nothing executes.
 #[test]
 fn clause_5_4_19_85_the_other_command_set_is_not_accepted() {
     for (set, other) in [
@@ -1335,19 +1278,18 @@ impl StationApp for GiCtApp {
 /// `Reference` `IEC 60870-5-5:1995, 5` and `IEC 60870-5-101:2003, 7.4`,
 /// `Required` `PICS, 9.5`:
 ///
-/// > Command function during a running general interrogation is processed and
-/// > executed without waiting for the GI to finish. This is performed correctly
-/// > by every supported ASDU according to the PICS. If ASDUs are configurable to
-/// > use Select and Execute or Direct Execute, then test each ASDU at once (with
-/// > Select and Execute or Direct Execute) and one ASDU with both Select and
-/// > Execute and Direct Execute.
+/// a command that arrives while a general interrogation is running is handled
+/// and carried out at once, not held back until the GI ends, and this holds for
+/// each ASDU the PICS declares. Where a station can be configured for either
+/// select-and-execute or direct execute, each ASDU is tested once in one of the
+/// two modes, and one ASDU is tested in both.
 ///
 /// DUT: the **controlled** station, both sets. The crate's mode is a station
 /// setting, so the row's two configurations are two stations: a
 /// direct-execute station takes all seven types as a direct execute, and a
 /// select-and-execute station takes the six selectable types by select and
 /// execute and the bitstring (which has no `S/E` bit) by direct execute, the
-/// row's *"one ASDU with both"*. The station interrogation is confirmed first
+/// row's ASDU tested in both modes. The station interrogation is confirmed first
 /// and its termination (the activation mirrored with cause 10, 5-101 clause
 /// 7.4.5) must come after every command has been confirmed, terminated and
 /// executed.

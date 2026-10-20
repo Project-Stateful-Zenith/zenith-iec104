@@ -51,8 +51,8 @@
 //! - Both clause 9.6 checkboxes are exercised, one per procedure:
 //!   `Selection::MONITOR` for `5.4.23.1` and `.15`, `Selection::CONTROL` for
 //!   `5.4.23.10`.
-//! - PIXIT row *"Select a specific section (ASDU 122, `F_SC`, SCQ=5) and abort
-//!   section (ASDU 122, `F_SC`, SCQ=7) are supported"*: **supported**. The
+//! - PIXIT row on selecting one section (ASDU 122, `F_SC`, SCQ=5) and aborting
+//!   a section (ASDU 122, `F_SC`, SCQ=7): **supported**. The
 //!   requester selects section 2 after the file ready and aborts it after its
 //!   section ready; the provider answers a select section with that section's
 //!   section ready and sends nothing more for an aborted one.
@@ -64,19 +64,19 @@
 //!
 //! # Direction
 //!
-//! §5.1 (index 10): *"For testing reverse direction, the same test procedures
-//! apply in the opposite direction (replace "Controlling" with "Controlled" and
-//! vice versa), except for COT44-47 which are only defined in Monitor direction
-//! (only a controlled station is allowed to send these COT)."* Table 23 already
+//! §5.1 (index 10): the reverse direction is tested with the same procedures,
+//! the roles of controlling and controlled station swapped, with one exception:
+//! COT 44-47 exist only in the monitor direction, so only a controlled station
+//! may send them. Table 23 already
 //! carries both file directions as two procedures, so every procedure is driven
 //! with **both** stations as the DUT: the library as the controlled station
 //! (`ControlledStation::start_app`) against a mock controlling station, and the
 //! library as the controlling station ([`ControllingDut`], the interoperability
 //! harness's `interop::Station`) against a mock controlled station. The Query Log
 //! is driven with the controlling station requesting and the controlled station
-//! receiving only: 104 clause 8.9 (index 92) says *"The file transfer (defined in
-//! IEC 60870-5-101:2003, 7.4.11) shall start after a successful query request has
-//! been received by the controlled station."*
+//! receiving only: 104 clause 8.9 (index 92) has the file transfer of
+//! IEC 60870-5-101:2003, 7.4.11 begin once the controlled station has received
+//! a successful query request.
 //!
 //! # A deviation, fixed
 //!
@@ -109,9 +109,8 @@ use crate::conformance604::{
 // ------------------------------------------------------------ the sample file
 
 /// The information object address of the one file the providers hold (5-101
-/// clause 7.4.11.1.1: *"Each file (directory or subdirectory) is unambiguously
-/// defined by the combination of the common address of the ASDU and the
-/// information object address"*).
+/// clause 7.4.11.1.1: a file, directory or subdirectory is identified uniquely
+/// by its ASDU common address together with its information object address).
 pub const FILE_IOA: u32 = 0x0401;
 
 /// An address no station of these cases holds anything at.
@@ -240,8 +239,8 @@ impl Provider {
     }
 
     /// The same provider sending the file ready of its own accord once data
-    /// transfer is started: 604 `5.4.23.10`'s first row, *"The Controlling
-    /// station sends a file ready command (ASDU 120)"*.
+    /// transfer is started: 604 `5.4.23.10`'s first row, in which the
+    /// controlling station issues the file ready (ASDU 120).
     pub const fn announcing(mut self) -> Self {
         self.announce = true;
         self
@@ -389,8 +388,8 @@ impl Provider {
                         })?])
                     }
                 }
-                // 604: "On negative acknowledge (AFQ=4) the same section is
-                // transmitted again."
+                // 604: a negative acknowledgement (AFQ=4) has the same section
+                // sent again.
                 Afq::SECTION_NEGATIVE => self.section(*nos),
                 // A_ACK_FILE.req: the transfer is over.
                 _ => Ok(Vec::new()),
@@ -421,8 +420,8 @@ impl Provider {
 }
 
 /// 104 clause 8.9's table (index 92): all records from `start` to `stop`,
-/// both included (footnote a: *"Including the records with timestamp
-/// `RangeStartTime` or `RangeStopTime` respectively."*), an all-zero end meaning
+/// both included (footnote a: a record stamped exactly `RangeStartTime` or
+/// `RangeStopTime` is selected), an all-zero end meaning
 /// "from the beginning" or "the end".
 fn select_records(
     records: &[(Cp56Time2a, Vec<u8>)],
@@ -1047,8 +1046,8 @@ fn section_steps(dut: Dut, nof: u16, nos: u8, octets: &[u8], chs: u8) -> Vec<Ste
 /// worked by hand; `file_chs` is the whole file's.
 ///
 /// With `negative`, section 1 is first acknowledged negatively and sent again,
-/// the row's *"On negative acknowledge (AFQ=4) the same section is transmitted
-/// again"*. When the station under test provides the file the mock sends the
+/// as the row asks: a negative acknowledgement (AFQ=4) makes the same section
+/// go out again. When the station under test provides the file the mock sends the
 /// `AFQ` `<4>`; when it receives the file the mock spoils the first last
 /// segment's `CHS` (one more than the sum) and the station must answer `AFQ`
 /// `<4>` by itself.
@@ -1089,7 +1088,7 @@ fn transfer(
                     steps.extend(spoiled);
                     steps.push(Step::Dut(
                         f_af(nof, nos, 4),
-                        "On negative acknowledge (AFQ=4): the CHS does not add up",
+                        "negative acknowledge (AFQ=4): the CHS does not add up",
                     ));
                 }
             }
@@ -1126,7 +1125,7 @@ const SAMPLE_FILE_CHS: u8 = 0x51;
 
 /// The opening of 604 `5.4.23.1` up to the file ready: call directory (cause
 /// 5), the directory (cause 5; one file, nine octets, `SOF` `0x20` with
-/// `LFD` = 1, *"last file of the directory"*, 5-101 clause 7.2.6.38), select
+/// `LFD` = 1, the directory's last file, 5-101 clause 7.2.6.38), select
 /// file (`SCQ` `<1>`) and file ready (`FRQ` `<0>`).
 fn monitor_opening(dut: Dut) -> Vec<Step> {
     vec![
@@ -1210,50 +1209,26 @@ fn call_directory() -> Frame {
 
 /// 604 Table 23 (1 of 3), PDF page index 84 (printed 83), procedure
 /// **`5.4.23.1`**, *"File transfer procedure (monitor direction) – sequential
-/// procedure"*, `Reference` `IEC 60870-5-101:2003, 7.4.11`. The block's NOTE:
-/// *"The following tests are only required for systems supporting File
-/// transfer in monitor direction."* Its rows, verbatim, are the script's steps:
+/// procedure"*, `Reference` `IEC 60870-5-101:2003, 7.4.11`. The block's NOTE
+/// limits these tests to systems that support file transfer in the monitor
+/// direction. Its rows, in summary, are the script's steps (→ is the
+/// controlling station sending to the controlled one, ← the reverse):
 ///
-/// > The Controlling station sends a call directory command (ASDU 122) with
-/// > COT = 5, F_SC_REQ, to the Controlled station
-/// >
-/// > The Controlled station sends a file directory (ASDU 126) with COT = 5,
-/// > F_DR_REQ, to the Controlling station
-/// >
-/// > The Controlling station sends a select file (ASDU 122) with COT = 13,
-/// > F_SC_FILE, to the Controlled station, SCQ=1
-/// >
-/// > The Controlled station sends a file ready (ASDU 120) with COT = 13,
-/// > F_FR_FILE, to the Controlling station, FRQ=0
-/// >
-/// > The Controlling station sends a call file (ASDU 122) with COT = 13,
-/// > F_SC_FILE, to the Controlled station, SCQ=2
-/// >
-/// > The Controlled station sends a section ready (ASDU 121) with COT = 13,
-/// > F_SR_FILE, to the Controlling station, SRQ=0
-/// >
-/// > The Controlling station sends a call section (ASDU 122) with COT = 13,
-/// > F_SC_FILE, to the Controlled station, SCQ=6
-/// >
-/// > The Controlled station sends a number of segments (ASDU 125) with COT = 13,
-/// > F_SG_FILE, to the Controlling station
-/// >
-/// > The Controlled station sends a last segment (ASDU 123) with COT = 13,
-/// > F_LS_FILE, to the Controlling station, LSQ=3
-/// >
-/// > The Controlling station sends an acknowledge section (ASDU 124) with COT =
-/// > 13, F_AF_FILE, to the Controlled station, AFQ=3. On negative acknowledge
-/// > (AFQ=4) the same section is transmitted again.
-/// >
-/// > The procedure from ASDU 121 with COT=13, F_SR_FILE (SRQ=0) to ASDU 124
-/// > with COT=13 (AFQ=3) is repeated for all sections in the file
-/// >
-/// > The Controlled station sends a last section (ASDU 123) with COT = 13,
-/// > F_AF_FILE, to the Controlling station, LSQ=1
-///
-/// and on index 85: *"The Controlling station sends an acknowledge file (ASDU
-/// 124) with COT = 13, `F_AF_FILE`, to the Controlled station, AFQ=1"*. (The
-/// `F_AF_FILE` beside `ASDU 123` is the page's own; the type is 123.)
+/// 1. → call directory, ASDU 122, COT 5 (`F_SC_REQ`);
+/// 2. ← file directory, ASDU 126, COT 5 (`F_DR_REQ`);
+/// 3. → select file, ASDU 122, COT 13 (`F_SC_FILE`), SCQ=1;
+/// 4. ← file ready, ASDU 120, COT 13 (`F_FR_FILE`), FRQ=0;
+/// 5. → call file, ASDU 122, COT 13 (`F_SC_FILE`), SCQ=2;
+/// 6. ← section ready, ASDU 121, COT 13 (`F_SR_FILE`), SRQ=0;
+/// 7. → call section, ASDU 122, COT 13 (`F_SC_FILE`), SCQ=6;
+/// 8. ← the segments, ASDU 125, COT 13 (`F_SG_FILE`);
+/// 9. ← last segment, ASDU 123, COT 13 (`F_LS_FILE`), LSQ=3;
+/// 10. → acknowledge section, ASDU 124, COT 13 (`F_AF_FILE`), AFQ=3; a
+///     negative acknowledgement (AFQ=4) has the same section sent again;
+/// 11. steps 6 to 10 repeat for every section of the file;
+/// 12. ← last section, ASDU 123, COT 13, LSQ=1 (the page labels it
+///     `F_AF_FILE`; the type is 123);
+/// 13. (index 85) → acknowledge file, ASDU 124, COT 13 (`F_AF_FILE`), AFQ=1.
 ///
 /// DUT: the **controlled** station, `Selection::MONITOR`, providing the sample
 /// file of two sections. The mock controlling station acknowledges section 1
@@ -1292,13 +1267,13 @@ fn clause_5_4_23_1_the_controlling_station_receives_a_file_in_monitor_direction(
 /// 604 Table 23 (2 of 3), PDF page index 85 (printed 84), the last row of
 /// **`5.4.23.1`**, `Reference` `PID`, `Required` `PIXIT`:
 ///
-/// > Select a specific section (ASDU 122, F_SC, SCQ=5) and abort section (ASDU
-/// > 122, F_SC, SCQ=7) are supported
+/// whether selecting one section (ASDU 122, `F_SC`, SCQ=5) and aborting a
+/// section (ASDU 122, `F_SC`, SCQ=7) are supported.
 ///
 /// The sample PIXIT marks both supported (module doc). DUT: the **controlled**
 /// station, which answers the select of section 2 (`SCQ` `<5>`) with section 2's
-/// section ready and, after the abort (`SCQ` `<7>`, 5-101 clause 7.2.6.30
-/// *"deactivate section"*), sends nothing more.
+/// section ready and, after the abort (`SCQ` `<7>`, 5-101 clause 7.2.6.30's
+/// section deactivation), sends nothing more.
 #[test]
 fn clause_5_4_23_1_pixit_the_controlled_station_serves_select_and_abort_section() {
     let dut = Dut::Provider;
@@ -1330,7 +1305,7 @@ fn pixit_select_and_abort(dut: Dut) -> Vec<Step> {
         requester(
             dut,
             f_sc(13, FILE_IOA, 1, 2, 5),
-            "Select a specific section (ASDU 122, F_SC, SCQ=5)",
+            "select section (ASDU 122, F_SC, SCQ=5)",
         ),
         provider(
             dut,
@@ -1351,38 +1326,21 @@ fn pixit_select_and_abort(dut: Dut) -> Vec<Step> {
 /// 604 Table 23 (2 of 3), PDF page index 85 (printed 84), procedure
 /// **`5.4.23.10`**, *"File transfer procedure (control direction) – sequential
 /// procedure"*, `Reference` `IEC 60870-5-101:2003, 7.4.11`, every row `M` for a
-/// system with *"File transfer in control direction"* in its PICS:
+/// system with *File transfer in control direction* in its PICS. The rows, in
+/// summary (→ is the controlling station sending to the controlled one, ← the
+/// reverse):
 ///
-/// > The Controlling station sends a file ready command (ASDU 120) with COT =
-/// > 13, F_FR_FILE, to the Controlled station
-/// >
-/// > The Controlled station sends a call file (ASDU 122) with COT = 13,
-/// > F_SC_FILE, to the Controlling station, SCQ=2
-/// >
-/// > The Controlling station sends a section ready (ASDU 121) with COT = 13,
-/// > F_SR_FILE, to the Controlled station, SRQ=0
-/// >
-/// > The Controlled station sends a call section (ASDU 122) with COT = 13,
-/// > F_SC_FILE, to the Controlling station, SCQ=6
-/// >
-/// > The Controlling station sends a number of segments (ASDU 125) with COT =
-/// > 13, F_SG_FILE, to the Controlled station
-/// >
-/// > The Controlling station sends a last segment (ASDU 123) with COT = 13,
-/// > F_LS_FILE, to the Controlled station, LSQ=3
-/// >
-/// > The Controlled station sends an acknowledge section (ASDU 124) with COT =
-/// > 13, F_AF_FILE, to the Controlling station, AFQ=3. On negative acknowledge
-/// > (AFQ=4) the same section is transmitted again
-/// >
-/// > The procedure from ASDU 121 with COT=13, F_SR_FILE (SRQ=0) to ASDU 124
-/// > with COT=13, F_AF_FILE (AFQ=3) is repeated for all sections in the file
-/// >
-/// > The Controlling station sends a last section (ASDU 123) with COT = 13,
-/// > F_LS_FILE, to the Controlled station, LSQ=1
-/// >
-/// > The Controlled station sends an acknowledge file (ASDU 124) with COT = 13,
-/// > F_AF_FILE, to the Controlling station, AFQ=1
+/// 1. → file ready, ASDU 120, COT 13 (`F_FR_FILE`);
+/// 2. ← call file, ASDU 122, COT 13 (`F_SC_FILE`), SCQ=2;
+/// 3. → section ready, ASDU 121, COT 13 (`F_SR_FILE`), SRQ=0;
+/// 4. ← call section, ASDU 122, COT 13 (`F_SC_FILE`), SCQ=6;
+/// 5. → the segments, ASDU 125, COT 13 (`F_SG_FILE`);
+/// 6. → last segment, ASDU 123, COT 13 (`F_LS_FILE`), LSQ=3;
+/// 7. ← acknowledge section, ASDU 124, COT 13 (`F_AF_FILE`), AFQ=3; a
+///    negative acknowledgement (AFQ=4) has the same section sent again;
+/// 8. steps 3 to 7 repeat for every section of the file;
+/// 9. → last section, ASDU 123, COT 13 (`F_LS_FILE`), LSQ=1;
+/// 10. ← acknowledge file, ASDU 124, COT 13 (`F_AF_FILE`), AFQ=1.
 ///
 /// DUT: the **controlled** station, `Selection::CONTROL`, receiving the sample
 /// file. The mock controlling station spoils section 1's `CHS` once, so the
@@ -1424,8 +1382,8 @@ fn clause_5_4_23_10_the_controlling_station_provides_a_file_in_control_direction
 }
 
 /// The PIXIT row of **`5.4.23.10`** (index 85, `Required` `PIXIT`), the same
-/// words as `5.4.23.1`'s: *"Select a specific section (ASDU 122, `F_SC`, SCQ=5)
-/// and abort section (ASDU 122, `F_SC`, SCQ=7) are supported"*. DUT: the
+/// row as `5.4.23.1`'s: are selecting one section (ASDU 122, `F_SC`, SCQ=5)
+/// and aborting a section (ASDU 122, `F_SC`, SCQ=7) supported? DUT: the
 /// **controlled** station, which in the control direction is the one that
 /// sends both requests.
 #[test]
@@ -1450,9 +1408,9 @@ fn clause_5_4_23_10_pixit_the_controlling_station_serves_select_and_abort_sectio
 
 /// Whether `reply` is the refusal the unknown-address row admits for
 /// `request`: the same ASDU mirrored with `P/N = 1`, and a cause of 44 (the
-/// row's *"negatively confirmed with COT=44 and P/N=<1> negative"*) or 47 (the
-/// row's `Reference`, 5-101 clause 7.2.3, index 42: *"<47> := unknown
-/// information object address"*).
+/// row's negative confirmation, COT=44 with P/N=1) or 47 (the row's
+/// `Reference`, 5-101 clause 7.2.3, index 42, where `<47>` is the unknown
+/// information object address).
 fn is_negative_mirror(request: &[u8], reply: &[u8]) -> bool {
     reply.len() == request.len()
         && reply[0] == request[0]
@@ -1463,9 +1421,9 @@ fn is_negative_mirror(request: &[u8], reply: &[u8]) -> bool {
 }
 
 /// The mock's half of the unknown-address row against a controlled station:
-/// send `request`, and accept only the row's reactions. Silence is *"ignored"*;
-/// an I-frame must be the negative mirror of the request (*"negatively
-/// confirmed"*). A positive answer, or any other frame, fails. Then `valid`,
+/// send `request`, and accept only the row's reactions. Silence is the row's
+/// *ignored*; an I-frame must be the negative mirror of the request (its
+/// negative confirmation). A positive answer, or any other frame, fails. Then `valid`,
 /// the same request at the station's own address, must be answered with
 /// `answer`, so a station that ignores everything cannot pass.
 fn expect_refusal(
@@ -1500,19 +1458,19 @@ fn expect_refusal(
 /// 604 Table 23 (2 of 3), PDF page index 85 (printed 84), the last row of
 /// **`5.4.23.10`**, `Reference` `IEC 60870-5-101:2003, 7.2.3`, `Required` `M`:
 ///
-/// > ASDUs sent or received with the not configured or not applicable IOA are
-/// > not accepted, ignored or negatively confirmed with COT=44 and P/N=<1>
-/// > negative
+/// an ASDU, sent or received, whose IOA is not configured or does not apply
+/// is not accepted: it is ignored, or negatively confirmed with COT=44 and
+/// P/N=1.
 ///
 /// DUT: the **controlled** station, in both file directions. Monitor direction
 /// (`Selection::MONITOR`, the provider): a select file for an address the
 /// station holds no file at. Control direction (`Selection::CONTROL`, the
 /// requester): a file ready for such an address. Each must be ignored or
 /// refused with the `P/N = 1` mirror, never answered: the row admits cause 44,
-/// and its reference, 5-101 clause 7.2.3 (index 42: *"ASDUs in the control
-/// direction with undefined values in the data unit identifier (except the
-/// variable structure qualifier) and the information object address are
-/// mirrored by the controlled station"*), pairs the undefined address with
+/// and its reference, 5-101 clause 7.2.3 (index 42: the controlled station
+/// mirrors a control-direction ASDU whose data unit identifier, the variable
+/// structure qualifier aside, or information object address is undefined),
+/// pairs the undefined address with
 /// cause 47. The same request at [`FILE_IOA`] is then served, so the station is
 /// seen to tell the two addresses apart.
 ///
@@ -1563,8 +1521,8 @@ fn clause_5_4_23_10_the_controlled_station_refuses_an_unknown_address() {
 /// receiving a file in the monitor direction (`Selection::MONITOR`): the
 /// directory that answers its call directory names an address the station does
 /// not know. A controlling station may not send cause 44 to 47 at all (§5.1,
-/// index 10: *"only a controlled station is allowed to send these COT"*), so of
-/// the row's three reactions only *"ignored"* is open to it: nothing goes back,
+/// index 10 reserves those causes to the controlled station), so of the row's
+/// three reactions only *ignored* is open to it: nothing goes back,
 /// and the station still takes the correct directory that follows.
 #[test]
 fn clause_5_4_23_10_the_controlling_station_ignores_an_unknown_address_in_monitor_direction() {
@@ -1591,10 +1549,10 @@ fn clause_5_4_23_10_the_controlling_station_ignores_an_unknown_address_in_monito
 /// providing a file in the control direction (`Selection::CONTROL`): after its
 /// file ready, the mock controlled station calls the file at an address the
 /// station holds nothing at. As above, §5.1 (index 10) leaves the controlling
-/// station only *"ignored"*: *"except for COT44-47 which are only defined in
-/// Monitor direction (only a controlled station is allowed to send these
-/// COT)"*; 5-101 clause 7.2.3 (index 42) has the mirror sent *"by the
-/// controlled station"*. The station must send nothing, and still serve the
+/// station only *ignored*, since COT 44-47 exist in the monitor direction
+/// alone and only a controlled station may send them; 5-101 clause 7.2.3
+/// (index 42) has the controlled station send the mirror. The station must
+/// send nothing, and still serve the
 /// correct call file that follows.
 ///
 /// `ft::FileTransferProcedure::on_asdu` once classed an `F_SC_NA_1` from the
@@ -1695,18 +1653,15 @@ fn query_steps(dut: Dut, start: [u8; 7], stop: [u8; 7], records: &[u8], chs: u8)
 /// **`5.4.23.15`**, *"File transfer procedure – Query Log"*, `Reference`
 /// `IEC 60870-5-104:2006, 8.9`, `Required` `PICS, 9.5`:
 ///
-/// > The requesting station sends a Query Log (ASDU 127) with COT = 13 (FILE)
-/// > to the receiving station
-/// >
-/// > The receiving station selects the records according the range specified
-/// > in the request and starts the normal file transfer procedure
-/// >
-/// > These tests are performed correctly for the following combinations of
-/// > RangeStartTime and RangeStopTime:
-/// > – RangeStartTime: Available, RangeStopTime: Available
-/// > – RangeStartTime: 0 (all zeros), RangeStopTime: Available
-/// > – RangeStartTime: Available, RangeStopTime: 0 (all zeros)
-/// > – RangeStartTime: 0 (all zeros), RangeStopTime: 0 (all zeros)
+/// the requesting station sends a Query Log (ASDU 127, COT 13, FILE); the
+/// receiving station picks the records in the requested range and runs the
+/// ordinary file transfer procedure. The rows require all four combinations of
+/// the two range ends, each one either given or all zeros:
+///
+/// - `RangeStartTime` given, `RangeStopTime` given;
+/// - `RangeStartTime` all zeros, `RangeStopTime` given;
+/// - `RangeStartTime` given, `RangeStopTime` all zeros;
+/// - both all zeros.
 ///
 /// DUT: the **controlled** station as the receiving station
 /// (`Selection::MONITOR`), for all four combinations. The query arrives as the

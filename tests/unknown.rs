@@ -2,14 +2,14 @@
 //! **control** direction with an undefined value in the data unit identifier or
 //! the information object address is mirrored by the controlled station with
 //! `P/N = 1` and the cause 44/45/46/47; an ASDU in the **monitor** direction with
-//! one of those undefined fields is discarded and may be logged, and "receipt of
-//! one of these ASDUs does not affect the processing of subsequent messages".
+//! one of those undefined fields is discarded and may be logged, and receiving
+//! one must leave the handling of later messages unaffected.
 //!
 //! The clause's own table (PDF page index 42, printed page 41) is what the tests
 //! below walk, one row at a time, plus the two sentences that decide the API:
 //! precedence among the four classes is this crate's decision (the clause orders
-//! nothing), and the variable structure qualifier is excluded in terms ("(except
-//! the variable structure qualifier)"), so `SQ` and `N` stay the codec's own
+//! nothing), and the clause expressly leaves the variable structure qualifier
+//! out, so `SQ` and `N` stay the codec's own
 //! business and are not a 48th cause.
 //!
 //! Nothing here parses an ASDU through the layout layer except where a test
@@ -78,7 +78,7 @@ fn the_four_classes_report_their_own_cause() {
     for (index, (class, cause, field)) in expected.iter().enumerate() {
         assert_eq!(Unspecified::ALL[index], *class, "the table's own order");
         assert_eq!(class.cause().to_u8(), *cause, "clause 7.2.3's table");
-        assert_eq!(class.field(), *field, "the clause's own words");
+        assert_eq!(class.field(), *field, "the clause's field name");
         assert_eq!(
             classify(&unknown(*class)),
             Some(*class),
@@ -128,8 +128,8 @@ fn the_classes_are_reported_in_the_clause_tables_order() {
 
 /// "Mirrored", not rebuilt: the type identification and the VSQ are echoed, the
 /// cause becomes the class's own with `P/N = 1`, the originator address and the
-/// common address are echoed ("the controlled station should echo this
-/// originator address in the response"), and the object area comes back octet for
+/// common address are echoed (the clause asks the controlled station to return
+/// the originator address in its response), and the object area comes back octet for
 /// octet.
 #[test]
 fn the_mirror_echoes_the_header_and_copies_the_object_area() {
@@ -303,8 +303,8 @@ fn a_mirror_is_logged_and_never_mirrored_back() {
     assert_eq!(discard_reason(&negative_confirm, &Known::EVERYTHING), None);
 }
 
-/// "Receipt of one of these ASDUs does not affect the processing of subsequent
-/// messages": the decision is a pure function of one header, so a discarded ASDU
+/// Receiving such an ASDU must leave the handling of later messages
+/// unaffected: the decision is a pure function of one header, so a discarded ASDU
 /// leaves nothing behind.
 #[test]
 fn a_discarded_asdu_does_not_affect_the_next_one() {

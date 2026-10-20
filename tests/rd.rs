@@ -52,7 +52,7 @@ const COMMAND_OCTETS: [u8; 9] = [
 
 /// The octets of the answer to it: `M_ME_NA_1` (type 9) with cause `<5>` at the
 /// **same** address, per 5-101 cl.7.4.14's figure 109 and index 150's
-/// *"transmit it as an `M_PDU` with the cause of transmission `<5>` REQ"*.
+/// rule that the answer goes out as an `M_PDU` with cause `<5>` (REQ).
 const ANSWER_OCTETS: [u8; 12] = [
     0x09, 0x01, 0x05, 0x00, 0x0C, 0x00, 0x10, 0x30, 0x00, // type 9, cause <5>
     0x00, 0x20, // NVA 0x2000
@@ -188,8 +188,8 @@ impl DataSource for Image {
     }
 }
 
-/// A station with no process data at all: clause 7.4.14's *"unknown (not
-/// defined) in the controlled station"* for the address class.
+/// A station with no process data at all: clause 7.4.14's case of an address
+/// the controlled station does not know (has not defined), for the address class.
 struct Empty;
 
 impl DataSource for Empty {
@@ -224,7 +224,7 @@ fn request_is_the_address_and_nothing_else() {
         "figure 74's type-identification row 0 1 1 0 0 1 1 0"
     );
     assert_eq!(asdu[0], 102);
-    // Table 14 (index 41, printed page 40): "<5> := request or requested".
+    // Table 14 (index 41, printed page 40): `<5>` is request or requested.
     assert_eq!(asdu[2], CAUSE_REQUEST.to_u8(), "the cause octet");
     assert_eq!(asdu[2], 5);
     assert_eq!(CAUSE_REQUEST.mnemonic(), "req");
@@ -250,8 +250,8 @@ fn request_is_the_address_and_nothing_else() {
 
 #[test]
 fn request_refuses_the_irrelevant_address() {
-    // 5-101 cl.7.2.5 (index 44, printed page 43): "<0> := INFORMATION OBJECT
-    // ADDRESS is irrelevant", and the same page's exception sentence makes a
+    // 5-101 cl.7.2.5 (index 44, printed page 43): `<0>` marks an irrelevant
+    // information object address, and the same page's exception sentence makes a
     // read's address its object, so <0> names nothing.
     assert_eq!(
         request(0, CA, ORG),
@@ -261,9 +261,9 @@ fn request_refuses_the_irrelevant_address() {
 
 #[test]
 fn request_refuses_the_broadcast_address() {
-    // 5-101 cl.7.2.4 (index 43, printed page 42): "The use of the common
-    // address FF or FFFF is restricted to the following ASDUs in the control
-    // direction: type Identification <100> ... <101> ... <103> ... <105>".
+    // 5-101 cl.7.2.4 (index 43, printed page 42): the common address FF or
+    // FFFF may be used only by the control-direction types <100>, <101>,
+    // <103> and <105>.
     // Type 102 is not on that list.
     assert_eq!(BROADCAST_CA, 0xFFFF);
     assert_eq!(
@@ -276,8 +276,8 @@ fn request_refuses_the_broadcast_address() {
 
 #[test]
 fn repeating_a_read_is_the_callers_and_not_a_refusal() {
-    // 5-104 cl.7.2 (index 64): "The requesting of data by cyclic requests is
-    // permitted, but should be avoided." That is a warning about *read
+    // 5-104 cl.7.2 (index 64): asking for data by cyclic requests is allowed
+    // but discouraged. That is a warning about *read
     // requests* repeated in a cycle. It is not a typed refusal, and not a rule
     // about cl.7.3's cyclic transmission (`src/tx.rs`). The crate schedules
     // nothing, so two identical reads build the same frame twice.
@@ -290,16 +290,16 @@ fn repeating_a_read_is_the_callers_and_not_a_refusal() {
 
 #[test]
 fn the_returned_set_is_index_150_crossed_with_clause_9() {
-    // 5-101 cl.7.4.14, PDF page index 150 (printed 149): "The following ASDUs
-    // M_REQ may be returned in the monitor direction:", then nine untagged
-    // types and seven "or" alternatives.
+    // 5-101 cl.7.4.14, PDF page index 150 (printed 149) lists the ASDUs that
+    // may come back in the monitor direction as `M_REQ`: nine untagged types
+    // and seven alternatives in "or" columns.
     assert_eq!(RETURNED_UNTAGGED.len(), 9);
     assert_eq!(
         RETURNED_UNTAGGED.map(TypeId::to_u8),
         [1, 3, 5, 7, 9, 11, 13, 20, 21]
     );
-    // 5-104 cl.9 (index 100, printed 99): "In this companion standard only the
-    // use of the set <30> - <40> for ASDUs with time tag is permitted."
+    // 5-104 cl.9 (index 100, printed 99): for time-tagged ASDUs this companion
+    // standard allows only the types <30> to <40>.
     assert_eq!(RETURNED_TAGGED.len(), 7);
     assert_eq!(
         RETURNED_TAGGED.map(TypeId::to_u8),
@@ -400,9 +400,8 @@ fn answer_is_the_monitor_object_at_the_command_address() {
 
 #[test]
 fn the_answer_echoes_the_originator_address_and_the_test_bit() {
-    // 5-101 cl.7.2.3 (index 38, printed page 37): "the controlled station
-    // should echo this originator address in the response in the monitor
-    // direction."
+    // 5-101 cl.7.2.3 (index 38, printed page 37): the controlled station
+    // should return the originator address in its monitor-direction response.
     let command = handmade_command(CAUSE_REQUEST, 42, true, CA);
     let reply = answer(
         &LayoutObject {
@@ -563,8 +562,8 @@ fn answer_refuses_a_type_index_150_does_not_return() {
 #[test]
 fn answer_refuses_a_cp24_tagged_twin() {
     // Index 150's or-columns print <2> M_SP_TA_1 as an alternative; 104 cl.9
-    // (index 100) strikes every CP24Time2a form out: "only the use of the set
-    // <30> - <40> for ASDUs with time tag is permitted".
+    // (index 100) strikes every CP24Time2a form out, allowing only <30> to
+    // <40> for time-tagged ASDUs.
     let command = request(IOA, CA, ORG).expect("a read command");
     assert_eq!(
         answer(
@@ -688,11 +687,11 @@ fn answer_refuses_the_broadcast_station_address() {
 
 #[test]
 fn refusal_is_the_command_mirrored_with_pn_one() {
-    // 5-101 cl.7.4.14 (index 150): "If the values in the data unit identifier
-    // (except the variable structure qualifier) and the information object
-    // address of the read command are unknown (not defined) in the controlled
-    // station, the mirrored C_RD_NA_1 with the cause of transmission <44 - 47>
-    // is returned". This is 5-101 cl.7.2.3's rule (index 42), implemented in
+    // 5-101 cl.7.4.14 (index 150): when the read command's data unit
+    // identifier (the variable structure qualifier aside) or information
+    // object address holds values the controlled station does not know (has
+    // not defined), it answers with the `C_RD_NA_1` mirrored with cause <44>
+    // to <47>. This is 5-101 cl.7.2.3's rule (index 42), implemented in
     // `src/asdu/unknown.rs`.
     let command = request(IOA, CA, ORG).expect("a read command");
 
@@ -768,9 +767,9 @@ fn refusal_refuses_a_frame_that_is_not_a_read_command() {
 
 #[test]
 fn refusal_refuses_the_broadcast_and_the_irrelevant_address() {
-    // TS 60870-5-604 5.4.10.10 (index 54): "The Controlled station rejects all
-    // other ASDU Types with a Broadcast CASDU value by mirroring the ASDU with
-    // P/N = 1 negative (and with COT = 46, if supported)". That holds whatever
+    // TS 60870-5-604 5.4.10.10 (index 54): the controlled station refuses any
+    // other type carrying the broadcast CASDU by mirroring it with P/N = 1,
+    // negative (and with COT = 46 where supported). That holds whatever
     // the profile says, so the mirror entry point carries the rule itself.
     let broadcast = command_at(IOA, CAUSE_REQUEST, ORG, BROADCAST_CA);
     let mirror = refusal(&broadcast, &Known::EVERYTHING, CA)
@@ -784,8 +783,8 @@ fn refusal_refuses_the_broadcast_and_the_irrelevant_address() {
     assert_eq!(header_of(&mirror).common_address, CA);
     assert_eq!(&mirror[Header::LEN..], &broadcast[Header::LEN..]);
 
-    // 5-101 cl.7.2.5 (index 44): "`<0>` := INFORMATION OBJECT ADDRESS is
-    // irrelevant". A read's address *is* its object, so no station holds one
+    // 5-101 cl.7.2.5 (index 44): `<0>` marks an irrelevant information object
+    // address. A read's address *is* its object, so no station holds one
     // there: the answer is the unknown-address mirror (cause 47), not
     // `Ok(None)` for the caller to answer with an object.
     let irrelevant = command_at(0, CAUSE_REQUEST, ORG, CA);
@@ -878,8 +877,8 @@ fn on_response_routes_the_command_the_answer_and_the_mirror() {
         }
     );
     // ... and the 44-47 mirror is the refusal, not a discard: cl.7.2.3's
-    // monitor-direction log list names "mirrored ASDUs due to unknown numbers in
-    // the control direction (type identifications 45 to 51)", which is not 102.
+    // monitor-direction log list names mirrors caused by unknown numbers in
+    // the control direction for type identifications 45 to 51 only, not 102.
     assert_eq!(
         asking
             .on_response(&mirror, &Known::EVERYTHING)
@@ -930,9 +929,9 @@ fn on_response_routes_the_command_the_answer_and_the_mirror() {
 
 #[test]
 fn on_response_runs_the_discard_rule_first_for_the_monitor_direction() {
-    // 5-101 cl.7.2.3 (index 42): "ASDUs in the monitor direction with undefined
-    // values in the data unit identifier ... are discarded by controlling
-    // stations". The caller's `Known` is that answer.
+    // 5-101 cl.7.2.3 (index 42): a controlling station discards a
+    // monitor-direction ASDU with undefined values in its data unit
+    // identifier. The caller's `Known` is that answer.
     let asking = Read::controlling(true, CA, ORG);
     let reply = answer(
         &LayoutObject {
@@ -1085,9 +1084,9 @@ fn on_request_mirrors_the_irrelevant_address() {
 
 #[test]
 fn on_request_refuses_a_broadcast_read_with_the_class_46_mirror() {
-    // TS 60870-5-604 5.4.10.10 (PDF page index 54): "The Controlled station
-    // rejects all other ASDU Types with a Broadcast CASDU value by mirroring the
-    // ASDU with P/N = 1 negative (and with COT = 46, if supported)". The check
+    // TS 60870-5-604 5.4.10.10 (PDF page index 54): the controlled station
+    // refuses any other type carrying the broadcast CASDU by mirroring it with
+    // P/N = 1, negative (and with COT = 46 where supported). The check
     // reads the header itself, so it holds whatever the caller's Known says.
     // `src/ct.rs` and `src/pm.rs` run the same rule for their own types.
     let serving = Read::controlled(true, CA, ORG);
@@ -1243,8 +1242,7 @@ fn on_request_refuses_a_frame_that_is_not_the_command() {
 
 #[test]
 fn a_source_frame_with_a_wrong_cause_is_refused() {
-    // Clause 7.4.14: the returned object goes out "with the cause of
-    // transmission <5> REQ".
+    // Clause 7.4.14: the returned object goes out with cause <5> (REQ).
     let serving = Read::controlled(true, CA, ORG);
     let command = request(IOA, CA, ORG).expect("a read command");
     let frame = encode_asdu(
@@ -1366,8 +1364,8 @@ fn a_source_frame_at_another_address_or_of_another_type_is_refused() {
 
 #[test]
 fn a_source_frame_that_does_not_echo_the_originator_is_refused() {
-    // 5-101 cl.7.2.3 (index 38): "the controlled station should echo this
-    // originator address in the response in the monitor direction".
+    // 5-101 cl.7.2.3 (index 38): the controlled station should return the
+    // originator address in its monitor-direction response.
     let serving = Read::controlled(true, CA, ORG);
     let command = handmade_command(CAUSE_REQUEST, 42, false, CA);
     assert_eq!(
@@ -1528,8 +1526,8 @@ fn the_entry_points_are_bound_to_a_role() {
 
 #[test]
 fn the_station_selection_gates_the_procedure() {
-    // 104 cl.9.6 (index 108, printed 107): "Read procedure (station-specific
-    // parameter, mark \"X\" ...)".
+    // 104 cl.9.6 (index 108, printed 107): the *Read procedure* row, a
+    // station-specific parameter marked X when used.
     let off = Read::controlling(false, CA, ORG);
     assert!(!off.uses_read());
     assert_eq!(off.request(IOA), Err(RdError::FunctionNotUsed));

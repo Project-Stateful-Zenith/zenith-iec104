@@ -79,9 +79,8 @@
 //!   `M_PS_NA_1`, `M_ME_ND_1`: [`Sequence::Defined`]) and **no** control,
 //!   system or parameter type does. One type has the sequence and nothing else
 //!   ([`Sequence::Required`], `<126>` `F_DR_TA_1`). Every time-tagged monitor
-//!   type says the opposite in its own words, *"Since each … has its individual
-//!   time tag, this type of ASDU does not exist as a sequence of information
-//!   elements"* (7.3.1.2, .4, .6, .8, .10, .12, .14, .16, .17 and again for the
+//!   type rules it out explicitly: each object has its own time tag, so the
+//!   type has no sequence of information elements (7.3.1.2, .4, .6, .8, .10, .12, .14, .16, .17 and again for the
 //!   `CP56Time2a` forms .22–.32), and the four protection-equipment types 18, 19,
 //!   39 and 40 define no `i(...)`/`j(...)` at all. A sequence for one of those
 //!   is [`LayoutError::SequenceNotAllowed`], never a decode that happens to fit.
@@ -237,13 +236,12 @@ pub enum Sequence {
     /// ([`LayoutError::SequenceRequired`]). One type is this: `<126>`
     /// `F_DR_TA_1`, whose figure 89 heading is *"Sequence of information
     /// elements in a single information object (SQ = 1)"* and whose definition
-    /// line's `j` is *"number of set of elements defined in the variable
-    /// structure qualifier"*, so the `j` sets have no `SQ = 0` form to fall back
+    /// line's `j` is the number of element sets, given by the variable
+    /// structure qualifier, so the `j` sets have no `SQ = 0` form to fall back
     /// on (5-101 clause 7.3.6.7, index 120).
     Required,
-    /// SQ = 0 only: either the type states in so many words that it "does not
-    /// exist as a sequence of information elements" (every time-tagged monitor
-    /// type), or it defines no `i(...)`/`j(...)` at all (types 18, 19, 39, 40,
+    /// SQ = 0 only: either the type rules out a sequence of information
+    /// elements explicitly (every time-tagged monitor type), or it defines no `i(...)`/`j(...)` at all (types 18, 19, 39, 40,
     /// and every control, system, parameter and file type except `<126>`).
     NotDefined,
 }

@@ -331,13 +331,12 @@ objects! {
 ///
 /// - `invalid` is the `IV` bit of the object's quality descriptor (`SIQ`,
 ///   `DIQ`, `QDS`, `QDP`, `SEP` or `BCR`; 5-101 cl.7.2.6.1 to 7.2.6.4,
-///   7.2.6.9, 7.2.6.10): *"The mark INVALID is used to indicate to the
-///   destination that the value may be incorrect and cannot be used"*
-///   (cl.7.2.6.3). `None` for a type that has no quality descriptor
+///   7.2.6.9, 7.2.6.10): it tells the receiver the value may be wrong and is
+///   not to be used (cl.7.2.6.3). `None` for a type that has no quality descriptor
 ///   (`M_ME_ND_1`, commands, system, parameter and file types).
 /// - `time_invalid` is the `IV` bit of the object's time tag (`CP24Time2a` or
 ///   `CP56Time2a`, cl.7.2.6.18 and 7.2.6.19). 104 cl.7.6: the controlled
-///   station marks time tags *"inaccurate (invalid)"* when its clock
+///   station marks time tags inaccurate (invalid) when its clock
 ///   synchronisation is overdue and after a restart. `None` for a type without
 ///   a time tag, and for `F_SC_NB_1`, which carries two.
 ///

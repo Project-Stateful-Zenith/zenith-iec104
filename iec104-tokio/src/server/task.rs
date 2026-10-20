@@ -113,12 +113,12 @@ pub(super) async fn run<A: Application>(
         common_address: ca,
         sizes,
     };
-    // 104 cl.7.6: the invalid mark is *"also set after station
-    // initializiation (warm and cold boot) of controlled stations before
-    // reception of a valid C_CS ACT PDU."* A new record starts in that state.
+    // 104 cl.7.6: the invalid mark also applies from a controlled station's
+    // initialisation (cold or warm start) until a valid C_CS ACT PDU
+    // arrives. A new record starts in that state.
     let validity = if config.external_clock {
-        // 104 cl.7.6's "clock synchronization receivers or similar
-        // equipment" keep the clock: it is synchronised from the start and
+        // A dedicated time receiver or the like (104 cl.7.6) keeps the
+        // clock: it is synchronised from the start and
         // never overdue.
         let mut validity = TimeValidity::new(std::time::Duration::MAX);
         validity.synchronised(now());
@@ -431,13 +431,12 @@ impl<A: Application> Task<A> {
     }
 
     /// Drops the rest of an interrogation's answer that the procedure has
-    /// just stopped. TS 60870-5-604 5.4.17.50: after the `C_IC_DEACTCON`
-    /// *"No further Information Objects that are part of the GI for that QOI
-    /// are sent to the Controlling station. No Interrogation Command with
-    /// COT = 10 (ACTTERM) to the Controlling station"*. A positive
+    /// just stopped. TS 60870-5-604 5.4.17.50: after the `C_IC_DEACTCON` the
+    /// controlling station gets no more objects of that QOI's interrogation
+    /// and no COT = 10 (`ACTTERM`). A positive
     /// deactivation confirmation stops the answer of its scope. A second
-    /// activation under `ReActivation::Restart` (5.4.17.30, *"Option 2: the
-    /// running GI is stopped and the second GI is started"*) stops the
+    /// activation under `ReActivation::Restart` (5.4.17.30, option 2: the
+    /// running GI is abandoned and the second one begins) stops the
     /// running one with its termination, which the procedure sends itself,
     /// so its answer is dropped too.
     fn stop_answers(&mut self, outcome: &gi::Outcome) {
@@ -489,9 +488,8 @@ impl<A: Application> Task<A> {
             }
             FreezeMode::Reset => self.app.reset_counters(request),
         }
-        // Mode D: *"a combination of the counter command from the
-        // controlling station as specified in mode C, with spontaneous
-        // reporting of the integrated totals, as described in mode A"*.
+        // Mode D: mode C's counter command from the controlling station,
+        // combined with mode A's spontaneous reporting of the totals.
         if freeze != FreezeMode::Reset
             && self.counter_mode.reports_spontaneously()
             && let Ok(frames) = self.image.frozen_events(request)
@@ -508,9 +506,9 @@ impl<A: Application> Task<A> {
             && header.common_address == self.common_address;
         if addressed && let Ok(Some(command)) = ct::decode_command_with(asdu, self.sizes) {
             match self.commands.get(&command.ioa) {
-                // TS 60870-5-604 5.4.19.50: *"In case of a not existing
-                // Information object, the controlled station could instead
-                // mirror the same ASDU with COT=47"*.
+                // TS 60870-5-604 5.4.19.50: for an information object that
+                // does not exist, the controlled station could instead
+                // return the ASDU unchanged with COT = 47.
                 None => {
                     self.queue.frame(mirror_frame(
                         header,
@@ -726,8 +724,8 @@ impl<A: Application> Task<A> {
     /// (`gi::Interrogation::interrogated`) and kept as an answer at the head
     /// of the interrogation row. Each ASDU of it leaves on its own, so
     /// anything queued later in a higher row overtakes the rest (5-101
-    /// Table 16: *"they must be sent in the following order regardless of
-    /// which data was generated first"*). Once the last one is out, the
+    /// Table 16 fixes the sending order by row, whichever data was produced
+    /// first). Once the last one is out, the
     /// procedure is completed and its termination follows (5-101 cl.7.4.5).
     /// Until then the procedure runs, so a deactivation or a restart stops
     /// the rest of the answer ([`Task::stop_answers`]).
@@ -769,8 +767,8 @@ impl<A: Application> Task<A> {
                     }
                     // The termination, and under `ReActivation::Queue` the
                     // data and termination of the interrogation that waited
-                    // (TS 60870-5-604 5.4.17.40: *"after activation
-                    // termination (COT=10) the second GI is started"*). Those
+                    // (TS 60870-5-604 5.4.17.40: the second GI begins once
+                    // the first's activation termination, COT = 10, is out). Those
                     // go to the back of the row, behind the second one's own
                     // confirmation, which was queued when it arrived (5-101
                     // Table 17: `actcon`, the objects, `actterm`).

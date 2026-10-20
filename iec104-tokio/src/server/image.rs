@@ -61,8 +61,8 @@ pub const fn untagged(value: &Value) -> Option<TypeId> {
     })
 }
 
-/// The `CP56Time2a` monitor type that carries `value`: 104 clause 9, *"only
-/// the use of the set <30> – <40> for ASDUs with time tag is permitted"*.
+/// The `CP56Time2a` monitor type that carries `value`: 104 clause 9 allows
+/// only the types <30> – <40> for time-tagged ASDUs.
 /// `M_PS_NA_1` has no tagged form.
 pub const fn tagged(value: &Value) -> Option<TypeId> {
     Some(match value {
@@ -187,9 +187,9 @@ impl Image {
     /// An answer is encoded when the procedure completes, but its ASDUs wait
     /// in the queue until the window takes them, and events overtake them
     /// meanwhile (5-101 Table 16). Encoding each one again when it is handed
-    /// over keeps 5-101 cl.7.2.2.2: *"The transmission of successive values
-    /// of a particular INFORMATION OBJECT must always be in the chronological
-    /// order in which the values were measured."* A point's kind never
+    /// over keeps 5-101 cl.7.2.2.2, which requires successive values of one
+    /// information object to be sent in the order they were measured. A
+    /// point's kind never
     /// changes, so the ASDU keeps its type and length.
     pub fn refresh(&self, asdu: Vec<u8>) -> Vec<u8> {
         let sizes = self.addressing.sizes;
@@ -297,9 +297,9 @@ impl DataSource for Image {
         true
     }
 
-    /// Every point of the scope in its untagged type (5-101 cl.7.4.5: *"ASDUs
-    /// with cause of transmission 20 to 36 are transmitted without time
-    /// tags"*), one ASDU per type, in address order. Counters are the counter
+    /// Every point of the scope in its untagged type (5-101 cl.7.4.5: ASDUs
+    /// sent with causes 20 to 36 carry no time tag), one ASDU per type, in
+    /// address order. Counters are the counter
     /// interrogation's and protection events have no interrogated form.
     fn interrogated(&self, scope: Scope, out: &mut Vec<Vec<u8>>) {
         let points: Vec<(u32, Sample, TypeId)> = self
@@ -345,7 +345,7 @@ pub struct ReadSource<'a> {
 
 impl rd::DataSource for ReadSource<'_> {
     /// A readable point in its untagged type with cause 5 (5-101 cl.7.4.2:
-    /// *"Normally, these requested objects do not include the time tag."*).
+    /// requested objects are normally sent without a time tag).
     /// Counters and protection events are not on the read's list of types
     /// (`rd::RETURNED_TYPES`), so reading one is answered with cause 47.
     fn object(&self, ioa: u32) -> Option<Vec<u8>> {

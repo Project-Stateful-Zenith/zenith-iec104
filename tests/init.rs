@@ -244,9 +244,9 @@ fn a_malformed_frame_is_a_typed_error() {
 
 /// The end of initialisation is data in the monitor direction, so it goes
 /// through the session's pending queue and out behind the STARTDT con. This is
-/// the crate's own statement of 5-104 clause 5.3's "after the initialization of the
-/// controlled station STARTDT shall always be sent before any start of data
-/// exchange".
+/// the crate's own statement of 5-104 clause 5.3's rule that, once the
+/// controlled station has initialised, a STARTDT must always come before any
+/// data exchange starts.
 #[test]
 fn the_frame_is_data_the_session_queues_until_started() {
     use iec104::link::{Role, Session};

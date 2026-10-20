@@ -1,9 +1,9 @@
 //! The time elements `CP56Time2a`, `CP24Time2a` and `CP16Time2a` of
 //! IEC 60870-5-101:2003 clause 7.2.6.18–7.2.6.20.
 //!
-//! `CP56Time2a` is the seven-octet time tag of clause 7.2.6.18 ("This binary
-//! time is defined in 6.8 of IEC 60870-5-4"), `CP24Time2a` is its three-octet
-//! prefix (7.2.6.19: "The octets 4 up to 7 are discarded"), and `CP16Time2a` is
+//! `CP56Time2a` is the seven-octet time tag of clause 7.2.6.18 (a binary time
+//! defined in 6.8 of IEC 60870-5-4), `CP24Time2a` is its three-octet
+//! prefix (7.2.6.19 drops octets 4 to 7), and `CP16Time2a` is
 //! a two-octet **elapsed** time in milliseconds, not a time tag (7.2.6.20).
 //!
 //! ```text
@@ -19,8 +19,8 @@
 //!
 //! `RES1 := GEN`: `<0>` genuine time (the tag was added when the object was
 //! acquired) and `<1>` substituted time. Day of week is `<0>` not used and
-//! `<1..7>` Monday…Sunday. The `SU` bit "may optionally be used … to indicate
-//! the presently valid time (standard or summer-time)".
+//! `<1..7>` Monday…Sunday. The `SU` bit is optional and says whether the time
+//! is standard or summer time.
 //!
 //! The bit positions above follow the field order of clause 7.2.6.18's own
 //! definition list (the 5-4 §6.8 figure it references is not reproduced in the
@@ -44,8 +44,7 @@
 //! tag and a time since the Unix epoch (1970-01-01 00:00:00 UTC), with
 //! `SystemTime` forms beside them. They are calendar arithmetic only: nothing
 //! here reads a clock. The tag's fields are read as UTC, which clause 7.2.6.18
-//! recommends: *"For systems that span time-zone boundaries, the adoption of
-//! UTC for all time tags is recommended."*
+//! recommends for every time tag in a system that crosses time zones.
 
 use std::fmt;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -134,12 +133,11 @@ impl Cp56Time2a {
     /// when `SU` is set, so a summer-time tag and a standard-time clock compare
     /// in one time. `None` as for `millis_since_2000`.
     ///
-    /// Clause 7.2.6.18: *"The summer-time bit SU may optionally be used as an
-    /// additional information to indicate the presently valid time (standard or
-    /// summer-time)."* The one hour is TS 60870-5-604 5.4.25.4's (PDF page
-    /// index 88): *"A command sent with SU-bit =1 (in summer time) and time
-    /// 15:00:000 is executed by the DUT when its time is 14:00:000 not in summer
-    /// time."*
+    /// Clause 7.2.6.18: the `SU` bit is optional extra information saying
+    /// whether the time is standard or summer time. The one hour is TS
+    /// 60870-5-604 5.4.25.4's (PDF page index 88): a command tagged 15:00:000
+    /// with `SU = 1` (summer time) is executed when the DUT's standard-time
+    /// clock reads 14:00:000.
     #[must_use]
     pub fn standard_millis_since_2000(&self) -> Option<i64> {
         const HOUR: i64 = 3_600_000;
@@ -482,8 +480,8 @@ impl Cp24Time2a {
 /// Two-octet binary time (`CP16Time2a`), clause 7.2.6.20.
 ///
 /// `CP16Time2a := UI16[1..16]<0..59 999 ms>`: an **elapsed** time in
-/// milliseconds ("used for an elapsed time such as 'Relay operating time' or
-/// 'Relay duration time'"), little-endian on the wire. The clause's
+/// milliseconds (for durations such as a relay's operating or duration time),
+/// little-endian on the wire. The clause's
 /// `0..59 999` range is the caller's to respect: this codec carries any `u16`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Cp16Time2a {
@@ -516,7 +514,7 @@ impl Cp16Time2a {
 /// Shared three-octet prefix of [`Cp56Time2a`] and [`Cp24Time2a`] (7.2.6.18/19).
 ///
 /// Both time tags start with the same three octets, and clause 7.2.6.19
-/// defines `CP24Time2a` as that prefix ("the octets 4 up to 7 are discarded").
+/// defines `CP24Time2a` as that prefix, with octets 4 to 7 dropped.
 /// One helper keeps the two encoders from drifting.
 pub fn encode_prefix(
     milliseconds: u16,

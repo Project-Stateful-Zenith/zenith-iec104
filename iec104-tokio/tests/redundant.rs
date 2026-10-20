@@ -64,8 +64,8 @@ async fn clause_10_3_one_connection_is_started_and_carries_the_data() {
     );
 }
 
-/// 10.5: *"When transmission timeout (t1) has elapsed, one of the stopped
-/// connections (connection n) is started using the STARTDT function"*. The
+/// 10.5: once the transmission time-out t1 expires, STARTDT starts one of
+/// the stopped connections (connection n). The
 /// failed connection is closed and redialed.
 #[tokio::test(start_paused = true)]
 async fn clause_10_5_t1_on_the_started_connection_switches_over() {
@@ -110,9 +110,8 @@ async fn a_lost_started_connection_is_replaced_by_the_stopped_one() {
     .await;
 }
 
-/// 10.2's manual switchover: *"first issuing a `STOPDT_ACT` on the currently
-/// started connection and then a `STARTDT_ACT` on the selected new started
-/// connection"*.
+/// 10.2's manual switchover: a `STOPDT_ACT` on the connection that is
+/// started now, then a `STARTDT_ACT` on the one chosen to take over.
 #[tokio::test(start_paused = true)]
 async fn clause_10_2_manual_switchover() {
     let (handle, mut events, _dials, mut peer0, mut peer1) = started().await;

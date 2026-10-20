@@ -5,9 +5,8 @@
 //! # The table is a form
 //!
 //! Unlike Tables 10 to 25, Table 26 prints no test at all. Its heading line
-//! reads *"This table can be used for specific PIXIT related test procedures.
-//! If there are no specific PIXIT related test cases then this table can be
-//! skipped."*, and its sixteen rows are empty apart from their numbers, four
+//! offers it for PIXIT-specific test procedures and lets it be skipped when
+//! there are none, and its sixteen rows are empty apart from their numbers, four
 //! `Function` rows (`5.4.26.1`, `.50`, `.100`, `.150`) each followed by three
 //! test rows, and a `Reference` column that reads `PIXIT, section` on every row.
 //! The table has no `COMPATIBILITY WITH OTHER TEST CASES` row.
@@ -23,10 +22,10 @@
 //! | `5.4.26.100` time-outs t1, t2, t3 | 5.2, 9.6 | `params::LinkParams::{t1, t2, t3}` |
 //! | `5.4.26.150` longest file segment in one APDU | 5, 9.5 | `ft::max_segment(AddressSizes)` |
 //!
-//! §5.1 (index 10) defines `PIXIT` in the `Required` column as *"Mandatory
-//! test case if the functionality is enabled/described in the PIXIT.
-//! Verification of these test cases by the user/owner of the PIXIT is required
-//! before the test is started."* The functions above are all described in this
+//! §5.1 (index 10) defines `PIXIT` in the `Required` column: the test case is
+//! mandatory when the PIXIT enables or describes the function, and the
+//! PIXIT's user or owner must verify such test cases before testing starts.
+//! The functions above are all described in this
 //! sample PIXIT, so all twelve test rows are run.
 //!
 //! # The sample PIXIT
@@ -37,13 +36,13 @@
 //!   octets, information object address three octets. Every case of
 //!   `5.4.26.1` and `.150` also runs over the **other eleven** legal profiles
 //!   (common address 1 or 2 octets, object address 1, 2 or 3, originator
-//!   present or not), since 604 Table 1 asks for 5.3 and 5.4 *"at least once
-//!   for each supported value of the parameters"* and the library supports all
+//!   present or not), since 604 Table 1 asks for 5.3 and 5.4 to be run once
+//!   or more for every supported parameter value, and the library supports all
 //!   twelve. Common address `0x21` / `0x2132` and object address `0xA5` /
 //!   `0xA5B6` / `0xA5B6C7` by width ([`addresses`]), so a wrong octet order
 //!   shows; originator address 7 when present.
 //! - **k = 3, w = 2** (104 clause 9.6's defaults are 12 and 8; the clause 5.5
-//!   recommendation *"w should not exceed two-thirds of k"* holds).
+//!   recommendation that w stay at or below two-thirds of k holds).
 //! - **t0 = 10 s, t1 = 4 s, t2 = 2 s, t3 = 6 s** (clause 9.6's defaults are 30,
 //!   15, 10 and 20 s; `t2 < t1` holds). The values differ from the defaults so
 //!   that a station ignoring its configuration fails.
@@ -317,8 +316,8 @@ impl PixitDut {
         }
     }
 
-    /// One received frame: the timers first (clause 5.2: *"The reception of
-    /// every frame … retriggers timer t3"*), then the session, then the
+    /// One received frame: the timers first (clause 5.2: any received frame
+    /// restarts t3), then the session, then the
     /// application for delivered user data.
     fn take(&mut self, apci: Apci, asdu: &[u8]) -> Result<(), String> {
         self.timers.frame_received(self.now);
@@ -500,8 +499,8 @@ const SCO_ON_EXECUTE: u8 = 0x01;
 /// 6) laid out with the profile's widths; the station must answer with the
 /// activation confirmation (cause 7) and the termination (cause 10), each the
 /// command mirrored in the same widths with the originator address echoed
-/// (5-101 clause 7.2.3: the originator address *"directs these mirrored ASDUs
-/// … to the source that activated the procedure"*).
+/// (5-101 clause 7.2.3: the originator address routes the mirrored ASDUs back
+/// to whichever source activated the procedure).
 #[test]
 fn clause_5_4_26_2_the_controlled_station_answers_in_every_address_profile() {
     for sizes in every_profile() {
@@ -622,8 +621,8 @@ fn clause_5_4_26_3_the_controlling_station_commands_in_every_address_profile() {
 /// sizes*. DUT: the **controlled** station only, in each of the twelve
 /// profiles: cause 47 is one §5.1 (index 10) reserves to it. A command to an
 /// address one below the held one must come back mirrored in the profile's
-/// widths with `P/N = 1` and cause 47 (5-101 clause 7.2.3, index 42: *"<47> :=
-/// unknown information object address"*), so `0x40 | 47 = 0x6F` in the cause
+/// widths with `P/N = 1` and cause 47 (5-101 clause 7.2.3, index 42: `<47>`,
+/// unknown information object address), so `0x40 | 47 = 0x6F` in the cause
 /// octet.
 #[test]
 fn clause_5_4_26_4_an_unknown_object_address_is_mirrored_in_every_address_profile() {
@@ -656,8 +655,8 @@ fn clause_5_4_26_4_an_unknown_object_address_is_mirrored_in_every_address_profil
 /// section` (the sample PIXIT's k = 3, w = 2) and 104 clause 5.5.
 ///
 /// Row **`5.4.26.51`**: *the transmitter stops at k unacknowledged I-frames*.
-/// 104 clause 5.5 (index 44): *"The transmitter stops the transmission at k
-/// unacknowledged I format APDUs."* DUT: each role in turn,
+/// 104 clause 5.5 (index 44): a transmitter stops sending once k I format
+/// APDUs are unacknowledged. DUT: each role in turn,
 /// with five ASDUs of its own to send and a mock that acknowledges nothing:
 /// exactly three I-frames (N(S) 0, 1, 2) go out, then nothing.
 #[test]
@@ -679,7 +678,8 @@ fn clause_5_4_26_51_the_transmitter_stops_at_k_unacknowledged_frames() {
 
 /// Row **`5.4.26.52`** of the `5.4.26.50` function (index 89): *the receiver
 /// acknowledges at the latest after w I-frames*. 104 clause 9.6 (index 114),
-/// the row of w: *"Latest acknowledge after receiving w I format APDUs"*. DUT: each role in turn, with an application that sends
+/// the row of w: the receiver acknowledges no later than after w I format
+/// APDUs. DUT: each role in turn, with an application that sends
 /// nothing and a synthetic clock that never reaches t2: after one I-frame
 /// nothing comes back; after the second (w = 2), the S-frame with N(R) = 2.
 #[test]
@@ -756,14 +756,14 @@ fn connection_closed(mock: &mut Mock, wait: Duration) -> bool {
 /// 604 Table 26, PDF page index 89 (printed 88), row **`5.4.26.100`**, the
 /// third `Function` row, filled in with *"time-outs t1, t2, t3"*, `Reference`
 /// `PIXIT, section` (the sample PIXIT's t1 = 4 s, t2 = 2 s, t3 = 6 s) and the
-/// time-out rows of 104 clause 9.6 (index 114): t1 *"Time-out of send or test
-/// APDUs"*, t2 *"Time-out for acknowledges in case of no data messages t2<
-/// t1"*, t3 *"Time-out for sending test frames in case of a long idle
-/// state"*.
+/// time-out rows of 104 clause 9.6 (index 114): t1 bounds the wait for a sent
+/// or test APDU, t2 bounds the wait before acknowledging when no data message
+/// carries the acknowledgement (with `t2 < t1`), and t3 is the idle time
+/// after which test frames are sent.
 ///
 /// Row **`5.4.26.101`**: *an unconfirmed I-frame closes the connection at t1*.
-/// Figures 17/18 NOTE 2 (indices 42 and 44): *"t1 is the timeout of a sent
-/// U-frame or I-frame."*;
+/// Figures 17/18 NOTE 2 (indices 42 and 44): t1 times out a sent U-frame or
+/// I-frame;
 /// its expiry is `Active close`. DUT: each role in turn. It sends one I-frame
 /// the mock never acknowledges: one second before t1 the connection is still
 /// open, at t1 it is closed.
@@ -842,8 +842,8 @@ fn clause_5_4_26_102_a_lone_frame_is_acknowledged_at_t2() {
 
 /// Row **`5.4.26.103`** of the `5.4.26.100` function (index 89): *an idle
 /// connection is tested at t3, and the confirmed test keeps it open*. 104
-/// clause 5.2 (index 34): *"The reception of every frame – I frame, S frame
-/// or U frame – retriggers timer t3."*; figure 13 draws `Time-out t3` → `U (TESTFR act)`.
+/// clause 5.2 (index 34): receiving any frame, I, S or U, restarts t3;
+/// figure 13 draws `Time-out t3` → `U (TESTFR act)`.
 /// DUT: each role in turn. One second before t3 nothing goes out; at t3 the
 /// `TESTFR act`; the mock confirms, and a further t1 later the connection is
 /// still open (the confirmation ended t1's supervision).
@@ -872,8 +872,7 @@ fn clause_5_4_26_103_an_idle_connection_is_tested_at_t3() {
 // ------------------------------------------ 5.4.26.150 the longest segment
 
 /// The longest `F_SG_NA_1` segment a profile allows, worked from the texts:
-/// 104 clause 5 (index 26) *"The maximum length of the ASDU is limited to
-/// 249"*, less the data unit identifier (type 1, qualifier 1, cause 1, the
+/// 104 clause 5 (index 26) caps the ASDU at 249 octets, less the data unit identifier (type 1, qualifier 1, cause 1, the
 /// originator 0 or 1, the common address 1 or 2), the object address (1, 2 or
 /// 3) and figure 88's `NOF` (2), `NOS` (1) and `LOS` (1) (5-101 index 119).
 fn longest_segment(sizes: AddressSizes) -> usize {
@@ -930,7 +929,7 @@ fn longest_segment_on_the_wire(role: Role, sizes: AddressSizes) -> Result<(), St
     let asdu = mock.next_i(Duration::from_secs(2))?.ok_or("no segment")?;
     let frame = mock.received.last().ok_or("no frame")?.clone();
     // 104 clause 5: start octet 68H, then the APDU length, whose maximum is
-    // 253 (index 26: "the maximum value of the field length of APDU is 253").
+    // 253 (index 26: the APDU length field is at most 253).
     if frame[0] != 0x68 || frame[1] != 253 {
         return Err(format!(
             "the segment's APDU starts {:02X} {:02X}, not 68 FD",

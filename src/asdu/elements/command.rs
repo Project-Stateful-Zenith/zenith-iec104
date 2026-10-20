@@ -112,10 +112,9 @@ impl RegulatingStepState {
 /// <16..31> := reserved for special use (private range)
 /// ```
 ///
-/// Footnote 5 of the clause says `<0>` *"May be used when the attributes (for
-/// example pulse duration, etc.) of the addressed control function are fixed
-/// (predefined) in the controlled station and not selected by the controlling
-/// station."* It is the [`Default`].
+/// Footnote 5 of the clause allows `<0>` when the controlled station fixes the
+/// addressed control function's attributes (pulse duration and the like) in
+/// advance, so the controlling station does not choose them. It is the [`Default`].
 ///
 /// The three reserved ranges keep their number, so every `QU` value
 /// round-trips through [`CommandQualifier::from_raw`] and

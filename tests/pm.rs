@@ -38,8 +38,8 @@ const IOA: u32 = 0x4001;
 // ---------------------------------------------------------------- helpers
 
 /// A `QPM` of one kind, with the two extension bits clear. That is the only
-/// shape this crate builds (5-101 cl.7.2.6.24: *"LPC and POP are not used in
-/// this standard and set to zero."*).
+/// shape this crate builds (5-101 cl.7.2.6.24: the standard leaves `LPC` and
+/// `POP` unused, at zero).
 fn qpm(kpa: u8) -> Qpm {
     Qpm {
         kpa,
@@ -343,8 +343,8 @@ fn the_four_kinds_are_the_clauses_own_and_the_reserved_ranges_are_refused() {
     // <32..63> is "reserved for special use (private range)", so it is carried.
     assert!(load(&parameter_with_kpa(32), CA, ORG).is_ok());
     assert!(load(&parameter_with_kpa(63), CA, ORG).is_ok());
-    // <0> is "not used" and <5..31> is "reserved for standard definitions of
-    // this companion standard (compatible range)". Neither is a value this
+    // <0> is unused and <5..31> is the compatible range, kept for the
+    // companion standard's own definitions. Neither is a value this
     // crate writes.
     for kpa in [0, 5, 7, 31] {
         assert_eq!(
@@ -795,10 +795,10 @@ fn the_deactivation_exchange_carries_cause_8_then_9() {
 
 #[test]
 fn a_negative_deactivation_confirmation_carries_the_flag() {
-    // 5-101 cl.7.2.3 defines `P/N` without tying it to a cause ("<0> :=
-    // positive confirm <1> := negative confirm"), and TS 60870-5-604
-    // 5.4.21.15 mirrors "any received Parameter Activation command (ASDU 113)
-    // with QPA = 1 or 2" with "P/N=<1>negative". The module's own controlled
+    // 5-101 cl.7.2.3 defines `P/N` without tying it to a cause (0 positive,
+    // 1 negative confirmation), and TS 60870-5-604 5.4.21.15 mirrors every
+    // received parameter activation (ASDU 113) with QPA = 1 or 2 with P/N = 1,
+    // negative. The module's own controlled
     // side sends `71 01 49 …` (cause 9, P/N = 1) for a DEACT whose QPA it will
     // not serve, so the controlling side must not read that frame as a
     // success.
@@ -837,9 +837,9 @@ fn a_negative_deactivation_confirmation_carries_the_flag() {
 
 #[test]
 fn a_negative_threshold_or_smoothing_factor_is_not_confirmed_positively() {
-    // TS 60870-5-604 Table 21, 5.4.21.10 (PDF page index 82): "Negative values
-    // for the parameters Threshold value and Smoothing factor always are
-    // considered as invalid and not activated." The station answers such a
+    // TS 60870-5-604 Table 21, 5.4.21.10 (PDF page index 82): a negative
+    // threshold value or smoothing factor is always invalid and is never
+    // activated. The station answers such a
     // load with ACTCONneg carrying the OLD value. This crate does not hold that
     // value, so its controlled side emits nothing and hands the decision to
     // `refuse`.
@@ -911,7 +911,7 @@ fn a_refused_activation_mirrors_the_received_qpa() {
         .unwrap();
 
     // The caller's "value now in operation" names another QPA. For P_AC_NA_1
-    // the mirror is "the same ASDU" (604 5.4.21.15), and a QPA is a qualifier,
+    // the mirror is the same ASDU sent back (604 5.4.21.15), and a QPA is a qualifier,
     // not a value now in operation. So the received QPA answers, not the
     // caller's.
     let outcome = controlled

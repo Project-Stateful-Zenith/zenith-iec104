@@ -3,8 +3,8 @@
 //! (*"Acquisition of events - sequential procedure"*) and `5.4.16.10`
 //! (*"COMPATIBILITY WITH OTHER TEST CASES"*).
 //!
-//! The block's NOTE: *"The following tests are only required for systems
-//! supporting Acquisition of events."* The crate supports it
+//! The block's NOTE: the tests apply only to a system that supports
+//! acquisition of events. The crate supports it
 //! (`tx::spontaneous`), so every row applies unless said otherwise below.
 //!
 //! # The rows, and where each one is
@@ -25,22 +25,22 @@
 //!
 //! # The type set
 //!
-//! *"Each ASDU in the PICS that supports COT=3"* is 5-101 Table 16's event row
-//! (PDF page index 121: `1 to 44`, *"Event reporting: In monitor direction
-//! with COT = 3"*) within the monitor types 104 selects: `<1>` to `<21>`
+//! The row's set, every ASDU of the PICS with cause 3, is 5-101 Table 16's event row
+//! (PDF page index 121: `1 to 44`, event reporting in the monitor direction
+//! with cause 3) within the monitor types 104 selects: `<1>` to `<21>`
 //! without the `CP24Time2a` forms, and `<30>` to `<40>` (104 clause 9, PDF page
 //! index 100). The row's `103` is the spontaneous clock time, handled on its
 //! own below; its `106` is struck from 104 (`tx::is_spontaneous_type`'s note).
 //!
 //! # What is not claimed
 //!
-//! - SQ:=1 on the **controlled** side is optional (*"Using SQ=1 is optional
-//!   for a controlled station"*), and `tx` has no sequence producer; that half
+//! - SQ:=1 on the **controlled** side is optional (the row makes it so for a
+//!   controlled station), and `tx` has no sequence producer; that half
 //!   of the row is not claimed.
 //! - The two rows about the spontaneous clock synchronisation message: 104's
 //!   interoperability list (clause 9) fills the `<103>` / cause 3 box black,
-//!   *"option not permitted in this companion standard"*, and the row's
-//!   *"subsequent ASDUs with short time tag"* are the `CP24Time2a` types 104
+//!   which marks an option 104 does not permit, and the row's later ASDUs
+//!   with a short time tag are the `CP24Time2a` types 104
 //!   does not permit either. The case for it shows the 104 reading: a
 //!   controlling station on the conventional 104 profile ignores the message.
 //!   `cs::announcement` builds it for a 101 peer that agreed to it; *when* to
@@ -48,8 +48,8 @@
 //!
 //! # Direction
 //!
-//! Events are monitor-direction traffic (5-101 Table 16: *"In monitor
-//! direction with COT = 3"*), so §5.1's swap gives the **controlling** station
+//! Events are monitor-direction traffic (5-101 Table 16: monitor direction,
+//! cause 3), so §5.1's swap gives the **controlling** station
 //! the receiving half, and the SQ:=1 row names it explicitly. §5.1's
 //! COT44–47 exception does not apply: no case here sends those causes.
 
@@ -114,14 +114,12 @@ fn single_point(ioa: u32, on: bool) -> Vec<u8> {
 /// `Reference` `IEC 60870-5-101:2003, 7.4.4` / `IEC 60870-5-5:1995, 6.4.1`,
 /// `Required` `M`:
 ///
-/// > When an event occurs in the Controlled station, The Controlled station
-/// > transfers the configured process information data in ASDUs (look at PICS
-/// > for the supported ASDUs)with COT=3 to the Controlling station
+/// on an event, the controlled station sends the configured process data to
+/// the controlling station with cause 3, in the ASDUs its PICS lists;
 ///
-/// with the `M` rows *"The values of the object(s) transferred and stored on
-/// the controlling station should represent the actual values on the
-/// controlled station."* and *"The tests in this Table are performed correctly
-/// by each ASDU in the PICS that supports COT=3, spontaneous"*.
+/// with the `M` rows that the values the controlling station receives and
+/// stores should be the controlled station's actual values, and that the tests
+/// run for every ASDU of the PICS that supports cause 3 (spontaneous).
 ///
 /// DUT: the **controlled** station. One event per type of [`event_types`] is
 /// built by `tx::spontaneous` and handed to the station's session; the mock
@@ -172,25 +170,25 @@ fn clause_5_4_16_1_events_go_out_with_cause_3_for_every_spontaneous_type() {
     }
 }
 
-/// The k window of 104 clause 9.6's default parameters (*"k 12 APDUs Maximum
-/// difference receive sequence number to send state variable"*).
+/// The k window of 104 clause 9.6's default parameters: 12 APDUs, the largest
+/// allowed gap between the send state variable and the acknowledged receive
+/// sequence number.
 const K: usize = 12;
 
 /// 604 Table 16, PDF page index 63 (printed 62), procedure **`5.4.16.1`**,
 /// `Reference` `IEC 60870-5-101:2003, 7.4.4` / `IEC 60870-5-5:1995, 6.4`,
 /// `Required` `M`:
 ///
-/// > Local buffer function to collect events that may appear faster than it is
-/// > possible to transmit them to the Controlling station to prevent the loss
-/// > of events
+/// the station buffers events locally when they arrive faster than they can
+/// be sent to the controlling station, so that none is lost;
 ///
 /// DUT: the **controlled** station. Thirty events occur while the connection
 /// cannot carry them at all (before STARTDT), handed to the library's own
-/// buffer, `Session::queue_i_frame` (clause 5.3: *"Any pending user data in
-/// the controlled station is sent only after the STARTDT con"*). Once started,
-/// the mock controlling station does not acknowledge, so the link is slower
-/// than the events: 104 clause 5.5 says *"The transmitter stops the
-/// transmission at k unacknowledged I format APDUs."*, `k` = [`K`]. Then it
+/// buffer, `Session::queue_i_frame` (clause 5.3: user data waiting in the
+/// controlled station goes out only once STARTDT con has been sent). Once
+/// started, the mock controlling station does not acknowledge, so the link is
+/// slower than the events: by 104 clause 5.5 a transmitter stops sending once
+/// k I format APDUs are unacknowledged, `k` = [`K`]. Then it
 /// acknowledges, and the rest must follow.
 ///
 /// Expected: exactly [`K`] events before the first acknowledgement, and all
@@ -230,7 +228,7 @@ fn clause_5_4_16_1_events_faster_than_the_link_are_buffered_not_lost() {
 
     assert_eq!(
         received, events,
-        "5.4.16.1: \"to prevent the loss of events\": every event, once, in order"
+        "5.4.16.1: no event lost: every event, once, in order"
     );
     assert_eq!(
         report.outstanding_i_frames_at_eof, 0,
@@ -242,16 +240,14 @@ fn clause_5_4_16_1_events_faster_than_the_link_are_buffered_not_lost() {
 /// `Reference` `IEC 60870-5-101:2003, 7.2.2.2`, `Required` `PICS, 9.5 Type id
 /// and COT assignment`:
 ///
-/// > Events without a time tag are transmitted in chronological order of
-/// > occurrence to the Controlling station
+/// untagged events reach the controlling station in the order they occurred;
 ///
 /// DUT: the **controlled** station. Twenty successive values of one
 /// information object (`M_SP_NA_1` at `0x4001`, toggling, untagged) occur:
 /// ten before data transfer starts (the library's clause 5.3 queue) and ten
 /// after (handed over by the application as they occur). 5-101 clause 7.2.2.2
-/// (PDF page index 35): *"The transmission of successive values of a
-/// particular INFORMATION OBJECT must always be in the chronological order in
-/// which the values were measured."*
+/// (PDF page index 35) requires that successive values of one information
+/// object are always sent in the order in which they were measured.
 ///
 /// Expected: the twenty ASDUs arrive in the order the values occurred.
 #[test]
@@ -275,14 +271,13 @@ fn clause_5_4_16_1_untagged_events_keep_their_chronological_order() {
     assert_eq!(
         states,
         (0..20).map(|i| i % 2 == 1).collect::<Vec<_>>(),
-        "5.4.16.1: \"in chronological order of occurrence\""
+        "5.4.16.1: in the order the events occurred"
     );
     assert_eq!(asdus, values, "5.4.16.1: the events as they occurred");
 }
 
 /// How many `M_SP_NA_1` objects fit one SQ = 0 ASDU: 104 clause 5 caps the
-/// ASDU at 249 octets (*"The maximum length of the ASDU is limited to 249"*),
-/// the data unit identifier takes 6 and each object 3 address octets + `SIQ` 1
+/// ASDU at 249 octets, the data unit identifier takes 6 and each object 3 address octets + `SIQ` 1
 /// (5-101 clause 7.3.1.1). `(249 - 6) / 4 = 60`, below 5-101 clause
 /// 7.2.2.1's `N` limit of 127.
 const MSP_PER_ASDU: usize = 60;
@@ -291,10 +286,9 @@ const MSP_PER_ASDU: usize = 60;
 /// `Reference` `IEC 60870-5-3:1992, 5.1.5` / `IEC 60870-5-101:2003, 7.2.2.2`,
 /// `Required` **`M`**:
 ///
-/// > The Controlled station transmits events of the same Type, COT and priority
-/// > but with gaps in their addresses as a Set of Information elements (SQ:=0)
-/// > in one single ASDU, filled until the maximum configured ASDU or ADPU
-/// > length as in the PICS
+/// events sharing type, cause and priority but with non-consecutive addresses
+/// go out as a set of information objects (SQ:=0) in a single ASDU, filled up
+/// to the maximum ASDU or APDU length configured in the PICS;
 ///
 /// DUT: the **controlled** station. Seventy `M_SP_NA_1` events at the
 /// addresses `0x4001, 0x4003, …` are pending at once (in the clause 5.3 queue
@@ -345,7 +339,7 @@ fn clause_5_4_16_1_events_with_gaps_are_packed_into_one_sq0_asdu() {
     assert_eq!(
         usize::from(header.count),
         MSP_PER_ASDU,
-        "5.4.16.1: \"in one single ASDU, filled until the maximum\" ASDU length: 60 \
+        "5.4.16.1: one ASDU filled up to the maximum ASDU length: 60 \
          M_SP_NA_1 objects fit 249 octets"
     );
     let ioas: Vec<u32> = decode_asdu::<MSpNa1>(&first)
@@ -366,11 +360,11 @@ fn clause_5_4_16_1_events_with_gaps_are_packed_into_one_sq0_asdu() {
 /// `Reference` `IEC 60870-5-3:1992, 5.1.5` / `IEC 60870-5-101:2003, 7.2.2.2`,
 /// `Required` `PIXIT`:
 ///
-/// > The Controlled station transmits events of the same type, COT and priority
-/// > and with sequential addresses as a Sequence of Information elements
-/// > (SQ:=1) in one single ASDU, filled until the maximum configured ASDU or
-/// > ADPU length as in the PICS. Using SQ=1 is optional for a controlled
-/// > station and a mandatory requirement for a controlling station
+/// events sharing type, cause and priority with consecutive addresses go out
+/// as a sequence of information elements (SQ:=1) in a single ASDU, filled up
+/// to the maximum ASDU or APDU length configured in the PICS; sending SQ=1 is
+/// optional for a controlled station, accepting it mandatory for a
+/// controlling station;
 ///
 /// and the SQ:=0 row above, from the receiving side.
 ///
@@ -380,7 +374,7 @@ fn clause_5_4_16_1_events_with_gaps_are_packed_into_one_sq0_asdu() {
 /// variable structure qualifier's SQ bit 8) and clause 7.3.1.1's element
 /// (`SIQ`, `SPI` in bit 1): a set of three events with gaps (`0x4001`,
 /// `0x4003`, `0x4009`: ON, OFF, ON) and a sequence of four (`0x5000` to
-/// `0x5003`, *"incrementing continuously by +1"*: ON, ON, OFF, ON).
+/// `0x5003`, each address one more than the one before: ON, ON, OFF, ON).
 ///
 /// Expected: both are `tx::Reaction::Spontaneous`, and the station decodes
 /// every address and value the peer sent.
@@ -435,18 +429,17 @@ fn clause_5_4_16_1_the_controlling_station_takes_sets_and_sequences_of_events() 
         assert_eq!(
             stored,
             expected,
-            "5.4.16.1 (SQ = {}): \"a mandatory requirement for a controlling station\"",
+            "5.4.16.1 (SQ = {}): mandatory for a controlling station",
             u8::from(header.sequence)
         );
     }
 }
 
 /// 604 Table 16, PDF page index 63 (printed 62), procedure **`5.4.16.1`**, the
-/// `M` rows *"The values of the object(s) transferred and stored on the
-/// controlling station should represent the actual values on the controlled
-/// station."* and *"The tests in this Table are performed correctly by each
-/// ASDU in the PICS that supports COT=3, spontaneous"*, from the receiving
-/// side.
+/// `M` rows that the values the controlling station receives and stores
+/// should be the controlled station's actual values, and that the tests run
+/// for every ASDU of the PICS that supports cause 3 (spontaneous), from the
+/// receiving side.
 ///
 /// DUT: the **controlling** station. The mock controlled peer sends one event
 /// per type of [`event_types`], each written from 5-101 clause 7.3's geometry
@@ -513,8 +506,8 @@ const fn occurrences() -> [Cp56Time2a; 2] {
 /// 604 Table 16, PDF page index 63 (printed 62), procedure **`5.4.16.1`**,
 /// `Required` `M`:
 ///
-/// > The time label in ASDUs with a time tag represents the time of occurrence
-/// > (plausibility test)
+/// in a time-tagged ASDU, the time tag is when the event occurred (checked
+/// for plausibility);
 ///
 /// DUT: the **controlled** station. Two events of one object occur at the two
 /// [`occurrences`] and are built by `tx::spontaneous` as `M_SP_TB_1` (the
@@ -568,17 +561,16 @@ fn clause_5_4_16_1_the_time_label_is_the_time_of_occurrence() {
 /// `Reference` `IEC 60870-5-101:2003, 7.3.4.4.` / `IEC 60870-5-101:2003,
 /// 7.4.3`, `Required` `PICS, 9.5 Type id and COT assignment: COT 3 / ASDU 103`:
 ///
-/// > The Controlled station sends a spontaneous clock synchronisation message
-/// > with COT=3 to indicate its internal date and hour shift immediately after
-/// > the hour shift or before sending subsequent ASDUs with short time tag
+/// the controlled station announces a shift of its internal date and hour with
+/// a spontaneous clock synchronisation message (cause 3), right after the
+/// shift or before it next sends ASDUs with a short time tag;
 ///
-/// and the next row, *"The time label in the clock synchronization message
-/// from the Controlled station represents the time of occurrence (plausibility
-/// test)"*, `Required` the same PICS cell.
+/// and the next row, that the time in that message is the time of occurrence
+/// (checked for plausibility), `Required` the same PICS cell.
 ///
 /// **Not applicable to a 104 station**: the PICS cell the rows depend on is
-/// black in 104's interoperability list (clause 9, *"Black boxes: option not
-/// permitted in this companion standard"*), and 104 clause 7.6's service table
+/// black in 104's interoperability list (clause 9, where a black box marks an
+/// option 104 does not permit), and 104 clause 7.6's service table
 /// has only `C_CS ACT` and `C_CS ACTCON`. What the case drives is that reading:
 /// the mock controlled peer sends the message anyway (type 103, cause 3,
 /// address 0, 5-101 figure 75 at index 107) and the **controlling** station,

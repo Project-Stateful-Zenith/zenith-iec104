@@ -57,14 +57,14 @@
 //!
 //! Only the addresses declared with [`ServerConfig::command`] take commands;
 //! any other is answered with the cause 47 mirror (TS 60870-5-604 5.4.19.50:
-//! *"mirror the same ASDU with COT=47 (unknown Information Object
-//! Address)"*), and a command of another family than the declared one with a
+//! the ASDU comes back unchanged with COT = 47, unknown information object
+//! address), and a command of another family than the declared one with a
 //! negative confirmation. [`Application::accept`] decides every select and
 //! execute; a refusal is the negative confirmation. An accepted execute is
 //! confirmed and handed to [`Application::operate`] in a task of its own, so
-//! the station goes on answering meanwhile (TS 60870-5-604 Table 19:
-//! *"Command function during a running general interrogation is processed and
-//! executed without waiting for the GI to finish."*). Its termination goes out
+//! the station goes on answering meanwhile (TS 60870-5-604 Table 19: a
+//! command arriving while a general interrogation runs is handled and
+//! executed at once, not after the GI ends). Its termination goes out
 //! when `operate` returns, positive or negative.
 //!
 //! # The order things are sent in
@@ -86,49 +86,47 @@
 //! the driver more than the window takes, and a command's confirmation or
 //! termination, an event or a clock synchronisation that comes up while a
 //! large answer is being sent goes out before the rest of it (5-101 Table
-//! 16: *"they must be sent in the following order regardless of which data
-//! was generated first"*). The termination still follows the last data ASDU
+//! 16 fixes the sending order by row, whichever data was produced first).
+//! The termination still follows the last data ASDU
 //! (5-101 cl.7.4.5).
 //!
-//! The same paragraph of 5-101 cl.7.4 says *"The chronological reporting
-//! requirements defined in 7.2.2.2 are valid."* Each ASDU of an
+//! The same paragraph of 5-101 cl.7.4 keeps the chronological reporting
+//! rules of 7.2.2.2 in force. Each ASDU of an
 //! interrogation's or a counter interrogation's answer is therefore encoded
 //! again from the image when it is handed over, and a read's answer is
 //! encoded when its entry is taken. Every event queued before is then in the
 //! driver already, so no answer carries a value older than an event already sent
-//! (5-101 cl.7.2.2.2: *"The transmission of successive values of a
-//! particular INFORMATION OBJECT must always be in the chronological order
-//! in which the values were measured."*). One answer's ASDUs can therefore
+//! (5-101 cl.7.2.2.2: successive values of one information object are
+//! always sent in the order they were measured). One answer's ASDUs can therefore
 //! carry values of different moments, each at least as new as the events
 //! sent before it.
 //!
 //! An interrogation runs until its termination is taken, so the controlling
 //! station can still stop it while the rest of its answer waits. TS
-//! 60870-5-604 5.4.17.50: the controlled station *"sends an Interrogation
-//! Command with COT = 9, `C_IC_DEACTCON`"*, then *"No further Information
-//! Objects that are part of the GI for that QOI are sent to the Controlling
-//! station. No Interrogation Command with COT = 10 (ACTTERM) to the
-//! Controlling station"*. The confirmation is positive, and the rest of the
+//! 60870-5-604 5.4.17.50: the controlled station confirms with the
+//! interrogation command at COT = 9 (`C_IC_DEACTCON`), sends the controlling
+//! station no more objects of that QOI's interrogation, and sends no COT = 10
+//! (`ACTTERM`). The confirmation is positive, and the rest of the
 //! answer is dropped with no termination. A second activation under
-//! [`iec104::gi::ReActivation::Restart`] (5.4.17.30, *"the running GI is
-//! stopped and the second GI is started"*) drops the rest the same way, and
+//! [`iec104::gi::ReActivation::Restart`] (5.4.17.30: the running GI is
+//! abandoned and the second one begins) drops the rest the same way, and
 //! the second answer starts from the beginning. Under
 //! [`iec104::gi::ReActivation::Queue`] the second interrogation's data
 //! follows the first's termination and its own confirmation. A counter
-//! interrogation cannot be stopped: 5-101 cl.7.4.8, *"`C_CI` DEACT and
-//! DEACTCON are not used."*
+//! interrogation cannot be stopped: 5-101 cl.7.4.8 has no `C_CI` DEACT or
+//! DEACTCON.
 //!
 //! # Connections
 //!
 //! Nothing is sent before the controlling station starts data transfer (104
-//! cl.5.3: *"Any pending user data in the controlled station is sent only
-//! after the STARTDT con."*); until then the queue waits. The image, the queue
+//! cl.5.3: the controlled station holds back pending user data until the
+//! STARTDT con); until then the queue waits. The image, the queue
 //! and the state of every procedure belong to the server, not to a
 //! connection, so they carry over to the next started connection, and the
 //! ASDUs a failed connection left unconfirmed are sent again on it (104
-//! cl.10.6: *"any unconfirmed user data will be retransmitted on the new
-//! started connection after a connection switchover has been performed,
-//! including potential unconfirmed ACTCONs or ACTTERMs."*). Once no member
+//! cl.10.6: after a switchover, all user data still unconfirmed, any
+//! unconfirmed ACTCONs or ACTTERMs among it, is sent again on the newly
+//! started connection). Once no member
 //! of the group has a socket the link is gone, and so is the controlling
 //! station that asked: the queue keeps only the events and the end of
 //! initialisation, and the running interrogations, selects and executes are
@@ -136,7 +134,8 @@
 //!
 //! The end of initialisation ([`ServerConfig::end_of_initialisation`]) goes
 //! out once, on the first started connection: TS 60870-5-604 5.4.12.30, after
-//! re-establishment *"no `M_EI` (End of initialisation) is sent (nor needed)"*.
+//! re-establishment no `M_EI` (end of initialisation) is sent, nor is one
+//! needed.
 //!
 //! One server is one redundancy group of [`ServerConfig::members`]
 //! connections, and serves one controlling station (104 cl.10.2 rule 7). For
@@ -170,9 +169,9 @@ use crate::{AsyncStream, Error, Handle, Options, outstation};
 
 pub use crate::client::Clock;
 
-/// The default select timeout: 10 s. TS 60870-5-604 5.4.19.1 asks that the
-/// execute *"shall be received within the configured delay in the controlled
-/// station"* and leaves the delay to the system.
+/// The default select timeout: 10 s. TS 60870-5-604 5.4.19.1 requires the
+/// execute to reach the controlled station within a configured delay and
+/// leaves the delay to the system.
 pub const DEFAULT_SELECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The default size of the event buffer: 1000 events.
@@ -181,8 +180,8 @@ pub const DEFAULT_EVENT_BUFFER: usize = 1000;
 /// The default size of the request buffer: 1000 entries.
 pub const DEFAULT_REQUEST_BUFFER: usize = 1000;
 
-/// The default clock synchronisation interval: 24 hours. 104 cl.7.6 speaks of
-/// *"agreed time intervals"* and fixes none.
+/// The default clock synchronisation interval: 24 hours. 104 cl.7.6 leaves
+/// the interval to agreement between the parties and fixes none.
 pub const DEFAULT_SYNC_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// What the application decides and does for a [`Server`].
@@ -200,8 +199,8 @@ pub trait Application: Send + Sync + 'static {
 
     /// Operates an accepted, confirmed execute and returns whether it
     /// succeeded: `true` is the positive termination, `false` the negative one
-    /// (TS 60870-5-604 5.4.19.40: *"first accept the command with a Positive
-    /// ACTCON and then send a Negative Termination"*), where the family is
+    /// (TS 60870-5-604 5.4.19.40: a positive `ACTCON` followed by a negative
+    /// termination), where the family is
     /// terminated ([`ServerConfig::termination`]). It runs in its own task
     /// and may take its time.
     ///
@@ -212,8 +211,8 @@ pub trait Application: Send + Sync + 'static {
     fn operate(&self, command: Command) -> impl Future<Output = bool> + Send;
 
     /// A valid clock synchronisation arrived with `time`: set the station's
-    /// clock from it (5-101 cl.7.4.6: *"Time information is corrected
-    /// exclusively by the controlled station."*). Called after the
+    /// clock from it (5-101 cl.7.4.6: only the controlled station corrects
+    /// its time). Called after the
     /// confirmation, which carries the time before the correction (104
     /// cl.7.6), is queued.
     /// Default: nothing.
@@ -239,9 +238,8 @@ pub struct PointConfig {
     /// The initial quality.
     pub quality: Quality,
     /// Answered in a station interrogation (and, for a counter, in the
-    /// general counter request). 5-101 cl.7.4.5: an object that is not
-    /// *"stored in the controlled station is not returned in response to a
-    /// station interrogation"*.
+    /// general counter request). 5-101 cl.7.4.5: a station interrogation
+    /// returns only objects the controlled station stores.
     pub station: bool,
     /// The interrogation groups 1 to 16 it is also answered in, bit `n - 1`
     /// for group `n`; for a counter, the counter groups 1 to 4.
@@ -356,8 +354,8 @@ pub struct ServerConfig {
     /// Default [`DEFAULT_SYNC_INTERVAL`], 24 hours.
     pub sync_interval: Duration,
     /// The station's clock is kept by other means than the clock
-    /// synchronisation command (104 cl.7.6: *"clock synchronization
-    /// receivers or similar equipment"*; GPS or NTP, say). Time tags then
+    /// synchronisation command (104 cl.7.6 names dedicated time receivers
+    /// and the like; GPS or NTP, say). Time tags then
     /// carry no invalid mark for want of a `C_CS ACT`, neither before the
     /// first nor after [`ServerConfig::sync_interval`]. A clock
     /// synchronisation is still answered and handed to
@@ -655,10 +653,10 @@ impl Server {
     /// Writes a point and sends it as a spontaneous event (cause 3, 104
     /// cl.7.4). `time` is the event's time tag for a point with tagged
     /// events; `None` takes the station's clock now. The tag's invalid bit is
-    /// set while the clock is not synchronised (104 cl.7.6: *"When the
-    /// synchronization command does not arrive within this time interval, the
-    /// controlled station sets all time-tagged information objects with a
-    /// mark that the time tag may be inaccurate (invalid)."*), unless
+    /// set while the clock is not synchronised (104 cl.7.6: if no
+    /// synchronisation command arrives within the interval, the controlled
+    /// station marks every time-tagged object's tag as possibly inaccurate,
+    /// that is invalid), unless
     /// [`ServerConfig::external_clock`] says something else keeps it.
     ///
     /// # Errors
@@ -678,8 +676,8 @@ impl Server {
 
     /// [`Server::report`] with the cause given: 3 spontaneous, or the return
     /// information of a remote (11) or a local (12) command (5-101 cl.7.4.7:
-    /// *"`RETURN_INF` for control operation complete is used (if
-    /// available)."*). It goes with the events of 5-101 Table 16.
+    /// return information marks a completed control operation, where the
+    /// station has it). It goes with the events of 5-101 Table 16.
     ///
     /// # Errors
     ///

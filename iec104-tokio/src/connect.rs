@@ -10,8 +10,8 @@ pub trait AsyncStream: AsyncRead + AsyncWrite + Send + Unpin + 'static {}
 
 impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static> AsyncStream for T {}
 
-/// Opens the controlling station's connections (clause 7.1: *"The
-/// controlling station is equivalent to the client (connector)"*).
+/// Opens the controlling station's connections (clause 7.1: the controlling
+/// station takes the client role, the side that connects).
 ///
 /// The driver calls [`Connector::connect`] whenever the core asks for a
 /// connection and drops the future unfinished when the attempt's t0 expires,

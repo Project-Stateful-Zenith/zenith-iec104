@@ -47,9 +47,9 @@
 //!
 //! # Not automated
 //!
-//! - *"The values of the object(s) transferred and stored on the controlling
-//!   station should represent the actual values on the controlled station"*
-//!   (`M` in modes A, C, D, `PIXIT` in mode B): storing is the controlling
+//! - The rows' expectation that the values the controlling station receives
+//!   and stores should match the controlled station's actual values (`M` in
+//!   modes A, C, D, `PIXIT` in mode B): storing is the controlling
 //!   station's application. The controlling-station cases check that the
 //!   library decodes the values exactly as they were sent, which is all the
 //!   library holds.
@@ -97,9 +97,8 @@ fn c_ci(cause: u8, ca: u16, qcc: u8) -> Vec<u8> {
 // ------------------------------------------------------ the counter model
 
 /// One counter of the station's figure 92 model, and its place in the counter
-/// groups (5-101 clause 7.4.8: *"The assignments of the information object
-/// addresses of the integrated totals to the specific groups have to be
-/// specified in the controlled station."*).
+/// groups (5-101 clause 7.4.8 leaves it to the controlled station to define
+/// which integrated-total addresses belong to which group).
 #[derive(Debug, Clone, Copy)]
 struct Counter {
     ioa: u32,
@@ -168,12 +167,11 @@ fn members(request: Request) -> Vec<Counter> {
 }
 
 /// 5-101 figure 92, *"General counter model"*, as the harness's application:
-/// *"The actual values may be memorized (copied) periodically to frozen values
-/// by a freeze command received from a controlling station or initiated
-/// locally within the device. After freezing, the actual value is either reset
-/// to zero (acquisition of incremental information) or continues its operation
-/// without being reset (acquisition of integrated totals)."* The `SQ` of a
-/// counter moves on with every value it memorises.
+/// the actual values can be copied into frozen values from time to time, either
+/// on a freeze command from a controlling station or on the device's own
+/// initiative; after a freeze the actual value is either set back to zero
+/// (incremental information) or keeps running unreset (integrated totals). The
+/// `SQ` of a counter moves on with every value it memorises.
 struct Model {
     counters: Vec<Counter>,
 }
@@ -186,8 +184,8 @@ impl Model {
     }
 
     /// Applies `freeze` to the counters `request` names and to no other (5-101
-    /// clause 7.4.8: *"The operation specified by FRZ is only applied to the
-    /// counters specified by RQT. All other counters are unaffected."*).
+    /// clause 7.4.8: `FRZ` acts only on the counters `RQT` selects, and leaves
+    /// every other counter alone).
     /// Answers whether a new frozen value was memorised.
     fn memorise(&mut self, request: Request, freeze: FreezeMode) -> bool {
         let group = request.group_number();
@@ -336,8 +334,8 @@ fn read_total(asdu: &[u8]) -> (Header, u32, Bcr, Option<Cp56Time2a>) {
 
 // ------------------------------------------ the controlled station's glue
 
-/// Mode A's local clock (5-101 clause 7.4.8: *"Local clocks in the controlled
-/// station initiate the freeze or freeze with reset operations."*): every
+/// Mode A's local clock (5-101 clause 7.4.8: in this mode the freeze, with or
+/// without reset, is triggered by clocks local to the controlled station): every
 /// `interval`, the actual values integrate `step`, the station freezes all its
 /// counters and reports them spontaneously, `left` times in all.
 struct LocalFreeze {
@@ -400,7 +398,7 @@ impl StationApp for CounterApp {
             && self.model.memorise(request, freeze)
             && self.ci.mode().reports_spontaneously()
         {
-            // Mode D: "the frozen values are reported spontaneously".
+            // Mode D: the frozen values go out spontaneously.
             out.extend(self.model.spontaneous(&self.tx, request)?);
         }
         if self.ci.awaiting_data() {
@@ -455,8 +453,8 @@ fn end(station: ControlledStation, link: Link) {
 }
 
 /// The cause of a collection's objects, from 5-101 table 14 (clause 7.2.3):
-/// `<37>` *"requested by general counter request"*, `<38..41>` *"requested by
-/// group 1 … 4 counter request"*.
+/// `<37>` for the general counter request, `<38..41>` for the group 1 … 4
+/// counter requests.
 fn collection_cause(request: Request) -> u8 {
     37 + request.group_number().unwrap_or(0)
 }
@@ -482,7 +480,7 @@ fn assert_collected(
     assert_eq!(
         header.cause.to_u8(),
         collection_cause(request),
-        "{what}: \"sent with the corresponding COT (37-41)\" for RQT {rqt}"
+        "{what}: the cause (37-41) that matches RQT {rqt}"
     );
     assert!(!header.negative, "{what}: P/N = 0");
     assert_eq!(header.common_address, ca, "{what}: the station's own CASDU");
@@ -503,15 +501,10 @@ fn assert_collected(
 /// Mode A – Local freeze with spontaneous transmission"*, `Reference`
 /// `IEC 60870-5-101:2003, 7.4.8`, `IEC 60870-5-5:1995, 6.9.1`, `Required` `M`:
 ///
-/// > The Controlled station sends a Counter value (look at PICS for the
-/// > supported ASDUs) as an event with COT = 3 (SPONT), M_IT_SPONT, and, if
-/// > applicable, correct time tag to the Controlling station
-///
-/// > The Counter values are sent by the Controlled station at the configured
-/// > intervals
-///
-/// > The tests in this table are performed correctly by every M_IT ASDU in the
-/// > PICS that supports COT 3
+/// the controlled station reports counter values (in the ASDUs its PICS
+/// declares) as events, cause 3 (`SPONT`), with a correct time tag where the
+/// type has one, at the intervals it is configured for; and this must hold for
+/// each `M_IT` ASDU of the PICS that allows cause 3.
 ///
 /// DUT: the **controlled** station. Its local clock ([`LocalFreeze`], the
 /// harness's) freezes twice; each time the station's `tx` builds one `M_IT` per
@@ -520,9 +513,9 @@ fn assert_collected(
 /// the wire (`M_IT_NA_1` and `M_IT_TB_1`), and the `CP56Time2a` the station
 /// stamped read back intact from figure 73's position (5-101 clause 7.3.1).
 ///
-/// The two plausibility rows (*"The Counter value is either the locally
-/// memorised increment … or the locally frozen integrated total"*, *"The
-/// Sequence number … (SQ) changes with each counter transmission interval"*)
+/// The two plausibility rows (the value is the increment or the integrated
+/// total frozen locally; the sequence number `SQ` moves on each transmission
+/// interval)
 /// are the harness's figure 92 model; they are observed below to show the
 /// library carries the model's `BCR` unchanged, not as a property of the
 /// library.
@@ -547,8 +540,8 @@ fn clause_5_4_20_1_mode_a_the_controlled_station_reports_its_totals_spontaneousl
     end(station, link);
     assert!(
         log.lock().expect("the log").is_empty(),
-        "5.4.20.1: mode A: \"The controlling station does not issue counter interrogation \
-         commands (C_CI).\" (5-101 cl.7.4.8), and none was received"
+        "5.4.20.1: mode A: the controlling station sends no counter interrogation \
+         (C_CI) in this mode (5-101 cl.7.4.8), and none was received"
     );
 
     let mut types = Vec::new();
@@ -576,7 +569,7 @@ fn clause_5_4_20_1_mode_a_the_controlled_station_reports_its_totals_spontaneousl
             assert_eq!(
                 time,
                 Some(sample_time()),
-                "5.4.20.1: \"if applicable, correct time tag\""
+                "5.4.20.1: the time tag is the correct one"
             );
         }
         // The harness's figure 92 model, carried unchanged: the frozen
@@ -588,20 +581,18 @@ fn clause_5_4_20_1_mode_a_the_controlled_station_reports_its_totals_spontaneousl
     for t in COUNTER_TYPES {
         assert!(
             types.contains(&t),
-            "5.4.20.1: \"every M_IT ASDU in the PICS that supports COT 3\": {t:?} not seen"
+            "5.4.20.1: each M_IT ASDU allowing cause 3: {t:?} not seen"
         );
     }
 }
 
 /// The same row's ASDU set, from the library's rules rather than the wire:
-/// *"The tests in this table are performed correctly by every `M_IT` ASDU in the
-/// PICS that supports COT 3"* (`Reference` `IEC 60870-5-101:2003, 8.5, 8.6`,
-/// `Required` `M`, index 78).
+/// the tests must hold for each `M_IT` ASDU of the PICS that allows cause 3
+/// (`Reference` `IEC 60870-5-101:2003, 8.5, 8.6`, `Required` `M`, index 78).
 ///
 /// The `M_IT` ASDUs a 104 PICS can carry are 5-101 clause 7.3.1's three minus
-/// the one 5-104 clause 9 (PDF page index 100 of 5-104) strikes: *"In this
-/// companion standard only the use of the set `<30>` – `<40>` for ASDUs with
-/// time tag is permitted."* So `M_IT_NA_1` `<15>` and `M_IT_TB_1` `<37>` are
+/// the one 5-104 clause 9 (PDF page index 100 of 5-104) strikes: it allows
+/// only `<30>` – `<40>` as time-tagged ASDUs in 104. So `M_IT_NA_1` `<15>` and `M_IT_TB_1` `<37>` are
 /// spontaneous types and `M_IT_TA_1` `<16>` is not.
 #[test]
 fn clause_5_4_20_1_every_m_it_asdu_104_permits_is_a_spontaneous_type() {
@@ -623,8 +614,8 @@ fn clause_5_4_20_1_every_m_it_asdu_104_permits_is_a_spontaneous_type() {
 /// spontaneous; `ci` does not take them for a collection's objects; the
 /// decoded `BCR` and `CP56Time2a` are exactly the octets the peer sent (what a
 /// controlling station stores comes from here); and, from 5-101 clause 7.4.8's
-/// mode A, *"The controlling station does not issue counter interrogation
-/// commands (`C_CI`)."*: `ci` refuses to build one and none goes on the wire.
+/// mode A, where the controlling station sends no counter interrogation
+/// (`C_CI`): `ci` refuses to build one and none goes on the wire.
 #[test]
 fn clause_5_4_20_1_mode_a_the_controlling_station_takes_the_spontaneous_totals() {
     let sent = [
@@ -674,7 +665,7 @@ fn clause_5_4_20_1_mode_a_the_controlling_station_takes_the_spontaneous_totals()
             tx::Reaction::Spontaneous {
                 type_id: header.type_id
             },
-            "5.4.20.1: \"as an event with COT = 3 (SPONT), M_IT_SPONT\""
+            "5.4.20.1: an event with cause 3 (SPONT)"
         );
         assert_eq!(
             ci.on_response(asdu, &known).expect("ci").reaction,
@@ -716,26 +707,16 @@ fn counter_known(asdu: &[u8]) -> Known {
 /// 604 Table 20 (2 of 4), PDF page index 79 (printed 78), procedure
 /// **`5.4.20.10`**, *"Transmission of integrated totals – sequential procedure:
 /// Mode B – Local freeze with Counter Interrogation"*, `Reference`
-/// `IEC 60870-5-101:2003, 7.4.8`, every row below `Required` `M`:
+/// `IEC 60870-5-101:2003, 7.4.8`, every row below `Required` `M`: the
+/// controlling station sends a counter interrogation (ASDU 101, cause 6,
+/// `ACT`) with `FRZ` = 0 (neither freeze nor reset) and the general `RQT`; the
+/// controlled station sends the command back with cause 7 (`ACTCON`), then
+/// every counter object the requested `RQT` covers, each with its matching
+/// cause (37 to 41), then the command it received once more with cause 10
+/// (`ACTTERM`). This must hold for each `M_IT` ASDU of the PICS that allows
+/// causes 37 to 41.
 ///
-/// > The Controlling station sends a Counter interrogation command (ASDU 101)
-/// > with COT=6, C_CI_ACT, FRZ=0 (no freeze/reset) and RQT=1 (general) to the
-/// > Controlled station
-///
-/// > The Controlled station mirrors the counter interrogation command (ASDU 101)
-/// > with COT=7, C_CI_ACTCON, to the Controlling station
-///
-/// > All Counter Information Objects that are part of the Counter Interrogation
-/// > for the requested RQT are sent with the corresponding COT (37-41) to the
-/// > Controlling station
-///
-/// > The Controlled station sends the same Counter interrogation command it
-/// > received (ASDU 101) with COT = 10, C_CI_ACTTERM, to the Controlling station
-///
-/// > The tests in this table are performed correctly by every M_IT ASDU in the
-/// > PICS that supports COT 37-41
-///
-/// The row prints *"RQT=1 (general)"*; 5-101 clause 7.2.6.23 makes the general
+/// The row gives the general request as `RQT` 1; 5-101 clause 7.2.6.23 makes the general
 /// request `RQT = <5>` and `<1>` group 1, so the general request here is `RQT`
 /// 5 and group 1 is driven by the groups case below.
 ///
@@ -745,7 +726,7 @@ fn counter_known(asdu: &[u8]) -> Known {
 /// them, with cause 37, with the frozen value the station holds (the local
 /// freeze of mode B is the application's and is not run here). The request is
 /// sent twice: a collection can be repeated, which is what the controlling
-/// station's *"configured intervals"* need.
+/// station's configured intervals need.
 #[test]
 fn clause_5_4_20_10_mode_b_the_general_request_is_confirmed_answered_and_terminated() {
     let (station, mut link, log) = controlled(CounterMode::LocalFreezeByInterrogation, None);
@@ -770,12 +751,12 @@ fn clause_5_4_20_10_mode_b_the_general_request_is_confirmed_answered_and_termina
         assert_eq!(
             seen,
             COUNTERS.iter().map(|c| c.ioa).collect::<Vec<_>>(),
-            "{what}: \"All Counter Information Objects\" of the general request, once each"
+            "{what}: every counter object of the general request, once each"
         );
         for t in COUNTER_TYPES {
             assert!(
                 types.contains(&t),
-                "{what}: \"every M_IT ASDU in the PICS that supports COT 37-41\": {t:?}"
+                "{what}: each M_IT ASDU allowing causes 37-41: {t:?}"
             );
         }
         assert_eq!(
@@ -806,15 +787,15 @@ fn clause_5_4_20_10_mode_b_the_general_request_is_confirmed_answered_and_termina
 /// 604 `5.4.20.10`, index 79, the counter-group row, `Required` `PICS, 9.6
 /// Transmission of integrated totals`:
 ///
-/// > The tests in this Table are performed correctly for supported Counter
-/// > Interrogation groups: The Controlling station sends a Counter
-/// > Interrogation Command (ASDU 101) with COT = 6, C_CI_ACT, FRZ=0 (no
-/// > freeze/reset) to the Controlled station with RQT=1...4 (group 1...4).
-/// > At least 2 groups need to be tested (unless only 1 group is supported).
+/// the tests must hold for each counter group the station supports: the
+/// controlling station sends the counter interrogation (ASDU 101, cause 6,
+/// `ACT`, `FRZ` = 0, neither freeze nor reset) with `RQT` 1 to 4 (groups 1 to
+/// 4), and at least two groups are tested unless the station supports only
+/// one.
 ///
 /// DUT: the **controlled** station, all four groups. For group `n` the objects
-/// carry cause `<37 + n>` (5-101 clause 7.2.3, `<38..41>` *"requested by group
-/// 1 … 4 counter request"*) and are exactly the counters configured in group
+/// carry cause `<37 + n>` (5-101 clause 7.2.3, `<38..41>`: the group 1 … 4
+/// counter requests) and are exactly the counters configured in group
 /// `n`; the confirmation and termination mirror `RQT = n`.
 #[test]
 fn clause_5_4_20_10_mode_b_every_counter_group_is_collected_on_its_own() {
@@ -846,9 +827,9 @@ fn clause_5_4_20_10_mode_b_every_counter_group_is_collected_on_its_own() {
 
 /// 604 `5.4.20.10`, index 79, the broadcast row, `Required` `PIXIT`:
 ///
-/// > If supported, the Counter interrogation command should also be tested with
-/// > the Broadcast CASDU address. The Controlled station should reply with its
-/// > own CASDU(s)
+/// where the station supports it, the counter interrogation should also be
+/// tested addressed to the broadcast CASDU, and the controlled station should
+/// answer with its own CASDU (or CASDUs).
 ///
 /// DUT: the **controlled** station. 604 `5.4.10.10` (index 54) permits the
 /// broadcast CASDU with type 101. The request goes to `FF FF`; the confirmation
@@ -943,14 +924,10 @@ fn controlling_run(
 /// 604 `5.4.20.10` in the reverse direction (§5.1), index 79, the rows about
 /// the **controlling** station, `Required` `M`:
 ///
-/// > The Controlling station sends a Counter interrogation command (ASDU 101)
-/// > with COT=6, C_CI_ACT, FRZ=0 (no freeze/reset) and RQT=1 (general) to the
-/// > Controlled station
-///
-/// > The Controlling station sends the Counter Interrogation command at the
-/// > configured intervals
-///
-/// with the groups row (`RQT=1...4`).
+/// the controlling station sends the counter interrogation (ASDU 101, cause 6,
+/// `ACT`, `FRZ` = 0, neither freeze nor reset, general `RQT`) to the controlled
+/// station, and does so at its configured intervals; together with the groups
+/// row (`RQT=1...4`).
 ///
 /// DUT: the **controlling** station. What goes on the wire is compared octet
 /// for octet with figure 73 and clause 7.2.6.23 (`FRZ = 0`, `RQT` 5 for the
@@ -958,9 +935,9 @@ fn controlling_run(
 /// scripted answers are the confirmation, one counted object per `M_IT` and the
 /// termination, and nothing is left running. The general request runs twice
 /// (a repeatable collection is what an interval needs). Mode B's own rule,
-/// 5-101 clause 7.4.8: *"the freeze or freeze with reset functionality must not
-/// be used in the counter interrogation command (i.e. the command qualifier
-/// must contain FRZ = 0)"*: `ci` refuses to build one.
+/// 5-101 clause 7.4.8: the counter interrogation may not ask for a freeze, with
+/// or without reset, so its qualifier must carry `FRZ` = 0: `ci` refuses to
+/// build one that does not.
 #[test]
 fn clause_5_4_20_10_mode_b_the_controlling_station_collects_general_and_groups() {
     let mode = CounterMode::LocalFreezeByInterrogation;
@@ -1015,8 +992,8 @@ fn clause_5_4_20_10_mode_b_the_controlling_station_collects_general_and_groups()
 
 /// 604 `5.4.20.10`, index 79, the broadcast row (`PIXIT`), with the library as
 /// the **controlling** station: the command goes out with the broadcast CASDU
-/// `FF FF`, the mock controlled station answers with its own CASDU (*"The
-/// Controlled station should reply with its own CASDU(s)"*), and the library
+/// `FF FF`, the mock controlled station answers with its own CASDU, as the row
+/// says it should, and the library
 /// takes those answers as the procedure's.
 #[test]
 fn clause_5_4_20_10_mode_b_the_controlling_station_takes_answers_to_a_broadcast() {
@@ -1057,31 +1034,22 @@ fn clause_5_4_20_10_mode_b_the_controlling_station_takes_answers_to_a_broadcast(
 /// Mode C – Remote initiated freeze with Counter Interrogation"*, `Reference`
 /// `IEC 60870-5-101:2003, 7.4.8`, every row below `Required` `M`:
 ///
-/// > The Controlling station sends a Counter interrogation command (ASDU 101)
-/// > with COT=6, C_CI_ACT, FRZ=1..3 (freeze, freeze with reset, reset) and RQT=
-/// > (general) to the Controlled station
-///
-/// > The Controlled station sends a confirmation of the same counter
-/// > interrogation command it received (ASDU 101) with COT=7, C_CI_ACTCON, to
-/// > the Controlling station
-///
-/// > The Controlled station memorises the counters indicated in the RQT field
-/// > without affecting other counter values or counters pending for
-/// > transmission
-///
-/// then the collection (`FRZ = 0`), its confirmation, its objects with COT 37
-/// to 41, its `C_CI_ACTTERM`, and:
-///
-/// > The Counter value is either the increment or the integrated total
-/// > (memorised counter) that was memorised during the previous Memorise
-/// > Counter command (plausibility test)
+/// the controlling station sends a counter interrogation (ASDU 101, cause 6,
+/// `ACT`) with `FRZ` 1 to 3 (freeze, freeze with reset, reset) and the general
+/// `RQT`; the controlled station confirms that same command with cause 7
+/// (`ACTCON`) and memorises the counters the `RQT` selects, leaving every other
+/// counter value, and any counter still waiting to be sent, untouched. Then
+/// comes the collection (`FRZ = 0`), its confirmation, its objects with causes
+/// 37 to 41, its `C_CI_ACTTERM`, and a plausibility check that each value is
+/// the increment or the integrated total memorised by the preceding memorise
+/// command.
 ///
 /// DUT: the **controlled** station, with the group row (`FRZ=1`,
 /// `RQT=1...4`, `PICS 9.6`). The memorize command is answered with its
 /// confirmation only: 5-101 figure 95 draws `C_CI ACT` then `C_CI ACTCON` and
-/// *"Continue with the collection of the frozen values as described in mode
-/// B"*, and clause 7.4.8 says *"This command does not cause the counter values
-/// to be transmitted."*, so no object and no termination follow it.
+/// then the collection of the frozen values as in mode B, and clause 7.4.8
+/// states that this command by itself transmits no counter values, so no
+/// object and no termination follow it.
 ///
 /// The library hands the application the command's own `RQT` and `FRZ`
 /// (asserted on its reaction); the application's figure 92 model memorises
@@ -1139,14 +1107,11 @@ fn clause_5_4_20_20_mode_c_a_group_freeze_is_confirmed_and_touches_only_its_grou
 /// 604 `5.4.20.20`, index 80, the first row (`FRZ=1..3` with the general
 /// request, `M`) and the reset row, `Required` `PICS, 9.6`:
 ///
-/// > The tests in this Table are performed correctly for each supported
-/// > Counter reset option: The Controlling station sends a Counter
-/// > Interrogation Command (ASDU 101) with COT = 6, C_CI_ACT, FRZ=2 or 3
-/// > (freeze with reset or reset only) to the Controlled station with RQT=5
-/// > (general).
-///
-/// plus the broadcast row (`PIXIT`): *"The Controlled station should reply
-/// with its own CASDU(s)"*.
+/// the tests must hold for each counter reset option the station supports: the
+/// controlling station sends the counter interrogation (ASDU 101, cause 6,
+/// `ACT`) with `FRZ` 2 or 3 (freeze with reset, or reset alone) and `RQT` 5
+/// (general); plus the broadcast row (`PIXIT`), where the controlled station
+/// should answer with its own CASDU (or CASDUs).
 ///
 /// DUT: the **controlled** station. Each of `FRZ` 1, 2 and 3 on `RQT` 5, and
 /// `FRZ` 1 to the broadcast CASDU, is confirmed with the same command (own
@@ -1183,10 +1148,9 @@ fn clause_5_4_20_20_mode_c_every_freeze_and_reset_option_is_confirmed() {
 }
 
 /// 604 `5.4.20.20` in the reverse direction (§5.1), index 80, the rows about
-/// the **controlling** station (`M`): *"sends a Counter interrogation command
-/// (ASDU 101) with COT=6, `C_CI_ACT`, FRZ=1..3 … to the Controlled station"*,
-/// then *"sends a Counter interrogation command (ASDU 101) with COT=6,
-/// `C_CI_ACT`, FRZ =0 (no freeze/reset) and RQT=1..5"*, with the group row
+/// the **controlling** station (`M`): it sends a counter interrogation (ASDU
+/// 101, cause 6, `C_CI_ACT`) with `FRZ` 1 to 3, then another with `FRZ` = 0
+/// (neither freeze nor reset) and `RQT` 1 to 5, with the group row
 /// (`FRZ=1`, `RQT=1...4`) and the reset row (`FRZ=2 or 3`, `RQT=5`).
 ///
 /// DUT: the **controlling** station. Each command is figure 73's frame with
@@ -1251,22 +1215,14 @@ fn clause_5_4_20_20_mode_c_the_controlling_station_freezes_then_collects() {
 /// Mode D – Remote initiated freeze with spontaneous transmission"*,
 /// `Reference` `IEC 60870-5-101:2003, 7.4.8`, every row below `Required` `M`:
 ///
-/// > The Controlling station sends a Counter interrogation command (ASDU 101)
-/// > with COT=6, C_CI_ACT, FRZ=1..3 (freeze, freeze with reset, reset) and
-/// > RQT=5 (general) to the Controlled station
-///
-/// > The Controlled station sends a confirmation of the same counter
-/// > interrogation command it received (ASDU 101) with COT=7, C_CI_ACTCON, to
-/// > the Controlling station
-///
-/// > The Controlled station sends a Counter value (look at PICS for the
-/// > supported ASDUs) as an event with COT = 3 (SPONT), M_IT_SPONT, and, if
-/// > applicable, correct time tag to the Controlling station
-/// > Note: The order of sending C_CI_ACTCON and M_IT_SPONT by the Controlled
-/// > station is not relevant and shall not be tested
-///
-/// > The tests in this table are performed correctly by every M_IT ASDU in the
-/// > PICS that supports COT 3
+/// the controlling station sends a counter interrogation (ASDU 101, cause 6,
+/// `ACT`) with `FRZ` 1 to 3 (freeze, freeze with reset, reset) and `RQT` 5
+/// (general); the controlled station confirms that same command with cause 7
+/// (`ACTCON`) and reports the counter values (in the ASDUs its PICS declares)
+/// as events, cause 3 (`SPONT`), with a correct time tag where the type has
+/// one. A note on the row says the order of the `ACTCON` and the events does
+/// not matter and must not be tested. All of this must hold for each `M_IT`
+/// ASDU of the PICS that allows cause 3.
 ///
 /// with the group row (`FRZ=1`, `RQT=1...4`, `PICS 9.6`), the reset row
 /// (`FRZ=2 or 3`, `RQT=5`) and the broadcast row (`PIXIT`).
@@ -1360,9 +1316,8 @@ fn clause_5_4_20_30_mode_d_a_freeze_is_confirmed_and_reported_spontaneously() {
 }
 
 /// 604 `5.4.20.30` in the reverse direction (§5.1), index 81, the rows about
-/// the **controlling** station (`M`): it *"sends a Counter interrogation
-/// command (ASDU 101) with COT=6, `C_CI_ACT`, FRZ=1..3 … and RQT=5 (general)"*
-/// (and `RQT=1...4` for the group row), and takes the confirmation and the
+/// the **controlling** station (`M`): it sends a counter interrogation (ASDU
+/// 101, cause 6, `C_CI_ACT`) with `FRZ` 1 to 3 and `RQT` 5 (general) (and `RQT=1...4` for the group row), and takes the confirmation and the
 /// spontaneous totals that follow, in whichever order they come (the row's
 /// Note).
 ///
@@ -1370,8 +1325,8 @@ fn clause_5_4_20_30_mode_d_a_freeze_is_confirmed_and_reported_spontaneously() {
 /// confirmation completes it (nothing left running, no termination awaited);
 /// the cause-3 `M_IT`s are the library's `tx` spontaneous objects and not
 /// `ci`'s. The second command's answers come totals first, confirmation last.
-/// Mode D has no collection (5-101 clause 7.4.8: *"the frozen values are
-/// reported spontaneously"*), and `ci` refuses to build one.
+/// Mode D has no collection (5-101 clause 7.4.8: in this mode the frozen
+/// values go out spontaneously), and `ci` refuses to build one.
 #[test]
 fn clause_5_4_20_30_mode_d_the_controlling_station_freezes_and_takes_the_reports() {
     let mode = CounterMode::FreezeSpontaneous;

@@ -398,9 +398,9 @@ fn the_counter_family_is_the_two_m_it_types_104_selects() {
     assert!(is_counter_type(TypeId::MItNa1));
     assert!(is_counter_type(TypeId::MItTb1));
     // 5-101 clause 7.3.1 defines a third M_IT type, and it is *not* one of the
-    // family: 5-104 clause 9 (PDF page index 100, printed page 99) says "In
-    // this companion standard only the use of the set <30> - <40> for ASDUs
-    // with time tag is permitted.", and type 16 is outside that set. The
+    // family: 5-104 clause 9 (PDF page index 100, printed page 99) allows only
+    // the types <30> to <40> for time-tagged ASDUs in this companion standard,
+    // and type 16 is outside that set. The
     // crate's own catalogue already answers the question, so the two cannot
     // drift.
     assert!(!TypeId::MItTa1.is_selected_104());
@@ -520,9 +520,9 @@ fn the_scripted_collection_sends_the_general_and_group_objects_in_cause_order() 
 
 #[test]
 fn a_memorize_is_confirmed_and_not_terminated() {
-    // 5-101 figure 95: `C_CI ACT` (FRZ = 1) -> `C_CI ACTCON` (FRZ = 1), then
-    // "Continue with the collection of the frozen values as described in mode
-    // B". No data and no ACTTERM belong to the memorize transaction.
+    // 5-101 figure 95: `C_CI ACT` (FRZ = 1) -> `C_CI ACTCON` (FRZ = 1), after
+    // which the frozen values are collected the mode B way. No data and no
+    // ACTTERM belong to the memorize transaction.
     let device = Device::new();
     for freeze in [
         FreezeMode::FreezeWithoutReset,
@@ -611,8 +611,8 @@ fn abandoning_a_request_forgets_only_that_request() {
 fn the_termination_mirrors_the_command_it_closes() {
     let device = Device::new();
     // The collection is the FRZ = 0 command, so the termination carries FRZ = 0
-    // and the same RQT (TS 604 Table 20: "sends the same Counter interrogation
-    // command it received (ASDU 101) with COT = 10").
+    // and the same RQT (TS 604 Table 20: the termination is the received
+    // counter interrogation command, ASDU 101, sent back with COT = 10).
     let (_, from_controlled, _) = drive(
         CounterMode::FreezeAndTransmit,
         Request::Group(3),
@@ -728,7 +728,7 @@ fn a_second_activation_is_honoured_and_its_data_is_owed_once() {
 
 #[test]
 fn a_deactivation_of_this_type_is_not_the_procedure() {
-    // 5-101 clause 7.4.8: "C_CI DEACT and DEACTCON are not used." A type-101
+    // 5-101 clause 7.4.8 has no use for `C_CI` DEACT or DEACTCON. A type-101
     // ASDU carrying cause 8 or 9 is therefore not a frame of this procedure.
     let known = Known::EVERYTHING;
     let mut controlling = CounterInterrogation::controlling(CounterMode::FreezeAndTransmit, CA, 0);
@@ -863,8 +863,8 @@ fn a_reserved_rqt_is_not_this_procedure() {
 
 #[test]
 fn mode_a_issues_no_counter_interrogation_commands() {
-    // 5-101 cl.7.4.8 mode A: "The controlling station does not issue counter
-    // interrogation commands (C_CI)."
+    // 5-101 cl.7.4.8 mode A: the controlling station sends no counter
+    // interrogation command (`C_CI`) at all.
     let known = Known::EVERYTHING;
     let device = Device::new();
     let mut controlling =
@@ -911,7 +911,7 @@ fn assert_rejected(
 
 #[test]
 fn mode_b_refuses_a_freeze_and_accepts_a_collection() {
-    // Mode B: "the command qualifier must contain FRZ = 0".
+    // Mode B: the command qualifier's FRZ must be 0.
     let known = Known::EVERYTHING;
     let device = Device::new();
     let mut controlled =
@@ -964,12 +964,11 @@ fn modes_c_and_d_accept_a_freeze() {
 
 #[test]
 fn mode_d_refuses_a_collection_because_its_values_are_spontaneous() {
-    // 5-101 clause 7.4.8 defines mode D as "a combination of the counter
-    // command from the controlling station as specified in mode C, with
-    // spontaneous reporting of the integrated totals, as described in mode A",
-    // and TS 60870-5-604 Table 20's mode D procedure (test 5.4.20.30) draws
-    // exactly that: "C_CI_ACT, FRZ=1..3 (freeze, freeze with reset, reset)"
-    // and then "M_IT_SPONT" with "COT = 3 (SPONT)": no collection, and no
+    // 5-101 clause 7.4.8 defines mode D as mode C's counter command from the
+    // controlling station joined to mode A's spontaneous reporting of the
+    // integrated totals, and TS 60870-5-604 Table 20's mode D procedure (test
+    // 5.4.20.30) draws exactly that: `C_CI_ACT` with FRZ=1..3 (freeze, freeze
+    // with reset, reset) and then `M_IT` with COT = 3 (SPONT): no collection, and no
     // C_CI_ACTTERM. A FRZ = 0 activation is therefore not that mode's
     // procedure, on either side.
     let known = Known::EVERYTHING;
@@ -1542,8 +1541,8 @@ fn a_counter_group_outside_the_standards_range_is_refused() {
 
 #[test]
 fn a_termination_ends_the_collection_even_before_its_confirmation() {
-    // 5-101 clause 7.4.8, figure 95: `C_CI ACTTERM` is `A_ITERM`, "COUNTER
-    // REQUEST TERMINATED". A termination that overtakes its confirmation still
+    // 5-101 clause 7.4.8, figure 95: `C_CI ACTTERM` is `A_ITERM`, the end of
+    // the counter request. A termination that overtakes its confirmation still
     // ends the request: afterwards it is neither running nor awaiting a
     // confirmation, and the late confirmation opens nothing.
     let known = Known::EVERYTHING;

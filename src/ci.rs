@@ -41,8 +41,8 @@
 //! so [`request`] writes cause 6 and the controlled station answers with cause 7
 //! and, for a collection, cause 10.
 //!
-//! **There is no deactivation in this procedure.** Clause 7.4.8 states it in
-//! terms (*"`C_CI` DEACT and DEACTCON are not used."*), so this module has no
+//! **There is no deactivation in this procedure.** Clause 7.4.8 says outright
+//! that `C_CI` DEACT and DEACTCON are not used, so this module has no
 //! deactivation builder, and a type-101 ASDU carrying cause 8 or 9 is
 //! [`Reaction::Other`]. The cause list above has both because it is the
 //! *type's*; the procedure's selection removes them.
@@ -62,8 +62,8 @@
 //!         <3> counter reset
 //! ```
 //!
-//! and the sentence that gates the whole procedure: *"The action specified by
-//! the FRZ code is applied only to the group specified by the RQT code."* The
+//! and the rule that gates the whole procedure: the `FRZ` action applies only
+//! to the group `RQT` names. The
 //! element itself is [`Qcc`] with [`FreezeMode`].
 //!
 //! [`Request`] is `RQT` as a type (`<5>` general, `<1>` … `<4>` group 1 … 4),
@@ -79,37 +79,35 @@
 //! exchange, which has the same shape as general interrogation's:
 //!
 //! - the controlling station sends `C_CI ACT` with cause 6;
-//! - the controlled station *"mirrors the counter interrogation command (ASDU
-//!   101) with COT=7, `C_CI_ACTCON`"*: the confirmation repeats the request's
-//!   own `RQT` **and** `FRZ`;
-//! - *"All Counter Information Objects that are part of the Counter
-//!   Interrogation for the requested RQT are sent with the corresponding COT
-//!   (37-41)"*: the objects are the application's own `M_IT` ASDUs, per
-//!   clause 7.4.8's *"Requested integrated totals are transmitted with cause of
-//!   transmission 37 to 41."*;
-//! - the controlled station *"sends the same Counter interrogation command it
-//!   received (ASDU 101) with COT = 10, `C_CI_ACTTERM`"*.
+//! - the controlled station mirrors the `C_CI` (ASDU 101) with cause 7,
+//!   `C_CI_ACTCON`: the confirmation repeats the request's own `RQT` **and**
+//!   `FRZ`;
+//! - every counter object belonging to the requested `RQT` is sent with its
+//!   cause, 37 to 41: the objects are the application's own `M_IT` ASDUs, and
+//!   clause 7.4.8 likewise sends requested integrated totals with causes 37
+//!   to 41;
+//! - the controlled station sends back the same `C_CI` it received (ASDU 101)
+//!   with cause 10, `C_CI_ACTTERM`.
 //!
 //! The `M_IT` family is **two** types in this companion standard, `M_IT_NA_1`
-//! (15) and `M_IT_TB_1` (37), and the clause prefers neither: Table 20 asks
-//! that *"The tests in this table are performed correctly by every `M_IT` ASDU in
-//! the PICS that supports COT 37-41"*, so which one a station sends is the
+//! (15) and `M_IT_TB_1` (37), and the clause prefers neither: Table 20 runs its
+//! tests for every `M_IT` ASDU the PICS lists with causes 37 to 41, so which one a station sends is the
 //! application's choice ([`COUNTER_TYPES`]; a data source offering anything
 //! else is a typed refusal). 5-101 clause 7.3.1 defines a third, `M_IT_TA_1`
 //! (16, with a three-octet `CP24Time2a` tag), but 5-104 clause 9 (PDF page
-//! index 100, printed 99) rules that set out: *"In this companion standard only
-//! the use of the set `<30>` – `<40>` for ASDUs with time tag is permitted."*
+//! index 100, printed 99) rules that set out: this companion standard permits
+//! only the set `<30>` to `<40>` for time-tagged ASDUs.
 //! [`TypeId::is_selected_104`] accordingly answers `false` for type 16.
 //!
 //! # A memorize is confirmed, not terminated
 //!
 //! The freeze/reset command is a **memorize** transaction and ends with its
 //! confirmation: 5-101 figure 95 draws `C_CI ACT` (`FRZ = <1>`) → `C_CI
-//! ACTCON` (`FRZ = <1>`) and then *"Continue with the collection of the frozen
-//! values as described in mode B"*, and Table 20's mode C procedure lists
+//! ACTCON` (`FRZ = <1>`) and then has the frozen values collected as in mode B,
+//! and Table 20's mode C procedure lists
 //! `C_CI_ACTTERM` only after the **collection**'s objects. Clause 7.4.8 says
-//! the same from the other side: *"This command does not cause the counter
-//! values to be transmitted."* So a request with `FRZ` other than
+//! the same from the other side: the freeze/reset command does not itself send
+//! the counter values. So a request with `FRZ` other than
 //! [`FreezeMode::Read`] is answered with the confirmation alone (no data, no
 //! termination), and only a `Read` request opens a collection that
 //! [`CounterInterrogation::interrogated`] and
@@ -129,27 +127,20 @@
 //! Mode D: Freeze by counter-interrogation command, frozen values reported
 //! ```
 //!
-//! The clause's own description of each:
+//! What the clause says of each, in summary:
 //!
-//! - **Mode A**: *"Local clocks in the controlled station initiate the freeze
-//!   or freeze with reset operations. The integrated totals (frozen values) are
-//!   transmitted spontaneously in `M_IT` ASDUs after the freeze or freeze with
-//!   reset operation has been performed. The controlling station does not issue
-//!   counter interrogation commands (`C_CI`)."*
-//! - **Mode B**: *"Local clocks in the controlled station initiate the freeze
-//!   or freeze with reset operations. The integrated totals (frozen values) are
-//!   requested by counter interrogation commands (`C_CI`). In this case, the
-//!   freeze or freeze with reset functionality must not be used in the counter
-//!   interrogation command (i.e. the command qualifier must contain FRZ = 0)."*
-//! - **Mode C**: *"counter interrogation commands from the controlling station
-//!   initiate the freeze, freeze with reset or reset commands. A subsequent
-//!   counter interrogation command is issued by the controlling station to
-//!   collect the frozen values from the controlled station."*
-//! - **Mode D**: *"counter interrogation commands from the controlling station
-//!   initiate the freeze operation, and the frozen values are reported
-//!   spontaneously. This mode is a combination of the counter command from the
-//!   controlling station as specified in mode C, with spontaneous reporting of
-//!   the integrated totals, as described in mode A."*
+//! - **Mode A**: the controlled station's local clocks trigger the freeze (or
+//!   freeze with reset); once it has happened, the frozen integrated totals go
+//!   out spontaneously in `M_IT` ASDUs. The controlling station sends no `C_CI`.
+//! - **Mode B**: the local clocks trigger the freeze (or freeze with reset) as
+//!   in mode A, but the frozen totals are collected with `C_CI` commands, which
+//!   must not freeze or reset themselves: their qualifier must carry `FRZ = 0`.
+//! - **Mode C**: `C_CI` commands from the controlling station trigger the
+//!   freeze, freeze with reset or reset, and a later `C_CI` from the
+//!   controlling station collects the frozen values.
+//! - **Mode D**: `C_CI` commands from the controlling station trigger the
+//!   freeze, and the frozen values are reported spontaneously: mode C's
+//!   command combined with mode A's spontaneous reporting.
 //!
 //! [`CounterMode`] is that selection as a type. It is the *station's* answer,
 //! so it is a parameter of both roles' instances, modelled rather than chosen,
@@ -383,8 +374,8 @@ pub enum CounterMode {
     /// `M_IT` ASDUs, and the controlling station issues no `C_CI` at all.
     LocalFreezeSpontaneous,
     /// Mode B: local freeze with counter interrogation. The freeze is local
-    /// and the frozen values are *requested*; the command qualifier *"must
-    /// contain FRZ = 0"*, so a freeze in a `C_CI` is refused.
+    /// and the frozen values are *requested*; the command qualifier must carry
+    /// `FRZ = 0`, so a freeze in a `C_CI` is refused.
     LocalFreezeByInterrogation,
     /// Mode C: freeze and transmit by counter-interrogation commands. A
     /// `C_CI` with `FRZ` 1 … 3 freezes or resets without transmitting, and a
@@ -397,18 +388,16 @@ pub enum CounterMode {
 
 impl CounterMode {
     /// Whether a counter interrogation command may be issued at all: false
-    /// only for mode A, whose *"controlling station does not issue counter
-    /// interrogation commands (`C_CI`)"*.
+    /// only for mode A, in which the controlling station sends no `C_CI`.
     #[must_use]
     pub const fn accepts_requests(self) -> bool {
         !matches!(self, Self::LocalFreezeSpontaneous)
     }
 
     /// Whether a `C_CI` may carry a `FRZ` other than [`FreezeMode::Read`]:
-    /// true only for modes C and D. Mode B's *"the freeze or freeze with reset
-    /// functionality must not be used in the counter interrogation command
-    /// (i.e. the command qualifier must contain FRZ = 0)"* is the clause's own
-    /// sentence for the false case.
+    /// true only for modes C and D. Mode B's rule, that its `C_CI` must not
+    /// freeze or reset and so carries `FRZ = 0`, is the clause's own statement
+    /// of the false case.
     #[must_use]
     pub const fn accepts_freeze(self) -> bool {
         matches!(self, Self::FreezeAndTransmit | Self::FreezeSpontaneous)
@@ -425,14 +414,11 @@ impl CounterMode {
     /// Whether a `FRZ = <0>` **collection** belongs to this mode: true only
     /// for modes B and C.
     ///
-    /// Mode A issues no `C_CI` at all, and mode D is *"a combination of the
-    /// counter command from the controlling station as specified in mode C,
-    /// with spontaneous reporting of the integrated totals, as described in
-    /// mode A"*: its command is `FRZ` 1…3 and its values arrive by themselves.
+    /// Mode A issues no `C_CI` at all, and mode D combines mode C's command
+    /// with mode A's spontaneous reporting of the totals: its command is `FRZ` 1…3 and its values arrive by themselves.
     /// TS 60870-5-604 Table 20's mode D procedure (test 5.4.20.30, PDF page
-    /// index 81, printed 80) draws exactly that (*"`C_CI_ACT`, FRZ=1..3 (freeze,
-    /// freeze with reset, reset)"* then *"`M_IT_SPONT`"* with *"COT = 3
-    /// (SPONT)"*) and has no collection and no `C_CI_ACTTERM`.
+    /// index 81, printed 80) draws exactly that (`C_CI_ACT` with `FRZ` 1 to 3,
+    /// then `M_IT_SPONT` with cause 3) and has no collection and no `C_CI_ACTTERM`.
     #[must_use]
     pub const fn accepts_collection(self) -> bool {
         matches!(
@@ -445,9 +431,9 @@ impl CounterMode {
 /// The controlled station's own counter data.
 ///
 /// Neither fact the procedure needs can be invented here: the *membership* of
-/// a counter group is project data (5-101 clause 7.4.8: *"The assignments of
-/// the information object addresses of the integrated totals to the specific
-/// groups have to be specified in the controlled station."*), and the
+/// a counter group is project data (5-101 clause 7.4.8: which integrated-total
+/// addresses belong to which group is configured in the controlled station),
+/// and the
 /// *geometry* of an `M_IT` ASDU is clause 7.3.1's (the layouts in
 /// [`crate::asdu`]). An implementation builds each ASDU through the layout
 /// layer with [`Request::cause`] as its cause of transmission and one of the
@@ -546,15 +532,13 @@ pub enum CiError {
     /// response-building methods are the controlled station's.
     WrongRole,
     /// The station's [`CounterMode`] does not issue counter interrogation
-    /// commands at all: mode A's *"The controlling station does not issue
-    /// counter interrogation commands (`C_CI`)."*
+    /// commands at all: in mode A the controlling station sends no `C_CI`.
     RequestsNotAccepted {
         /// The mode that refuses it.
         mode: CounterMode,
     },
     /// The [`CounterMode`] does not permit a `FRZ` other than
-    /// [`FreezeMode::Read`]: mode B's *"the command qualifier must contain
-    /// FRZ = 0"*.
+    /// [`FreezeMode::Read`]: mode B requires `FRZ = 0` in the qualifier.
     FreezeNotAllowed {
         /// The mode that refuses it.
         mode: CounterMode,
@@ -1101,7 +1085,7 @@ impl CounterInterrogation {
                 }
                 self.confirmation_outcome(request, freeze, false, &header)
             }
-            // Clause 7.4.8: "C_CI DEACT and DEACTCON are not used."
+            // Clause 7.4.8 does not use `C_CI` DEACT or DEACTCON.
             _ => Ok(other()),
         }
     }
@@ -1133,9 +1117,9 @@ impl CounterInterrogation {
     ///
     /// The frames are its data, if [`CounterInterrogation::interrogated`] has
     /// not produced it yet, then the termination (`C_CI ACTTERM`, cause 10),
-    /// mirroring the request it closes (5-101 clause 7.4.8 and Table 20's
-    /// *"The Controlled station sends the same Counter interrogation command it
-    /// received (ASDU 101) with COT = 10, `C_CI_ACTTERM`"*). The `FRZ` it carries
+    /// mirroring the request it closes (5-101 clause 7.4.8, and Table 20's step
+    /// in which the controlled station returns the received `C_CI` with cause
+    /// 10, `C_CI_ACTTERM`). The `FRZ` it carries
     /// is [`FreezeMode::Read`], the collection's own.
     ///
     /// The data always comes before the termination (5-101 clause 7.4.8 and

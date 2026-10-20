@@ -203,8 +203,8 @@ fn controlling_station_sends_startdt_act_and_waits() {
 
 #[test]
 fn controlling_station_may_send_commands_before_the_startdt_confirmation() {
-    // clause 5.3: "The controlling station may send commands or setpoints even
-    // if it has not yet received the activation confirmation."
+    // clause 5.3: the controlling station may send commands or setpoints before
+    // the activation confirmation arrives.
     let mut s = Session::new(Role::Controlling);
     s.on_connection_established();
     assert!(!s.user_data_allowed(), "stopped means no user data");
@@ -241,9 +241,9 @@ fn controlling_station_stops_cleanly_and_dirty() {
 
 #[test]
 fn controlling_station_sends_an_immediate_s_frame_while_pending_stopped() {
-    // clause 5.3: "The controlling station should also immediately send an
-    // S-frame upon receiving an I-frame while in the Pending STOPPED state or
-    // Pending UNCONFIRMED STOPPED state." The N(R) that frame carries comes
+    // clause 5.3: in the Pending STOPPED and Pending UNCONFIRMED STOPPED
+    // states, the controlling station should answer each received I-frame
+    // with an S-frame straight away. The N(R) that frame carries comes
     // from the sequence layer (`iec104::seq`).
     let mut s = Session::new(Role::Controlling);
     s.on_connection_established();
@@ -267,9 +267,8 @@ fn controlling_station_sends_an_immediate_s_frame_while_pending_stopped() {
 
 #[test]
 fn t1_expiry_closes_the_connection() {
-    // Control direction, and the case the prose calls out explicitly: "If the
-    // STARTDT is not confirmed, the connection is closed by the controlling
-    // station."
+    // Control direction, and the case the prose calls out explicitly: an
+    // unconfirmed STARTDT makes the controlling station close the connection.
     let mut s = Session::new(Role::Controlling);
     s.on_connection_established();
     s.request_start();
@@ -359,8 +358,8 @@ fn started_controlling(k: u16, w: u16) -> Session {
 
 #[test]
 fn a_fresh_session_reports_sequence_numbers_of_zero() {
-    // clause 5.1: "After the establishment of a TCP connection, the send and
-    // receive sequence numbers are set to zero."
+    // clause 5.1: both sequence numbers start at zero once the TCP connection
+    // is established.
     let mut s = Session::new(Role::Controlling);
     s.on_connection_established();
     assert_eq!(s.v_s().get(), 0);
@@ -411,8 +410,8 @@ fn no_user_data_before_startdt_and_none_while_the_window_is_full() {
 
 #[test]
 fn the_session_emits_an_s_frame_after_w_received_i_frames() {
-    // clause 5.5: "The receiver acknowledges at the latest after receiving w
-    // I format APDUs."
+    // clause 5.5: the receiver acknowledges no later than the w-th received
+    // I-format APDU.
     let mut s = started_controlling(12, 2);
     assert_eq!(
         s.on_frame(i(0, 0)),
@@ -435,8 +434,8 @@ fn the_session_emits_an_s_frame_after_w_received_i_frames() {
 
 #[test]
 fn a_t2_expiry_acknowledges_data_that_w_never_did() {
-    // clause 5.2: t2 is "the time-out for acknowledges in case of no data
-    // messages". Without it a single received frame would never be confirmed.
+    // clause 5.2: t2 is the acknowledgement time-out for when no data flows.
+    // Without it a single received frame would never be confirmed.
     let mut s = started_controlling(12, 8);
     assert!(!s.ack_pending());
     s.on_frame(i(0, 0));
@@ -451,11 +450,11 @@ fn a_t2_expiry_acknowledges_data_that_w_never_did() {
 
 #[test]
 fn a_t3_expiry_sends_a_test_frame() {
-    // clause 5.2: "Unused, but open, connections may be periodically tested in
-    // both directions by sending test APDUs (TESTFR = act) which are confirmed
-    // by the receiving station sending TESTFR = con. Both stations may initiate
-    // the test procedure after a specified period of time in which no data
-    // transfers occur (time out)." Figure 13 draws that expiry as
+    // clause 5.2: an open connection with no traffic may be tested now and
+    // then from either side with a test APDU (TESTFR act), which the receiver
+    // confirms with TESTFR con; either station may start the test once a set
+    // idle period without data transfer has run out (a time-out). Figure 13
+    // draws that expiry as
     // `Time-out t3` → `U (TESTFR act)`.
     let mut s = Session::new(Role::Controlled);
     s.on_connection_established();
@@ -490,8 +489,8 @@ fn a_wrong_ns_closes_the_connection() {
 
 #[test]
 fn an_acknowledgement_for_a_frame_we_never_sent_closes_the_connection() {
-    // clause 5.1 defines N(R) as the number "up to the number whose APDUs are
-    // properly received"; a number we never sent is a protocol error. The
+    // clause 5.1 has N(R) acknowledge up to the number whose APDUs arrived
+    // correctly; a number we never sent is a protocol error. The
     // standard does not name the reaction, so this closes the connection, the
     // same reaction figure 11 gives a bad N(S).
     let mut s = started_controlling(12, 8);
@@ -502,9 +501,9 @@ fn an_acknowledgement_for_a_frame_we_never_sent_closes_the_connection() {
 
 #[test]
 fn retransmission_replays_the_send_buffer_without_moving_the_counters() {
-    // clause 5.1: "The sending station holds the APDU or APDUs in a buffer until
-    // it receives back its own Send Sequence Number as a Receive Sequence
-    // Number". The buffer is the replay source; the standard's own reaction to
+    // clause 5.1: the sender keeps its APDUs buffered until its own send
+    // sequence number comes back to it as a receive sequence number. The
+    // buffer is the replay source; the standard's own reaction to
     // t1 (figure 12) is an active close, so replaying is a caller decision.
     let mut s = started_controlling(12, 8);
     s.send_i_frame(b"\x11").unwrap();
@@ -571,11 +570,10 @@ fn precedes(
 
 #[test]
 fn controlled_station_acknowledges_received_frames_before_stopdt_con() {
-    // clause 5.3 (figure 18's own footnote): "the controlled station should
-    // confirm all received messages before returning STOPDT con", and "If
-    // unconfirmed messages exist in the controlling station, the controlled
-    // station must confirm these messages by sending an S-frame before sending
-    // out the STOPDT con."
+    // clause 5.3 (figure 18's own footnote): the controlled station should
+    // confirm every received message before it returns the STOPDT con, and
+    // where messages from the controlling station are still unconfirmed it
+    // must confirm them with an S-frame before the STOPDT con goes out.
     let mut s = Session::new(Role::Controlled);
     s.on_connection_established();
     s.on_frame(u(UFunction::StartDtAct));
@@ -635,8 +633,8 @@ fn a_deferred_stopdt_con_also_acknowledges_received_frames_first() {
 
 #[test]
 fn controlling_station_acknowledges_received_frames_before_stopdt_act() {
-    // clause 5.3: "The controlling station should, however, confirm all received
-    // messages before sending STOPDT act."
+    // clause 5.3: the controlling station should still confirm every received
+    // message before it sends the STOPDT act.
     let mut s = started_controlling(12, 8);
     s.on_frame(i(0, 0));
     assert!(s.ack_pending());
@@ -661,8 +659,8 @@ fn controlled_station_closes_on_data_while_pending_unconfirmed_stopped() {
     // Figure 17 (controlled station): the `Pending UNCONFIRMED STOPPED
     // connection` box exits on "Timeout t1[]/Active close or I-frame[]/Active
     // close"; it has no I-frame self-loop. Only figure 18's controlling-station
-    // box does, which is what clause 5.3's "immediately send an S-frame upon
-    // receiving an I-frame" paragraph is about.
+    // box does, which is what clause 5.3's paragraph on answering an I-frame
+    // with an immediate S-frame is about.
     let mut s = Session::new(Role::Controlled);
     s.on_connection_established();
     s.on_frame(u(UFunction::StartDtAct));
@@ -769,9 +767,8 @@ fn started_session(role: Role) -> Session {
 
 #[test]
 fn a_test_act_is_answered_with_exactly_one_con_from_every_live_state() {
-    // clause 5.2: "Unused, but open, connections may be periodically tested in
-    // both directions by sending test APDUs (TESTFR = act) which are confirmed
-    // by the receiving station sending TESTFR = con." Every live state answers,
+    // clause 5.2: an idle open connection may be tested from either side with
+    // TESTFR act, which the receiver confirms with TESTFR con. Every live state answers,
     // and the answer is exactly one con; it is not a state transition.
     for (name, mut s) in every_live_state() {
         let before = s.state();
@@ -817,8 +814,8 @@ fn a_second_test_act_is_not_sent_while_one_is_outstanding() {
     assert_eq!(s.on_timeout(Timer::T3), vec![], "one at a time");
 
     // figure 13: the con ends the procedure, and the next idle interval may
-    // start a new one (clause 5.2: "after a specified period of time in which
-    // no data transfers occur (time out)").
+    // start a new one (clause 5.2: once a set idle period without data
+    // transfer has run out, a time-out).
     assert_eq!(s.on_frame(u(UFunction::TestFrCon)), vec![]);
     assert!(!s.test_pending());
     assert_eq!(sent_u(&s.on_timeout(Timer::T3)), Some(UFunction::TestFrAct));
@@ -867,16 +864,16 @@ fn a_new_connection_starts_with_no_test_in_flight() {
 // The controlled station's pending user-data queue and the figure-18
 // pending-state rules (clause 5.3).
 //
-// Clause 5.3: "Any pending user data in the controlled station is sent only
-// after the STARTDT con." That makes the session the owner of the queue (it is
+// Clause 5.3: the controlled station holds back pending user data until after
+// the STARTDT con. That makes the session the owner of the queue (it is
 // the only layer that knows when the con went out), and it is flushed against
 // the k window of clause 5.5, so what does not fit stays queued.
 // ---------------------------------------------------------------------------
 
 #[test]
 fn data_handed_over_before_startdt_waits_for_the_confirmation() {
-    // clause 5.3: "Any pending user data in the controlled station is sent only
-    // after the STARTDT con." The frame, not just its transmission, belongs to
+    // clause 5.3: the controlled station holds back pending user data until
+    // after the STARTDT con. The frame, not just its transmission, belongs to
     // the session: the sequence number is stamped when the con goes out.
     let mut s = session_with(Role::Controlled, 12, 8);
     s.on_connection_established();
@@ -911,8 +908,8 @@ fn nothing_is_emitted_while_data_transfer_is_stopped() {
 
 #[test]
 fn a_queue_beyond_the_k_window_keeps_the_surplus_until_an_acknowledgement() {
-    // clause 5.5: "The transmitter stops the transmission at k unacknowledged
-    // I format APDUs". The limit applies at flush time too, so the surplus
+    // clause 5.5: the sender stops sending once k I-format APDUs are
+    // unacknowledged. The limit applies at flush time too, so the surplus
     // stays queued and goes out when the N(R) of clause 5.1 releases a slot.
     let mut s = session_with(Role::Controlled, 2, 8);
     s.on_connection_established();
@@ -953,8 +950,8 @@ fn a_connection_that_is_never_started_refuses_data_beyond_the_limit() {
 
 #[test]
 fn the_queue_is_dropped_when_the_connection_goes_away() {
-    // clause 5.1: "After the establishment of a TCP connection, the send and
-    // receive sequence numbers are set to zero." A frame queued under the old
+    // clause 5.1: both sequence numbers start at zero once the TCP connection
+    // is established. A frame queued under the old
     // connection belongs to that connection, so it is not carried over: the
     // application re-supplies its data on the new one.
     let mut s = session_with(Role::Controlled, 12, 8);
@@ -994,8 +991,8 @@ fn the_queue_survives_a_stop_and_goes_out_on_the_next_start() {
 
 #[test]
 fn a_controlling_station_releases_its_queue_when_it_starts_the_transfer() {
-    // clause 5.3: "The controlling station may send commands or setpoints even
-    // if it has not yet received the activation confirmation", so its own queue
+    // clause 5.3: the controlling station may send commands or setpoints before
+    // the activation confirmation arrives, so its own queue
     // is released by the act it sends, not by the con it waits for.
     let mut s = Session::new(Role::Controlling);
     s.on_connection_established();
@@ -1166,8 +1163,8 @@ fn a_framing_condition_is_not_a_connection_error() {
 
 #[test]
 fn an_octet_where_the_start_octet_belongs_closes_the_connection() {
-    // Clause 5: "START 68H defines the point of start within the data
-    // stream." TCP neither loses, corrupts nor reorders octets, so an octet
+    // Clause 5: `68H` marks where a frame starts in the stream. TCP neither
+    // loses, corrupts nor reorders octets, so an octet
     // other than 68H where a frame must start means the peer is not speaking
     // clause 5 (a scanner, an HTTP request, a broken stack), and skipping to
     // the next 68H would read whatever the peer sent next as a frame. The
@@ -1257,9 +1254,9 @@ fn a_malformed_control_field_closes_from_every_live_state() {
 
 #[test]
 fn an_s_frame_precedes_the_active_close_when_frames_are_unconfirmed() {
-    // Figures 10/11 NOTE, printed page 31: "To avoid retransmission of APDU's
-    // that have already been accepted, an S-frame should, if possible, be sent
-    // prior to the active close." Figure 11 draws exactly that frame,
+    // Figures 10/11 NOTE, printed page 31: where it can, a station should send
+    // an S-frame before the active close, so that APDUs already accepted are
+    // not sent again. Figure 11 draws exactly that frame,
     // `S(1) (optional)`, immediately before `Active close`.
     let mut s = started_controlling(12, 8);
     s.on_frame(i(0, 0));
@@ -1375,8 +1372,8 @@ fn a_piggybacked_acknowledgement_needs_no_s_frame_before_the_close() {
     // I-frame carries N(R) = V(R), so it acks too"
     // (`Sequence::buffer_i_frame`). Once an I-frame of ours has carried N(R) = 1,
     // the peer has been told about the `I(0,0)` it would otherwise retransmit,
-    // so the NOTE's purpose ("To avoid retransmission of APDU's that have
-    // already been accepted") is already served and "if possible" is false.
+    // so the NOTE's purpose (sparing the peer a retransmission of what was
+    // already accepted) is already served and its "where it can" does not apply.
     let mut s = started_controlling(12, 8);
     s.on_frame(i(0, 0));
     assert!(s.ack_pending());
@@ -1448,13 +1445,12 @@ fn a_session_is_connected_only_between_establishment_and_loss() {
 fn a_controlling_station_confirms_a_received_stopdt_act_once_its_frames_are_acknowledged() {
     // The `src/link.rs` module doc records the choice for a STOPDT act that
     // reaches a controlling station: the machine acts on the function's
-    // defined effect. Clause 5.3 defines it: the receiver "stops the user data
-    // transfer via this connection and returns a STOPDT con", and "If
-    // unconfirmed messages exist in the controlled station, the controlled
-    // station must wait for an incoming S-frame confirming these messages
-    // before sending out the STOPDT con." The sender supervises its act with t1
-    // (figures 17/18 NOTE 2: "t1 is the timeout of a sent U-frame or
-    // I-frame"), so a con that never comes ends the connection. Once the
+    // defined effect. Clause 5.3 defines it: the receiver ends user data
+    // transfer on this connection and answers with a STOPDT con, and where the
+    // controlled station still has unconfirmed messages, it waits for an
+    // S-frame confirming them before the STOPDT con goes out. The sender
+    // supervises its act with t1 (figures 17/18 NOTE 2: the time-out of a sent
+    // U-frame or I-frame), so a con that never comes ends the connection. Once the
     // receiver's own frames are acknowledged, the con goes out, as figure 17's
     // `S-frame [no unconfirmed I-frames] /Send STOPDT con` exit sends it.
     let mut s = started_controlling(12, 8);

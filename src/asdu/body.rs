@@ -23,25 +23,21 @@
 //!
 //! Sources: IEC 60870-5-101:2003 clause
 //! 7.2.2 / figure 12: `number = N := UI7[1..7]<0..127>`, `<0> := ASDU contains
-//! no INFORMATION OBJECT`. Clause 7.2.2.1: "SQ = 0: Each SINGLE INFORMATION
-//! ELEMENT or a COMBINATION OF INFORMATION ELEMENTs is addressed by the
-//! INFORMATION OBJECT ADDRESS … The number N is binary coded and defines the
-//! number of the INFORMATION OBJECTs." / "SQ = 1: … The INFORMATION OBJECT
-//! ADDRESS specifies the associated address of the first SINGLE INFORMATION
-//! ELEMENT/COMBINATION OF INFORMATION ELEMENTs of the sequence. The following
-//! SINGLE INFORMATION ELEMENTs/COMBINATIONS OF INFORMATION ELEMENTs are
-//! identified by numbers incrementing continuously by +1 from this offset. …
-//! In case of a sequence … only one INFORMATION OBJECT per ASDU is
-//! allocated." Clause 7.2.5 / figure 21: `INFORMATION OBJECT ADDRESS :=
-//! UI24[1..24]<0..16777215>`, `<0> := INFORMATION OBJECT ADDRESS is
-//! irrelevant`, "ASDUs with undefined values of INFORMATION OBJECT ADDRESS are
-//! discarded by controlling stations", and "If the INFORMATION OBJECT ADDRESS
-//! is not relevant (not used) in some ASDUs, it is set to zero."
+//! no INFORMATION OBJECT`. Clause 7.2.2.1: with SQ = 0 every information
+//! element (or combination of elements) has its own information object
+//! address, and N, binary coded, counts the information objects; with SQ = 1
+//! the address belongs to the first element of the sequence, the following
+//! elements are numbered on from it in steps of +1, and the ASDU holds a
+//! single information object. Clause 7.2.5 / figure 21: `INFORMATION OBJECT
+//! ADDRESS := UI24[1..24]<0..16777215>`, `<0>` meaning the address is
+//! irrelevant; controlling stations discard ASDUs whose information object
+//! address is undefined, and an ASDU that does not use the address sets it to
+//! zero.
 //!
-//! Address sizes: the IOA width is a *"parameter which is fixed per system"*
+//! Address sizes: the IOA width is a parameter fixed for the whole system
 //! (5-101 cl.7.2.5, index 43). The interoperability sheet of 5-104 cl.9.5
 //! (index 98) marks *"Three octets"* but lists *"One octet"* and *"Two
-//! octets"* beside it as *"system-specific parameter"*, so the width is
+//! octets"* beside it as a system-specific parameter, so the width is
 //! carried by [`AddressSizes`] and the cursor is told which profile it walks
 //! ([`BodyReader::with_sizes`]).
 //! [`BodyReader::new`] and [`encode_body`] are the conventional profile's
@@ -63,8 +59,8 @@ pub const MAX_IOA: u32 = 0x00FF_FFFF;
 pub const IOA_IRRELEVANT: u32 = 0;
 
 /// Largest object area that fits under the conventional profile's 6-octet
-/// header in a 249-octet ASDU (5-104 clause 5: "The maximum length of the ASDU
-/// is limited to 249").
+/// header in a 249-octet ASDU (5-104 clause 5: an ASDU is at most 249
+/// octets).
 ///
 /// Only [`AddressSizes::CONVENTIONAL`]'s budget: a profile with a narrower
 /// header leaves more room, so the writer's budget is
@@ -95,7 +91,7 @@ pub struct BodyReader<'a> {
     header: Header,
     object_area: &'a [u8],
     /// The address profile whose IOA width this cursor reads (5-101 cl.7.2.5:
-    /// *"a parameter which is fixed per system"*).
+    /// a parameter fixed for the whole system).
     sizes: AddressSizes,
     /// Octets of `object_area` already consumed.
     pos: usize,

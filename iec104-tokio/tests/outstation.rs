@@ -28,8 +28,8 @@ fn driver(members: usize) -> (Handle, Events) {
 
 /// Clause 5.3: the controlled station answers STARTDT act with STARTDT con,
 /// and sends user data only once started. Before that, 10.4 has no started
-/// connection to carry it (*"no user data is transmitted from the controlled
-/// station until started state on one connection is established"*).
+/// connection to carry it (the controlled station sends no user data until
+/// one connection has reached the started state).
 #[tokio::test(start_paused = true)]
 async fn clause_5_3_startdt_act_is_confirmed_and_data_follows() {
     let (handle, mut events) = driver(1);
@@ -54,8 +54,8 @@ async fn clause_5_3_startdt_act_is_confirmed_and_data_follows() {
 }
 
 /// The master's request reaches the application, and the w-th I-frame is
-/// acknowledged at once (clause 5.5: *"The receiver acknowledges at the latest
-/// after receiving w I format APDUs"*, w = 8).
+/// acknowledged at once (clause 5.5: the receiver acknowledges no later than
+/// the w-th I-format APDU it receives, w = 8).
 #[tokio::test(start_paused = true)]
 async fn clause_5_5_the_wth_i_frame_is_acknowledged_at_once() {
     let (handle, mut events) = driver(1);
@@ -79,8 +79,8 @@ async fn clause_5_5_the_wth_i_frame_is_acknowledged_at_once() {
 }
 
 /// 10.2 rule 4 and 10.7: the connection the master last sent STARTDT act on
-/// is the started one, and *"Any connection that is not in the STOPPED state
-/// is immediately closed at the event of a Start on a new connection."*
+/// is the started one, and a start on a new connection closes at once every
+/// connection not in the STOPPED state.
 #[tokio::test(start_paused = true)]
 async fn clause_10_7_a_start_on_a_second_connection_closes_the_first() {
     let (handle, mut events) = driver(2);
@@ -168,9 +168,9 @@ async fn serve_answers_a_tcp_master() {
     handle.shutdown().await;
 }
 
-/// 10.2 rule 7: *"If more than one controlling station need to access the same
-/// controlled station simultaneously, each controlling station must be
-/// assigned to a different redundancy group"*. `serve_routed` gives each
+/// 10.2 rule 7: when several controlling stations need the same controlled
+/// station at the same time, each must have a redundancy group of its own.
+/// `serve_routed` gives each
 /// master its own driver, so the second master's STARTDT act starts its own
 /// connection and leaves the first one's alone (10.7 applies within a group).
 #[tokio::test]
@@ -296,9 +296,9 @@ async fn clause_10_7_a_displaced_started_connection_is_reported() {
     assert_eq!(peer1.frame().await.unwrap(), i_frame(0, 0, &MEASURAND));
 }
 
-/// 10.5 (index 128): *"The controlled station shall only acknowledge user
-/// data received on the connection on which it last received a
-/// `STARTDT_ACT`"*. An I-frame on the other connection is refused: it is not
+/// 10.5 (index 128): the controlled station acknowledges user data only on
+/// the connection where its most recent `STARTDT_ACT` arrived. An I-frame on
+/// the other connection is refused: it is not
 /// delivered and not acknowledged, the connection stays up, and the
 /// application is told.
 #[tokio::test(start_paused = true)]

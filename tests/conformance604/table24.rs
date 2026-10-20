@@ -1,7 +1,7 @@
 //! 604 Table 24, *"Additional conformance test procedures"*, PDF page index 87
 //! (printed 86), procedures `5.4.24.1`, `.10`, `.20` and `.30`.
 //!
-//! Each case quotes the rows it drives verbatim with their `Reference` and
+//! Each case paraphrases the rows it drives, with their `Reference` and
 //! `Required` columns.
 //!
 //! # The station under test
@@ -23,16 +23,16 @@
 //!
 //! `5.4.24.1` is driven in both roles. `5.4.24.10`'s first row is the
 //! controlled station's cause-44 mirror, which §5.1 excepts from the swap
-//! (*"except for COT44-47 which are only defined in Monitor direction (only a
-//! controlled station is allowed to send these COT)"*), so its reverse is not
+//! (causes 44 to 47 exist only in the monitor direction: only a controlled
+//! station may send them), so its reverse is not
 //! driven; its second row is the controlling station's detection of that
 //! mirror, driven as written.
 //!
 //! # Rows with no case here, and why
 //!
 //! - **`5.4.24.1`, the two rows on *"main voltage supply interruptions"***
-//!   (`Required` `M`): *"System is able to start automatically without any
-//!   manual assistance"*. Not automatable here: a supply interruption is a
+//!   (`Required` `M`): the system starts up again by itself, with no manual
+//!   help. Not automatable here: a supply interruption is a
 //!   property of the device and its power-up sequence, and a sans-IO library
 //!   has no process to restart. What a restarted application does next is
 //!   Table 12's `5.4.12.1` and `5.4.12.10`, which are driven.
@@ -40,14 +40,14 @@
 //!   then only detected by t1 or t3, which is `5.4.12.30`'s case (Table 12).
 //!   The cases below disconnect at the TCP level, which the caller's socket
 //!   reports at once.
-//! - **`5.4.24.10`'s *"(optionally) shows this on an HMI or a test tool"***:
+//! - **`5.4.24.10`'s optional display on an HMI or a test tool**:
 //!   the display is the application's; the crate's part is the detection, which
 //!   is asserted.
 //! - **`5.4.24.20` Time invalid** (`Reference` `IEC 60870-5-104:2006, 7.6`,
-//!   `Required` `PIXIT`): *"After receipt of an ASDU with time stamp marked
-//!   invalid (IV=1) the controlling station immediately initiates a Clock
-//!   synchronisation procedure (if supported) after the Clock synchronisation
-//!   procedure has been completed as part of the Initialisation procedure"*.
+//!   `Required` `PIXIT`): once the clock synchronisation that is part of
+//!   initialisation has completed, a controlling station that receives an
+//!   ASDU whose time stamp is marked invalid (`IV = 1`) starts a clock
+//!   synchronisation procedure at once, if it supports one.
 //!   Not applicable to this crate as a library rule: no module of `src/`
 //!   decides to synchronise on a received `IV = 1`. `src/cs.rs` states the
 //!   division, *"setting `IV`, running the re-sync interval and choosing between
@@ -107,17 +107,11 @@ fn feed(
 /// The rows of **`5.4.24.1`** the two cases below drive, PDF page index 87
 /// (printed 86), each `Required` `M`:
 ///
-/// > Behaviour on disconnection of the physical communication to the Controlled
-/// > system. System is able to connect automatically without any manual
-/// > assistance
-///
-/// > Behaviour on disconnection of the physical communication to the Controlling
-/// > system. System is able to connect automatically without any manual
-/// > assistance
-///
-/// > These tests are performed correctly in the situation when there is no
-/// > active Basic application function and when there is an active Basic
-/// > application function (for example a running General Interrogation).
+/// - after the physical link to the controlled system is lost, the system
+///   reconnects by itself, with no manual help;
+/// - the same after the link to the controlling system is lost;
+/// - both tests are run with no basic application function active and with
+///   one active (a general interrogation in progress, for example).
 ///
 /// (the last with `Reference` `IEC 60870-5-104:2006, 5.3`). Each case runs
 /// twice: with no procedure running when the connection is lost, and with a
@@ -127,8 +121,8 @@ const BAF_STATES: [bool; 2] = [false, true];
 /// **`5.4.24.1`** (rows above), DUT: the **controlling** station, a
 /// `ConnectionManager` of one station. The mock controlled station drops the
 /// TCP connection; the manager asks for a new one on its own (clause 10.5,
-/// index 128: *"reopening is regularly retried by the controlling station
-/// until the error has been corrected and the connection is re-established"*),
+/// index 128: the controlling station keeps retrying to reopen the connection
+/// at regular intervals until the fault is cleared and it is up again),
 /// the start is repeated (clause 5.3: a new connection is Stopped) and a new
 /// station interrogation goes out, the old one dropped with
 /// `gi::Interrogation::reset` as its doc prescribes for a connection loss.
@@ -217,8 +211,8 @@ fn clause_5_4_24_1_the_controlling_station_reconnects_by_itself() {
         assert_eq!(
             reasons,
             vec![ConnectReason::FirstAttempt, ConnectReason::ConnectionLost],
-            "5.4.24.1 (BAF active: {active}): \"able to connect automatically without any \
-             manual assistance\""
+            "5.4.24.1 (BAF active: {active}): reconnects by itself, with no \
+             manual help"
         );
     }
 }
@@ -226,7 +220,7 @@ fn clause_5_4_24_1_the_controlling_station_reconnects_by_itself() {
 /// **`5.4.24.1`** (rows above), DUT: the **controlled** station, a
 /// `ConnectionManager` of one station in `Role::Controlled` with
 /// `gi::Interrogation`. Clause 7.1 makes the controlled station the listener
-/// (*"the controlled station to the server (listener)"*, index 54), so it
+/// (index 54: the controlled station is the server, which listens), so it
 /// never dials (`tick` asks for nothing) and its automatic reconnection is
 /// taking the controlling station's next connection: a new STARTDT is answered
 /// and a new station interrogation runs to its termination. With the BAF
@@ -312,9 +306,9 @@ fn reset_process() -> Vec<u8> {
 }
 
 /// Clause 7.2.3's cause-44 mirror of `request`, written out: the same octets
-/// with the cause octet's cause `44` and `P/N = 1` (index 38: *"mirrored by the
-/// controlled station with bit “P/N := <1> negative confirm”"*, the table's
-/// `type identification | 44`).
+/// with the cause octet's cause `44` and `P/N = 1` (index 38: the controlled
+/// station mirrors the ASDU with `P/N := <1>`, negative confirmation, and the
+/// table pairs an unknown type identification with cause 44).
 fn mirror_44(request: &[u8]) -> Vec<u8> {
     let mut mirror = request.to_vec();
     mirror[COT_OCTET] = 0x2C | PN_BIT;
@@ -325,12 +319,13 @@ fn mirror_44(request: &[u8]) -> Vec<u8> {
 /// *"Miscellaneous"*, first row, `Reference` `IEC 60870-5-101:2003, 7.2.3`,
 /// `Required` `M`:
 ///
-/// > The controlled station responds with P/N=1negative (with COT = 44, if
-/// > supported) if a BAF is not implemented or used
+/// when a basic application function is not implemented or not in use, the
+/// controlled station answers negatively, `P/N = 1`, with cause 44 if it
+/// supports it;
 ///
 /// DUT: the **controlled** station, [`ProcedureApp`] routing through
-/// `dispatch::route`. Two samples, one for each half of *"not implemented or
-/// used"*: `C_RP_NA_1` (reset process), which the crate does not implement
+/// `dispatch::route`. Two samples, one for each half of "not implemented or
+/// not in use": `C_RP_NA_1` (reset process), which the crate does not implement
 /// (`dispatch::Route::NotImplemented`, answered by
 /// `dispatch::not_implemented`), and `C_TS_TA_1` at a station whose 104
 /// clause 9.6 *"Test procedure"* box is not marked (`ts::Selection::NONE`,
@@ -361,7 +356,7 @@ fn clause_5_4_24_10_the_controlled_station_mirrors_an_unserved_baf_with_cause_44
         assert_eq!(
             answer,
             mirror_44(request),
-            "5.4.24.10 ({what}): \"responds with P/N=1negative (with COT = 44, if supported)\""
+            "5.4.24.10 ({what}): answered negatively, P/N = 1, with cause 44 if supported"
         );
     }
     peer.close().unwrap();
@@ -372,8 +367,8 @@ fn clause_5_4_24_10_the_controlled_station_mirrors_an_unserved_baf_with_cause_44
 /// 604 Table 24, PDF page index 87 (printed 86), procedure **`5.4.24.10`**,
 /// second row, `Reference` `IEC 60870-5-101:2003, 7.2.3`, `Required` `M`:
 ///
-/// > The controlling station detects the receipt of a P/N=1 negative and
-/// > (optionally) shows this on an HMI or a test tool
+/// the controlling station detects a received negative confirmation
+/// (`P/N = 1`), and may show it on an HMI or a test tool;
 ///
 /// DUT: the **controlling** station, `interop::Station` with the
 /// `on_response` of `ts::TestProcedure` and `gi::Interrogation`. The mock

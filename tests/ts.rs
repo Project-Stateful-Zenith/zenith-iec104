@@ -54,8 +54,8 @@ fn worked() -> Cp56Time2a {
     }
 }
 
-/// A chosen test sequence counter (104 cl.8.8: *"The requesting station may
-/// choose any value of TSC"*).
+/// A chosen test sequence counter (104 cl.8.8 leaves the TSC value to the
+/// requesting station).
 const fn tsc() -> Tsc {
     Tsc::from_raw(7)
 }
@@ -281,9 +281,9 @@ fn the_two_types_are_104_and_107_with_two_and_nine_octet_elements() {
     assert!(TypeId::CTsNa1.is_confirmed() && TypeId::CTsTa1.is_confirmed());
 }
 
-/// 104 Table 2's NOTE (index 52): *"ASDUs marked CON in the control direction …
-/// may be mirrored in the monitor direction with different causes of
-/// transmission."* The confirmation is therefore the same octets with the cause
+/// 104 Table 2's NOTE (index 52): an ASDU marked CON in the control direction
+/// may come back mirrored in the monitor direction, its cause of transmission
+/// changed. The confirmation is therefore the same octets with the cause
 /// octet moved to 7 and **nothing else changed** (5-101 Table 11 / 104 Table 4's
 /// `CON` mark).
 #[test]
@@ -359,10 +359,10 @@ fn the_tagged_confirmation_is_the_eighteen_octets_byte_for_byte() {
     );
 }
 
-/// The echo the clause states: *"The TSC in the response shall match the
-/// request, and the time in the response shall also exactly match the time in
-/// the request"*, and TS 60870-5-604 Table 22's *"Mismatching values of TSC are
-/// detected by the Primary station"* (`5.4.22.1`, index 83, required `M`). A
+/// The echo the clause states: the response shall carry the request's TSC and
+/// exactly the request's time, and TS 60870-5-604 Table 22 has the primary
+/// station detect a TSC that does not match (`5.4.22.1`, index 83, required
+/// `M`). A
 /// mismatch is the typed error [`TsError::EchoMismatch`], never an
 /// [`Reaction::Answered`].
 #[test]
@@ -471,10 +471,10 @@ fn a_fixed_pattern_that_is_not_55aa_is_a_layout_error() {
 
 #[test]
 fn the_confirmation_echoes_the_originator_address_and_the_test_bit() {
-    // 5-101 cl.7.2.3 (index 38): *"the information source should set the
-    // originator address of the ASDUs in the command direction, and the
-    // controlled station should echo this originator address in the response in
-    // the monitor direction."* The station's own originator is 0 here and the
+    // 5-101 cl.7.2.3 (index 38): the source of a command-direction ASDU should
+    // put its originator address in it, and the controlled station should
+    // return that same originator address in its monitor-direction response.
+    // The station's own originator is 0 here and the
     // request's is 42, so the two cannot be confused.
     let controlled = TestProcedure::controlled(Selection::TAGGED, CA, 0);
     let activating = handmade_tagged(Cause::Activation, tsc(), worked(), CA, false, true, 42);
@@ -556,9 +556,9 @@ fn a_broadcast_test_command_is_refused_by_the_builders() {
 
 #[test]
 fn a_broadcast_command_that_arrives_is_mirrored_with_cause_46() {
-    // 5-101 cl.7.2.4 and TS 60870-5-604 5.4.10.10: *"The Controlled station
-    // rejects all other ASDU Types with a Broadcast CASDU value by mirroring the
-    // ASDU with P/N = 1 negative (and with COT = 46, if supported)"*. The reply
+    // 5-101 cl.7.2.4 and TS 60870-5-604 5.4.10.10: the controlled station
+    // refuses any other type carrying the broadcast CASDU by mirroring it with
+    // P/N = 1, negative (and with COT = 46 where supported). The reply
     // carries the station's own address, whatever the caller's `Known` says.
     let controlled = TestProcedure::controlled(Selection::TAGGED, CA, 0);
     let broadcast = {
@@ -599,8 +599,8 @@ fn a_broadcast_command_that_arrives_is_mirrored_with_cause_46() {
 }
 
 /// A test command's information object address **is** zero (figure 76's
-/// `INFORMATION OBJECT ADDRESS = 0`, 5-101 cl.7.2.5: *"If the INFORMATION OBJECT
-/// ADDRESS is not relevant (not used) in some ASDUs, it is set to zero"*). The
+/// `INFORMATION OBJECT ADDRESS = 0`, 5-101 cl.7.2.5: an ASDU for which the
+/// address has no relevance (is unused) carries zero there). The
 /// read procedure's `<0>` refusal is the opposite rule and must not be copied
 /// here.
 #[test]
@@ -1027,8 +1027,8 @@ fn the_station_selection_gates_the_builders_and_the_reception() {
 }
 
 /// 104 Table 4 (index 52) carries `CON <107>` and no `<104>` row, and the
-/// clause-9 matrix (index 106) marks the untagged row *"option not
-/// permitted in this companion standard"*; 5-101 Table 11 (index 33) marks
+/// clause-9 matrix (index 106) marks the untagged row as an option this
+/// companion standard does not permit; 5-101 Table 11 (index 33) marks
 /// `CON <104>` and reserves `<107..109>`. So the form is a value, and the other
 /// form is refused.
 #[test]
@@ -1245,8 +1245,8 @@ fn the_scripted_exchange_of_5_4_22_1() {
     let controlling = TestProcedure::controlling(Selection::TAGGED, CA, 0);
     let controlled = TestProcedure::controlled(Selection::TAGGED, CA, 0);
 
-    // "The Primary station sends a Test command (ASDU 107) with COT = 6,
-    // C_TS_ACT ... The Primary station may choose any value of TSC".
+    // The primary station sends a test command (ASDU 107) with COT = 6,
+    // `C_TS_ACT`, with a TSC of its own choosing.
     let command = controlling
         .request(tagged_value())
         .expect("the activating role");
@@ -1258,10 +1258,9 @@ fn the_scripted_exchange_of_5_4_22_1() {
         ]
     );
 
-    // "The Secondary station sends the same Test command (ASDU 107) with COT =
-    // 7, C_TS_ACTCON ... The TSC in the response shall match the request, and
-    // the time in the response shall also exactly match the time in the
-    // request."
+    // The secondary station returns the same test command (ASDU 107) with
+    // COT = 7, `C_TS_ACTCON`, carrying the request's TSC and exactly the
+    // request's time.
     let outcome = controlled
         .on_request(&command, &Known::EVERYTHING)
         .expect("a request is this procedure's");
@@ -1285,7 +1284,7 @@ fn the_scripted_exchange_of_5_4_22_1() {
         ]
     );
 
-    // "Mismatching values of TSC are detected by the Primary station."
+    // The primary station detects a TSC that does not match.
     let answered = controlling
         .on_response(&confirmation, &Known::EVERYTHING, tagged_value())
         .expect("the echo matches");
@@ -1367,10 +1366,10 @@ fn the_procedure_owns_exactly_the_two_test_types() {
 
 // ---------------------------- negative confirmations, mirrors and the gates
 
-/// 5-101 cl.7.2.3 (index 38): *"The P/N-bit indicates the positive or negative
-/// confirmation of activation requested by the primary application function"*;
-/// 104 Table 2's NOTE (index 52) names the mirrored ASDUs the *"positive/negative
-/// acknowledgements (verifications)"*. A negative `ACTCON` carries the same
+/// 5-101 cl.7.2.3 (index 38): the P/N bit says whether the confirmation of an
+/// activation the primary application function asked for is positive or
+/// negative; 104 Table 2's NOTE (index 52) calls the mirrored ASDUs
+/// positive/negative acknowledgements. A negative `ACTCON` carries the same
 /// element as the positive one and differs only in that bit, so the outcome has
 /// to carry the bit: a negative confirmation must never come back as the
 /// positive one.
@@ -1475,8 +1474,8 @@ fn every_short_prefix_of_a_mirror_is_a_typed_error_on_response() {
 }
 
 /// The answer is the received frame **mirrored**, not re-encoded. 104 Table 2's
-/// NOTE (index 52): the `CON` ASDU is mirrored "with different causes of
-/// transmission", and nothing else changes. A test command's information object
+/// NOTE (index 52): the `CON` ASDU is mirrored with its cause of transmission
+/// changed, and nothing else changes. A test command's information object
 /// address is `<0>` by definition (figure 76's field row), but the field belongs
 /// to the received frame and must come back as it arrived.
 #[test]

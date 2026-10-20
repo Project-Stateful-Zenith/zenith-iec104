@@ -19,18 +19,17 @@
 //!
 //! Those widths are a system parameter, not fixed by a clause: 5-101
 //! cl.7.2.4 (index 42) and cl.7.2.5 (index 43) call the CA's and the IOA's
-//! length *"a parameter which is fixed per system"*, and 104 cl.9.5 (index 98)
+//! length a parameter fixed for the whole system, and 104 cl.9.5 (index 98)
 //! lists the cause of transmission (*"One octet"* / *"Two octets (with
-//! originator address). Originator address is set to zero if not used"*), the
+//! originator address)"*, an unused originator address being zero), the
 //! common address (*"One octet"* / *"Two octets"*) and the information object
-//! address as *"system-specific parameter"*. [`AddressSizes`] carries the three
+//! address as system-specific parameters. [`AddressSizes`] carries the three
 //! choices; the conventional profile is its default and is what the plain
 //! names (`Header::parse`, `Header::encode`, ...) use, while the `_with`
 //! variants take the profile as an argument. Two values on that page **are**
 //! fixed and not configurable here: the 253-octet APDU length and the
-//! application-data transmission mode (*"Mode 1 (Least significant octet
-//! first), as defined in 4.10 of IEC 60870-5-4, is used exclusively in this
-//! companion standard."*).
+//! application-data transmission mode (this companion standard uses only
+//! mode 1, least significant octet first, of IEC 60870-5-4 clause 4.10).
 //!
 //! Sources:
 //!
@@ -349,7 +348,7 @@ impl Header {
     /// `sizes.common_address_octets` octets little-endian (5-101 cl.7.2.3
     /// index 37/38, cl.7.2.4 index 42; 104 cl.9.5 index 98). A profile without
     /// the originator octet reports [`Header::originator`] as `0` (104 cl.9.5:
-    /// *"Originator address is set to zero if not used"*).
+    /// an unused originator address is zero).
     ///
     /// Reads exactly [`AddressSizes::header_len`] octets: a shorter buffer is
     /// [`AsduError::TooShort`]. The parser never reads past the configured
@@ -492,16 +491,15 @@ pub(crate) fn with_origin(
 ///
 /// 5-101 cl.7.2.3 (index 38) defines the originator address as `UI8[9..16]`
 /// inside the cause field, and figure 14 labels it *"Originator address
-/// optional per system"*; cl.7.2.4 (index 42) and cl.7.2.5 (index 43) call the
-/// common address's and the information object address's length *"a parameter
-/// which is fixed per system"*. 104 cl.9.5 (index 98) lists all of them as
-/// *"system-specific parameter"*: cause *"One octet"* / *"Two octets (with
+/// optional per system"*; cl.7.2.4 (index 42) and cl.7.2.5 (index 43) make the
+/// common address's and the information object address's length a parameter
+/// fixed for the whole system. 104 cl.9.5 (index 98) lists all of them as
+/// system-specific parameters: cause *"One octet"* / *"Two octets (with
 /// originator address)"*, common address *"One octet"* / *"Two octets"*,
 /// information object address *"One octet"* / *"Structured"* + *"Two octets"*
 /// / *"Unstructured"* + *"Three octets"* (the two words are the sheet's names
-/// for those forms; this type models the three widths). The APDU length
-/// (*"The maximum length of APDU for both directions is 253. It is a fixed
-/// system parameter."*) and the transmission mode are fixed on that page and
+/// for those forms; this type models the three widths). The APDU length (at
+/// most 253 in either direction, a fixed system parameter) and the transmission mode are fixed on that page and
 /// are **not** configurable here.
 ///
 /// [`AddressSizes::CONVENTIONAL`] (originator present, CA two octets, IOA
@@ -631,8 +629,7 @@ impl AddressSizes {
     }
 
     /// Largest object area that fits under this profile's header in a 249-octet
-    /// ASDU (5-104 cl.5, index 26: *"The maximum length of the ASDU is limited
-    /// to 249"*).
+    /// ASDU (5-104 cl.5, index 26: an ASDU is at most 249 octets).
     ///
     /// [`MAX_BODY`] is this number for [`AddressSizes::CONVENTIONAL`] only; the
     /// body budget is per profile, because a narrower header leaves more room.
@@ -774,7 +771,7 @@ pub enum AsduError {
     },
     /// The encoded object area would exceed the profile's own ASDU budget,
     /// `AddressSizes::max_body()`: 249 octets less the profile's header
-    /// (5-104 clause 5: *"The maximum length of the ASDU is limited to 249"*),
+    /// (5-104 clause 5: an ASDU is at most 249 octets),
     /// which is 243 under [`AddressSizes::CONVENTIONAL`].
     BodyTooLong {
         /// The object area's length in octets.

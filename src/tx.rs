@@ -17,20 +17,19 @@
 //!
 //! # The background scan (5-101 clause 7.4.13)
 //!
-//! 5-101 clause **7.4.13** (PDF page index 149, printed page 148):
+//! 5-101 clause **7.4.13** (PDF page index 149, printed page 148), in summary:
 //!
-//! > The background scan is used to update process information from the
-//! > controlled station to the controlling station as an additional safeguard
-//! > to the station interrogation and spontaneous transmission procedures.
-//! > ASDUs with the same type identification numbers as defined for the station
-//! > interrogation procedure may be transmitted with cause of transmission
-//! > `<2>` background scan on a low-priority continuous basis. The background
-//! > scan is initiated by the controlled station and therefore independent from
-//! > station interrogation commands. The transmission cycle is configured by
-//! > fixed parameters in the controlled station. Measured values reported by
-//! > periodic or cyclic transmission (COT = 1) are not usually reported as
-//! > background scan (COT = 2), spontaneous (COT = 3) or station interrogation
-//! > (COT = 20 to 36).
+//! - the background scan refreshes the controlling station's view of the
+//!   process from the controlled station, as an extra safeguard on top of
+//!   station interrogation and spontaneous transmission;
+//! - it may send the same type identifications the station interrogation uses,
+//!   with cause `<2>` background scan, continuously and at low priority;
+//! - the controlled station starts it itself, so it does not depend on any
+//!   interrogation command, and fixed parameters in the controlled station set
+//!   its cycle;
+//! - measured values already sent periodically or cyclically (COT = 1) are
+//!   normally not also sent as background scan (COT = 2), spontaneous
+//!   (COT = 3) or interrogated (COT = 20 to 36) data.
 //!
 //! The same page's **Table 21** names nine types, each with cause `<2>`:
 //! [`BACKGROUND_TYPES`]. 104 carries the function only as a checkbox in its
@@ -55,11 +54,11 @@
 //! monitor types 104 clause 9 selects (PDF page index 100): see
 //! [`is_spontaneous_type`].
 //!
-//! The table's order is also a send order: *"If a controlled station has data
-//! for more than one of the following ASDU types ready for transmission at the
-//! same time, they must be sent in the following order regardless of which data
-//! was generated first."* Nothing in this module is scheduled, so that order is
-//! the caller's to apply; [`respond_priority`] names the row of an ASDU.
+//! The table's order is also a send order: a controlled station that has data
+//! of several of the listed types ready at once must send them in the table's
+//! order, whichever was produced first. Nothing in this module is scheduled,
+//! so that order is the caller's to apply; [`respond_priority`] names the row
+//! of an ASDU.
 //! `iec104-tokio`'s `server::Server` is such a caller: it queues what it sends
 //! by that row.
 //!
@@ -67,9 +66,9 @@
 //!
 //! 5-101 clause **7.4.2** (index 122) assigns cyclic ASDUs to link data class 2
 //! and spontaneous ones to class 1. 104 clause **7.2** (index 64) removes the
-//! classes: *"Request of user data class 1 and 2 are link functions of
-//! IEC 60870-5-2 and therefore not available in this standard."* The *"low
-//! priority continuous basis"* of the background scan is therefore a property
+//! classes: requesting class 1 or class 2 user data is a link function of
+//! IEC 60870-5-2, so 104 does not have it. The low-priority, continuous
+//! sending of the background scan is therefore a property
 //! of the cause, not something this crate schedules. Clause 7.2's advice
 //! against cyclic requests is about the read procedure ([`crate::rd`]), not
 //! about clause 7.3's cyclic data transmission.
@@ -78,31 +77,28 @@
 //!
 //! 104 clause **9.6** (PDF page index 108, printed page 107), *"Double
 //! transmission of information objects with cause of transmission
-//! spontaneous"*:
-//!
-//! > The following type identifications may be transmitted in succession caused
-//! > by a single status change of an information object. The particular
-//! > information object addresses for which double transmission is enabled are
-//! > defined in a project-specific list.
+//! spontaneous"*, allows one status change of an information object to be
+//! sent twice in a row, as the listed type identifications; a project-specific
+//! list says which information object addresses get this double transmission.
 //!
 //! It then lists seven type families, which are [`DoublePair`];
 //! [`DoublePair::types`] is each bullet's own list. The addresses the project
 //! enables are [`ProjectList`].
 //!
 //! The pairs are the standard's but the tag half is restricted: 104 clause
-//! **9** (PDF page index 100, printed page 99) says *"In this companion
-//! standard only the use of the set `<30>` – `<40>` for ASDUs with time tag is
-//! permitted."* So the tagged half of a 104 double transmission is a
-//! `CP56Time2a` type (`M_SP_TB_1` `<30>` and its siblings), never `M_SP_TA_1`
-//! `<2>` or another `CP24Time2a` form. [`is_permitted_tag`] is that sentence,
-//! and [`doubled`] refuses a pair whose tagged half is outside it
+//! **9** (PDF page index 100, printed page 99) allows only the set
+//! `<30>`–`<40>` for time-tagged ASDUs in 104. So the tagged half of a 104
+//! double transmission is a `CP56Time2a` type (`M_SP_TB_1` `<30>` and its
+//! siblings), never `M_SP_TA_1` `<2>` or another `CP24Time2a` form.
+//! [`is_permitted_tag`] is that rule, and [`doubled`] refuses a pair whose
+//! tagged half is outside it
 //! ([`TxError::TagNotPermitted`]). [`crate::ci`] excludes `M_IT_TA_1` `<16>`
-//! from its responses by the same sentence.
+//! from its responses by the same rule.
 //!
 //! # The two roles
 //!
 //! The controlled station *produces* these ASDUs: it owns the process image,
-//! and the background scan is *"initiated by the controlled station"*. The
+//! and the controlled station is the one that starts the background scan. The
 //! controlling station *receives* them and only classifies which of the three
 //! causes arrived. A cyclic, background or spontaneous ASDU answers nothing:
 //! no confirmation is built and no originator echoed (5-101 clause 7.2.3's echo
@@ -112,8 +108,8 @@
 //!
 //! # What is the caller's
 //!
-//! * **The scan cycles and the send order.** *"The transmission cycle is
-//!   configured by fixed parameters in the controlled station."* Nothing here
+//! * **The scan cycles and the send order.** 5-101 clause 7.4.13 leaves the
+//!   cycle to fixed parameters in the controlled station. Nothing here
 //!   reads a clock, holds a timer or schedules anything. [`StationFunctions`]
 //!   selects the functions the station uses (104 clause 9.6's checkboxes), and
 //!   the [`Transmission`] producers refuse a function it does not use. The
@@ -222,9 +218,8 @@ pub const CAUSE_SPONTANEOUS: Cause = Cause::Spontaneous;
 /// The four type identifications Table 16's cyclic row lists, `9, 11, 13, 21`.
 ///
 /// They are `M_ME_NA_1`, `M_ME_NB_1`, `M_ME_NC_1` and `M_ME_ND_1` (5-101
-/// Table 16, PDF page index 121, printed page 120: *"911, 13, 21 / 120 to 127 |
-/// Cyclic data transmission (in monitor direction with COT = 1), file
-/// transfer"*).
+/// Table 16, PDF page index 121, printed page 120: the row for types
+/// `9, 11, 13, 21` / `120 to 127`, cyclic data with COT = 1 and file transfer).
 ///
 /// The row's other half, `120 to 127`, is the file-transfer set of 5-101
 /// clause 7.3.6 and 104's `F_SC_NB_1`, which [`crate::ft`] builds with its own
@@ -242,9 +237,8 @@ pub const CYCLIC_TYPES: [TypeId; 4] = [
 /// page index 149, printed page 148). In the table's own order: `M_SP_NA_1`,
 /// `M_DP_NA_1`, `M_ST_NA_1`, `M_BO_NA_1`, `M_ME_NA_1`, `M_ME_NB_1`,
 /// `M_ME_NC_1`, `M_PS_NA_1`, `M_ME_ND_1`, each with cause `<2>`. The clause
-/// says the same in prose (*"ASDUs with the same type identification numbers as
-/// defined for the station interrogation procedure may be transmitted with
-/// cause of transmission `<2>` background scan"*), which is why
+/// says the same in prose (the background scan may send the station
+/// interrogation's type identifications with cause `<2>`), which is why
 /// [`crate::gi::INTERROGATED_TYPES`] holds the same nine names.
 pub const BACKGROUND_TYPES: [TypeId; 9] = [
     TypeId::MSpNa1,
@@ -386,10 +380,9 @@ pub fn function_of(cause: Cause) -> Result<Function, TxError> {
 
 /// Which of the three functions a station uses.
 ///
-/// These are 104 clause 9.6's three checkboxes (PDF page index 114), each
-/// *"(station-specific parameter, mark `X` if function is only used in the
-/// standard direction, `R` if only used in the reverse direction, and `B` if
-/// used in both directions)"*.
+/// These are 104 clause 9.6's three checkboxes (PDF page index 114), each a
+/// station-specific parameter marked `X` (standard direction only), `R`
+/// (reverse direction only) or `B` (both directions).
 ///
 /// The value carries one direction's answer: a station holds an instance per
 /// direction, as the procedure roles of [`crate::gi`] to [`crate::pm`] do.
@@ -413,7 +406,7 @@ impl StationFunctions {
     };
 
     /// All three selected: the 101 selection, whose clauses 7.4.3 and 7.4.4
-    /// each say *"The complete function … is used."*
+    /// each select the whole function.
     pub const ALL: Self = Self {
         cyclic: true,
         background: true,
@@ -477,29 +470,29 @@ impl Default for StationFunctions {
 /// 104 clause 9's permitted set `<30>` to `<40>` ([`is_permitted_tag`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DoublePair {
-    /// *"Single-point information `M_SP_NA_1`, `M_SP_TA_1`, `M_SP_TB_1` and
-    /// `M_PS_NA_1`"*. The bullet names an extra untagged member, `M_PS_NA_1`
+    /// Single-point information: `M_SP_NA_1`, `M_SP_TA_1`, `M_SP_TB_1` and
+    /// `M_PS_NA_1`. The bullet names an extra untagged member, `M_PS_NA_1`
     /// (type 20), which has no time-tagged type in `<30>` to `<40>` and so is
     /// not paired.
     SinglePoint,
-    /// *"Double-point information `M_DP_NA_1`, `M_DP_TA_1` and `M_DP_TB_1`"*.
+    /// Double-point information: `M_DP_NA_1`, `M_DP_TA_1` and `M_DP_TB_1`.
     DoublePoint,
-    /// *"Step position information `M_ST_NA_1`, `M_ST_TA_1` and `M_ST_TB_1`"*.
+    /// Step position information: `M_ST_NA_1`, `M_ST_TA_1` and `M_ST_TB_1`.
     StepPosition,
-    /// *"Bitstring of 32 bit `M_BO_NA_1`, `M_BO_TA_1` and `M_BO_TB_1` (if defined
-    /// for a specific project)"*. The project decision is expressed through
+    /// 32-bit bitstring: `M_BO_NA_1`, `M_BO_TA_1` and `M_BO_TB_1`, only where a
+    /// project defines it. The project decision is expressed through
     /// [`ProjectList`].
     Bitstring,
-    /// *"Measured value, normalized value `M_ME_NA_1`, `M_ME_TA_1`, `M_ME_ND_1`
-    /// and `M_ME_TD_1`"*. The extra untagged member `M_ME_ND_1` (type 21) has
+    /// Normalized measured value: `M_ME_NA_1`, `M_ME_TA_1`, `M_ME_ND_1` and
+    /// `M_ME_TD_1`. The extra untagged member `M_ME_ND_1` (type 21) has
     /// no [`Doubles`] implementation: its tagged twin `M_ME_TD_1` carries a
     /// `QDS` the untagged frame does not, so a station that tags it supplies
     /// the quality itself.
     MeasuredNormalized,
-    /// *"Measured value, scaled value `M_ME_NB_1`, `M_ME_TB_1` and `M_ME_TE_1`"*.
+    /// Scaled measured value: `M_ME_NB_1`, `M_ME_TB_1` and `M_ME_TE_1`.
     MeasuredScaled,
-    /// *"Measured value, short floating point number `M_ME_NC_1`, `M_ME_TC_1` and
-    /// `M_ME_TF_1`"*.
+    /// Short floating point measured value: `M_ME_NC_1`, `M_ME_TC_1` and
+    /// `M_ME_TF_1`.
     MeasuredFloat,
 }
 
@@ -600,9 +593,8 @@ impl DoublePair {
 /// Whether a tagged type identification is inside 104 clause 9's permitted set
 /// `<30>` to `<40>`.
 ///
-/// 104 clause 9 (PDF page index 100, printed page 99): *"In this companion
-/// standard only the use of the set `<30>` – `<40>` for ASDUs with time tag is
-/// permitted."*
+/// 104 clause 9 (PDF page index 100, printed page 99) allows only the set
+/// `<30>`–`<40>` for time-tagged ASDUs in 104.
 ///
 /// The test is over the type's **wire octet**. It answers `true` for every
 /// `CP56Time2a` monitor form of 5-101 clause 7.3.1 (`<30>` `M_SP_TB_1` to
@@ -723,9 +715,8 @@ impl Doubles for MMeNc1 {
 /// The information object addresses a project enables double transmission
 /// for.
 ///
-/// 104 clause 9.6: *"The particular information object addresses for
-/// which double transmission is enabled are defined in a project-specific
-/// list."* (PDF page index 108).
+/// 104 clause 9.6 leaves the addresses that get double transmission to a
+/// project-specific list (PDF page index 108).
 ///
 /// The default is the empty list: a station doubles nothing unless the caller
 /// hands in its project's list, as with [`crate::gi`]'s group membership.
@@ -779,8 +770,8 @@ impl ProjectList {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
     /// The controlled station: it owns the process image and produces the
-    /// ASDUs (5-101 clause 7.4.13: the background scan *"is initiated by the
-    /// controlled station"*).
+    /// ASDUs (5-101 clause 7.4.13: the controlled station starts the
+    /// background scan).
     Controlled,
     /// The side that receives them: classification only, no state and no
     /// answers.
@@ -925,16 +916,16 @@ fn frame<A: crate::asdu::AsduLayout>(
 /// each filled up to, and not beyond, the 249-octet ASDU in order. `P/N = 0`;
 /// no ASDU for an empty slice.
 ///
-/// 5-101 clause 7.2.2.1, `SQ = 0`: *"The ASDU may consist of one or more than
-/// one equal INFORMATION OBJECTs. The number N is binary coded and defines the
-/// number of the INFORMATION OBJECTs."* N is `UI7[1..7]<0..127>`, so an ASDU
+/// 5-101 clause 7.2.2.1, `SQ = 0`: the ASDU carries one or more information
+/// objects of the same kind, and the binary number N gives how many. N is
+/// `UI7[1..7]<0..127>`, so an ASDU
 /// carries at most 127 objects however short they are. The octet budget is
 /// 5-104 clause 5's 249 less the profile's header
 /// ([`AddressSizes::max_body`]). TS 60870-5-604 5.4.14.1 and 5.4.16.1 (PDF
-/// page indices 61 and 63) require the controlled station to send data of
-/// *"the same Type, COT and priority but with gaps in their addresses as a Set
-/// of Information elements (SQ:=0) in one single ASDU, filled up to but not
-/// exceeding the maximum configured ASDU or APDU length"*.
+/// page indices 61 and 63) require the controlled station to pack data that
+/// shares type, COT and priority, but whose addresses are not contiguous, into
+/// one `SQ = 0` ASDU, filled as far as the configured maximum ASDU or APDU
+/// length allows and never beyond it.
 fn frames<A: crate::asdu::AsduLayout>(
     cause: Cause,
     objects: &[LayoutObject<A>],
@@ -971,10 +962,10 @@ fn frames<A: crate::asdu::AsduLayout>(
 /// Appends the information objects of `next` to `asdu` when one ASDU may
 /// carry both, and says whether it did; `asdu` is left as it was otherwise.
 ///
-/// TS 60870-5-604 5.4.16.1 (PDF page index 63): *"The Controlled station
-/// transmits events of the same Type, COT and priority but with gaps in their
-/// addresses as a Set of Information elements (SQ:=0) in one single ASDU,
-/// filled until the maximum configured ASDU or ADPU length as in the PICS"*.
+/// TS 60870-5-604 5.4.16.1 (PDF page index 63): the controlled station packs
+/// events that share type, COT and priority, but whose addresses are not
+/// contiguous, into one `SQ = 0` ASDU, up to the maximum ASDU or APDU length
+/// configured in the PICS.
 /// So both must be `SQ = 0` ASDUs (5-101 cl.7.2.2.1) of the same type, cause,
 /// P/N and test bits, originator and common address (the priority of 5-101
 /// Table 16 follows from type and cause), with no more than 127 objects
@@ -1205,11 +1196,11 @@ pub fn spontaneous_with<A: crate::asdu::AsduLayout>(
 /// each filled up to the 249-octet ASDU, the objects in the order given. No
 /// ASDU for an empty set.
 ///
-/// This is the cyclic half of TS 60870-5-604 5.4.14.1's *"Set of Information
-/// elements (SQ:=0) in one single ASDU, filled up to but not exceeding the
-/// maximum configured ASDU or APDU length"*, under 5-101 clause 7.2.2.1's
-/// `SQ = 0` (*"The ASDU may consist of one or more than one equal INFORMATION
-/// OBJECTs"*); an ASDU carries at most 127 objects, N's own range.
+/// This is the cyclic half of TS 60870-5-604 5.4.14.1's packing rule (one
+/// `SQ = 0` ASDU, filled up to the configured maximum ASDU or APDU length and
+/// never past it), under 5-101 clause 7.2.2.1's `SQ = 0` (one or more
+/// information objects of the same kind); an ASDU carries at most 127 objects,
+/// N's own range.
 ///
 /// # Errors
 ///
@@ -1254,10 +1245,10 @@ pub fn cyclic_set_with<A: crate::asdu::AsduLayout>(
 /// ASDU for an empty set.
 ///
 /// This is the background-scan half of TS 60870-5-604 5.4.14.1's *"Set of
-/// Information elements (SQ:=0) in one single ASDU, filled up to but not
-/// exceeding the maximum configured ASDU or APDU length"*, under 5-101 clause
-/// 7.2.2.1's `SQ = 0` (*"The ASDU may consist of one or more than one equal
-/// INFORMATION OBJECTs"*); an ASDU carries at most 127 objects, N's own range.
+/// Information elements"* rule (one `SQ = 0` ASDU, filled up to the
+/// configured maximum ASDU or APDU length and never past it), under 5-101
+/// clause 7.2.2.1's `SQ = 0` (one or more information objects of the same
+/// kind); an ASDU carries at most 127 objects, N's own range.
 ///
 /// # Errors
 ///
@@ -1302,10 +1293,10 @@ pub fn background_set_with<A: crate::asdu::AsduLayout>(
 /// No ASDU for an empty set.
 ///
 /// This is the spontaneous half of TS 60870-5-604 5.4.16.1's *"Set of
-/// Information elements (SQ:=0) in one single ASDU, filled up to but not
-/// exceeding the maximum configured ASDU or APDU length"*, under 5-101 clause
-/// 7.2.2.1's `SQ = 0` (*"The ASDU may consist of one or more than one equal
-/// INFORMATION OBJECTs"*); an ASDU carries at most 127 objects, N's own range.
+/// Information elements"* rule (one `SQ = 0` ASDU, filled up to the
+/// configured maximum ASDU or APDU length and never past it), under 5-101
+/// clause 7.2.2.1's `SQ = 0` (one or more information objects of the same
+/// kind); an ASDU carries at most 127 objects, N's own range.
 ///
 /// # Errors
 ///
@@ -1353,8 +1344,7 @@ pub fn spontaneous_set_with<A: crate::asdu::AsduLayout>(
 ///
 /// The twin is built from the untagged value by [`Doubles::doubled`]; the
 /// caller supplies only the `CP56Time2a` tag. Both carry cause `<3>`, because
-/// the clause's heading is *"…information objects with cause of transmission
-/// spontaneous"*.
+/// the clause's heading names cause of transmission spontaneous.
 ///
 /// The tagged half must be inside 104 clause 9's permitted set `<30>` to
 /// `<40>` ([`is_permitted_tag`]); a `CP24Time2a` twin is
@@ -1717,11 +1707,9 @@ fn framed(asdu: &[u8], header: &Header, sizes: AddressSizes) -> Result<(), AsduE
 /// station"* (clause 7.4, PDF page index 121, printed page 120), highest
 /// first, so the derived order is the send order.
 ///
-/// Clause 7.4: *"If a controlled station has data for more than one of the
-/// following ASDU types ready for transmission at the same time, they must be
-/// sent in the following order regardless of which data was generated first."*
-/// and *"ASDU type identifications within the same row may be sent in any
-/// order."*
+/// Clause 7.4: data of several listed types that is ready at the same time must
+/// go out in the table's order, whichever was produced first, while types of
+/// one row may go out in any order among themselves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Priority {
     /// `70` *"End of initialization"*.
@@ -1770,7 +1758,7 @@ pub enum Priority {
 ///   which the table does not name and this crate puts with the events:
 ///   [`Priority::Event`];
 /// - `<1>`, and the background scan `<2>`, which the table does not name and
-///   5-101 clause 7.4.13 sends *"on a low-priority continuous basis"*:
+///   5-101 clause 7.4.13 sends continuously at low priority:
 ///   [`Priority::Cyclic`].
 ///
 /// Anything else (a cause 44 mirror of a type the table does not name, say)

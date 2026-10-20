@@ -1,5 +1,5 @@
 //! Diagnostics: one-line descriptions of frames and settings, in the
-//! standards' own words, for a log or a runbook.
+//! standards' own terms, for a log or a runbook.
 //!
 //! This is a display layer only. It turns values a caller already holds into
 //! the words the two standards use for them and returns the line as a
@@ -11,16 +11,15 @@
 //!
 //! # What the standards say about a log
 //!
-//! 5-101 clause 7.2.3 (PDF page index 42, printed 41):
+//! 5-101 clause 7.2.3 (PDF page index 42, printed 41) allows a controlling
+//! station to keep a communications error log with an entry for each received
+//! ASDU of three classes:
 //!
-//! > A controlling station may monitor for and maintain a communications error
-//! > log reporting each time that the following ASDUs are received:
-//! > - ASDUs in the monitor direction with undefined values in the data unit
-//! >   identifier (except the variable structure qualifier);
-//! > - ASDUs in the monitor direction with undefined values of information
-//! >   object address;
-//! > - mirrored ASDUs due to unknown numbers in the control direction
-//! >   (type identifications 45 to 51).
+//! - a monitor-direction ASDU with an undefined value in its data unit
+//!   identifier (the variable structure qualifier excepted);
+//! - a monitor-direction ASDU with an undefined information object address;
+//! - a mirrored ASDU reporting an unknown value in the control direction
+//!   (type identifications 45 to 51).
 //!
 //! [`discard`] writes those classes as one line, from the
 //! [`crate::asdu::Discard`] that [`crate::asdu::discard_reason`] returns.
@@ -83,9 +82,8 @@ pub const fn u_function(function: UFunction) -> &'static str {
 /// 6–8).
 ///
 /// `I N(S)=3 N(R)=7`, `S N(R)=7` or `U STARTDT act`: the format letter the
-/// clause uses (*"numbered information transfer (I format), numbered
-/// supervisory functions (S format) and unnumbered control functions (U
-/// format)"*), then the sequence numbers the format carries, or the U
+/// clause uses (I for numbered information transfer, S for numbered
+/// supervisory functions, U for unnumbered control functions), then the sequence numbers the format carries, or the U
 /// function's name.
 #[must_use]
 pub fn control(field: Apci) -> String {
@@ -110,7 +108,7 @@ pub fn control(field: Apci) -> String {
 ///   mnemonics come from `Cause::mnemonic` (`cause=inro1(21)`), so this module
 ///   does not keep a second copy of table 14.
 /// - A profile without the originator octet prints `ORG=-`, not `ORG=0`. 5-104
-///   clause 9.5 reads *"Originator address is set to zero if not used"*, so a
+///   clause 9.5 sets an unused originator address to zero, so a
 ///   `0` there would be indistinguishable from clause 7.2.3's real
 ///   `<0> := default`.
 #[must_use]
@@ -143,8 +141,8 @@ pub fn header(header: &Header, sizes: AddressSizes) -> String {
 /// One line for the information object address at the head of an object area,
 /// read at the width `sizes` fixes with [`crate::asdu::read_ioa_with`].
 ///
-/// 5-101 clause 7.2.5: *"The length of the INFORMATION OBJECT ADDRESS (one,
-/// two or three octets) is a parameter which is fixed per system."* This reads
+/// 5-101 clause 7.2.5: the information object address is one, two or three
+/// octets long, a parameter fixed for the whole system. This reads
 /// the address at the start of the object area and nothing more. For an
 /// SQ = 1 sequence that is the base address, the only one on the wire (5-101
 /// clause 7.2.2.1).
@@ -186,9 +184,8 @@ pub fn discard(discard: Discard) -> String {
 /// `t0=30 s t1=15 s t2=10 s t3=20 s k=12 w=8 port=2404` for
 /// [`LinkParams::default`], the table's default values. Useful as a startup
 /// line, so a log reader can see which time-outs a connection was configured
-/// with; clause 10.7 asks for them to be settable per connection (*"It should
-/// be possible to set the values of the timers t0 to t3 individually for each
-/// connection within a redundancy group."*).
+/// with; clause 10.7 asks for them to be settable per connection (t0 to t3
+/// should be settable separately for each connection of a redundancy group).
 ///
 /// The crate holds each time-out as a `Duration`, so a sub-second part is
 /// printed exactly (`t1=1.5 s`) rather than rounded down: `t2=500 ms` printed

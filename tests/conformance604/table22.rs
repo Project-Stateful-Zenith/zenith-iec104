@@ -1,18 +1,17 @@
 //! 604 Table 22, *"Test procedure function conformance test procedures"*, PDF
 //! page index 83 (printed 82), procedures `5.4.22.1` and `5.4.22.10`.
 //!
-//! The block's NOTE: *"The following tests are only required for systems
-//! supporting Test procedure. If ‘M’ is mentioned, the test case is mandatory
-//! for systems with the relevant Test procedure options marked in the PICS"*.
+//! The block's NOTE: the tests apply only to a system that supports the test
+//! procedure, and an `M` row is mandatory for a system whose PICS marks the
+//! test procedure option in question.
 //! The crate supports it in both forms (`src/ts.rs`); the cases run the 104
 //! profile's `C_TS_TA_1` `<107>` (`ts::Selection::TAGGED`), the only test
 //! command 104 Table 4 carries.
 //!
 //! The rows' `Reference` column is `IEC 60870-5-104:2006, 8.8` and
-//! `IEC 60870-5-101:2003, 7.4.10`. Clause 8.8 (index 90), verbatim: *"The
-//! requesting station may choose any value of TSC. The TSC in the response
-//! shall match the request, and the time in the response shall also exactly
-//! match the time in the request."* Every expected frame is written out octet
+//! `IEC 60870-5-101:2003, 7.4.10`. Clause 8.8 (index 90) lets the requesting
+//! station pick any TSC, and requires the response to carry the same TSC and
+//! exactly the same time as the request. Every expected frame is written out octet
 //! by octet from figure 30 ([`test_command`]), never built by `src/ts.rs`.
 //!
 //! # The station under test, in each direction
@@ -21,8 +20,8 @@
 //! `request` builds one and its `on_response` checks the echo. Its role is the
 //! *procedure's* (`src/ts.rs`: *"the same station may hold the other role's
 //! instance for the reverse direction"*), and 104 clause 9.6 lets a station use
-//! the test procedure *"in the standard direction"*, *"in the reverse
-//! direction"* or *"in both directions"* (index 112). §5.1 makes the reverse
+//! the test procedure in the standard direction, the reverse direction or
+//! both (index 112). §5.1 makes the reverse
 //! direction part of the test, so the row's primary and secondary are each
 //! driven as both transport roles:
 //!
@@ -37,8 +36,8 @@
 //!
 //! # Rows with no case here, and why
 //!
-//! - **`5.4.22.1`, `Required` `PIXIT`**: *"The Test command is sent at the
-//!   configured interval period"* (`Reference` `PID`). Not applicable to this
+//! - **`5.4.22.1`, `Required` `PIXIT`**: the test command goes out at the
+//!   configured interval (`Reference` `PID`). Not applicable to this
 //!   crate: `src/ts.rs` *"schedules nothing, holds no timer and reads no
 //!   clock"*; the interval is the application's configuration.
 //! - **`5.4.22.10` COMPATIBILITY WITH OTHER TEST CASES**: the whole suite, not a
@@ -58,8 +57,8 @@ use crate::conformance604::{
     CA, ControlledStation, MonitorPeer, ORIGINATOR, Peer, StationApp, deadline, interop,
 };
 
-/// The two test sequence counters the cases pick: *"The Primary station may
-/// choose any value of TSC"*, so one in the middle of `UI16` and its top.
+/// The two test sequence counters the cases pick: the primary station may use
+/// any TSC, so one in the middle of `UI16` and its top.
 const TSCS: [u16; 2] = [0x1234, 0xFFFF];
 
 /// [`TIME`] as the crate's `CP56Time2a` value, for the `ts::Command` the
@@ -81,10 +80,9 @@ fn command(tsc: u16) -> Command {
 /// `Reference` `IEC 60870-5-104:2006, 8.8` / `IEC 60870-5-101:2003, 7.4.10`,
 /// `Required` `M`:
 ///
-/// > The Secondary station sends the same Test command (ASDU 107) with COT =
-/// > 7, C_TS_ACTCON, to the Primary station. The TSC in the response shall
-/// > match the request, and the time in the response shall also exactly match
-/// > the time in the request
+/// the secondary station returns the same test command (type 107) to the
+/// primary with cause 7 (`C_TS_ACTCON`); its TSC shall equal the request's,
+/// and its time shall equal the request's time exactly;
 ///
 /// DUT: the **controlled** station as the secondary, `ts::TestProcedure`
 /// through [`ProcedureApp`]. The mock controlling station sends two commands
@@ -107,7 +105,7 @@ fn clause_5_4_22_1_the_controlled_station_echoes_the_test_command() {
         assert_eq!(
             asdu,
             test_command(7, tsc, TIME),
-            "5.4.22.1 (TSC {tsc:#06x}): \"the same Test command (ASDU 107) with COT = 7\", \
+            "5.4.22.1 (TSC {tsc:#06x}): the same test command (type 107) with cause 7, \
              TSC and time unchanged"
         );
         assert_eq!(
@@ -131,17 +129,15 @@ type Verdicts = Arc<Mutex<Vec<Result<Reaction, TsError>>>>;
 /// primary station's rows, `Reference` `IEC 60870-5-104:2006, 8.8` /
 /// `IEC 60870-5-101:2003, 7.4.10`, each `Required` `M`:
 ///
-/// > The Primary station sends a Test command (ASDU 107) with COT = 6,
-/// > C_TS_ACT, to the Secondary station. The Primary station may choose any
-/// > value of TSC
-///
-/// > Mismatching values of TSC are detected by the Primary station
+/// the primary station sends the secondary a test command (type 107) with
+/// cause 6 (`C_TS_ACT`), using a TSC of its own choosing; and the primary
+/// station detects a response whose TSC does not match;
 ///
 /// DUT: the **controlling** station as the primary, `interop::Station` with
 /// `ts::TestProcedure::controlling`. The mock controlled station answers the
 /// first command with the exact echo, the second with the counter plus one,
-/// and the third with the time one millisecond later (clause 8.8's *"the time
-/// in the response shall also exactly match"*). The first is an answer, the
+/// and the third with the time one millisecond later (clause 8.8 requires the
+/// response's time to match exactly). The first is an answer, the
 /// other two are `TsError::EchoMismatch`.
 #[test]
 fn clause_5_4_22_1_the_controlling_station_sends_c_ts_act_and_detects_a_mismatch() {
@@ -181,7 +177,7 @@ fn clause_5_4_22_1_the_controlling_station_sends_c_ts_act_and_detects_a_mismatch
         assert_eq!(
             on_wire,
             test_command(6, *sent, TIME),
-            "5.4.22.1: \"a Test command (ASDU 107) with COT = 6, C_TS_ACT\", TSC {sent:#06x}"
+            "5.4.22.1: a test command (type 107) with cause 6 (C_TS_ACT), TSC {sent:#06x}"
         );
         mock.send_i(n, n + 1, confirmation).unwrap();
         let (_, asdu) = station
@@ -205,13 +201,12 @@ fn clause_5_4_22_1_the_controlling_station_sends_c_ts_act_and_detects_a_mismatch
     );
     assert!(
         matches!(verdicts[1], Err(TsError::EchoMismatch { .. })),
-        "5.4.22.1: \"Mismatching values of TSC are detected by the Primary station\": {:?}",
+        "5.4.22.1: the primary station must detect a mismatching TSC: {:?}",
         verdicts[1]
     );
     assert!(
         matches!(verdicts[2], Err(TsError::EchoMismatch { .. })),
-        "5.4.22.1: \"the time in the response shall also exactly match the time in the \
-         request\": {:?}",
+        "5.4.22.1: the response's time must equal the request's exactly: {:?}",
         verdicts[2]
     );
 }
@@ -266,14 +261,12 @@ impl StationApp for ReversePrimary {
 }
 
 /// 604 Table 22, PDF page index 83 (printed 82), procedure **`5.4.22.1`**, the
-/// same primary rows in the **reverse direction** (§5.1: *"replace
-/// "Controlling" with "Controlled" and vice versa"*):
+/// same primary rows in the **reverse direction** (§5.1: the controlling and
+/// controlled stations swap places):
 ///
-/// > The Primary station sends a Test command (ASDU 107) with COT = 6,
-/// > C_TS_ACT, to the Secondary station. The Primary station may choose any
-/// > value of TSC
-///
-/// > Mismatching values of TSC are detected by the Primary station
+/// the primary station sends the secondary a test command (type 107) with
+/// cause 6 (`C_TS_ACT`), using a TSC of its own choosing; and the primary
+/// station detects a response whose TSC does not match;
 ///
 /// DUT: the **controlled** station as the primary, `ts::TestProcedure` in the
 /// procedure's controlling role on the controlled station's session
@@ -304,7 +297,7 @@ fn clause_5_4_22_1_reverse_the_controlled_station_as_primary_detects_a_mismatch(
         assert_eq!(
             asdu,
             test_command(6, tsc, TIME),
-            "5.4.22.1 reverse: \"a Test command (ASDU 107) with COT = 6, C_TS_ACT\""
+            "5.4.22.1 reverse: a test command (type 107) with cause 6 (C_TS_ACT)"
         );
         peer.send_i(SeqNo::new(n), SeqNo::new(n + 1), &confirmation)
             .unwrap();
@@ -336,10 +329,9 @@ fn clause_5_4_22_1_reverse_the_controlled_station_as_primary_detects_a_mismatch(
 /// 604 Table 22, PDF page index 83 (printed 82), procedure **`5.4.22.1`**, the
 /// secondary station's row in the **reverse direction**:
 ///
-/// > The Secondary station sends the same Test command (ASDU 107) with COT =
-/// > 7, C_TS_ACTCON, to the Primary station. The TSC in the response shall
-/// > match the request, and the time in the response shall also exactly match
-/// > the time in the request
+/// the secondary station returns the same test command (type 107) to the
+/// primary with cause 7 (`C_TS_ACTCON`); its TSC shall equal the request's,
+/// and its time shall equal the request's time exactly;
 ///
 /// DUT: the **controlling** station as the secondary, `interop::Station` with
 /// `ts::TestProcedure::controlled`. The mock controlled station sends the
@@ -385,6 +377,6 @@ fn clause_5_4_22_1_reverse_the_controlling_station_echoes_the_test_command() {
     assert_eq!(
         answers,
         vec![test_command(7, tsc, TIME)],
-        "5.4.22.1 reverse: \"the same Test command (ASDU 107) with COT = 7\""
+        "5.4.22.1 reverse: the same test command (type 107) with cause 7"
     );
 }

@@ -31,27 +31,26 @@
 //!
 //! # The answer carries the time the station had *before* the correction
 //!
-//! Clause 7.6, verbatim: *"After the execution of the clock sync internally the
-//! controlled station generates a `C_CS` ACTCON PDU that contains the local time
-//! before it was synchronized."* Clause 7.6.1 (PDF page index 68, printed page
-//! 67) again: *"This request contains the time which is known in the
-//! application process in the controlled station before reception of the
-//! `A_CLOCKSYN.ind`."* TS 60870-5-604 Table 18's row 5.4.18.1 (PDF page index 69,
+//! Clause 7.6: once the controlled station has synchronised its clock
+//! internally, it sends a `C_CS` ACTCON carrying its local time as it was
+//! before the synchronisation. Clause 7.6.1 (PDF page index 68, printed page
+//! 67) repeats it: the time in that response is the one the controlled
+//! station's application process knew before the `A_CLOCKSYN.ind` arrived. TS 60870-5-604 Table 18's row 5.4.18.1 (PDF page index 69,
 //! printed page 68) calls this answer a mirror of ASDU 103 with COT 7.
 //!
-//! Clause 7.6 also removes the correction value of IEC 60870-5-5: *"The
-//! procedure is a copy of that of 6.7 of IEC 60870-5-5, with the \"first bit\"
-//! and \"time correction\" requirements and link layer options (SEND/NO REPLY or
-//! SEND/CONFIRM) removed."* The pre-sync time is therefore an **argument** to
+//! Clause 7.6 also removes the correction value of IEC 60870-5-5: the procedure
+//! is 6.7 of IEC 60870-5-5 without its "first bit" and "time correction"
+//! requirements and without the link-layer options (SEND/NO REPLY or
+//! SEND/CONFIRM). The pre-sync time is therefore an **argument** to
 //! [`answer`] and to [`ClockSynchronisation::on_request`]: the module never
 //! computes it, and has no correction field to compute it from.
 //!
 //! # The answer echoes the request's originator address
 //!
-//! 5-101 clause **7.2.3** (PDF page index 38, printed page 37): *"In these
-//! systems, the information source should set the originator address of the
-//! ASDUs in the command direction, and the controlled station should echo this
-//! originator address in the response in the monitor direction."*
+//! 5-101 clause **7.2.3** (PDF page index 38, printed page 37): in such systems
+//! the source of a command should set its originator address, and the
+//! controlled station should return that same originator address in its
+//! monitor-direction response.
 //!
 //! [`ClockSynchronisation::on_request`] therefore builds its answer with **the
 //! request's** originator, not with the station's own. The common address is
@@ -61,16 +60,15 @@
 //!
 //! # One type, two monitor-direction causes with different meanings
 //!
-//! Figure 75's caption: *"In addition to the procedure shown in 6.7 of IEC
-//! 60870-5-5, `C_CS_NA_1` may be used in the monitor direction for spontaneous
-//! transmission of the clock time. For example to indicate the change of hour at
-//! an outstation, thus enabling messages to be stored for more than 1 h in an
-//! outstation without ambiguity."* TS 60870-5-604 Table 16 (PDF page index 63,
-//! printed page 62) tests it under *"Acquisition of events"* (COT 3 / ASDU
-//! 103): *"The Controlled station sends a spontaneous clock synchronisation
-//! message with COT=3 to indicate its internal date and hour shift immediately
-//! after the hour shift or before sending subsequent ASDUs with short time
-//! tag"*.
+//! Figure 75's caption: besides the procedure of 6.7 of IEC 60870-5-5, a
+//! station may send `C_CS_NA_1` spontaneously in the monitor direction to
+//! report its clock time, for instance to announce a change of hour, so that
+//! an outstation can hold messages for more than an hour without ambiguity.
+//! TS 60870-5-604 Table 16 (PDF page index 63, printed page 62) tests it under
+//! *"Acquisition of events"* (COT 3 / ASDU 103): the controlled station sends
+//! the clock synchronisation spontaneously, with cause 3, to report its date
+//! and hour change, either right after the hour changes or before it sends
+//! further ASDUs with a short time tag.
 //!
 //! So **cause 7 is the answer to a request and cause 3 is an announcement that
 //! answers nothing**, and [`Reaction`] classifies them apart
@@ -93,13 +91,12 @@
 //!
 //! # `FF`/`FFFF` is legal here, and the answer carries the station's own address
 //!
-//! 5-101 clause **7.2.4** (PDF page index 43, printed page 42): *"The use of the
-//! common address FF or FFFF is restricted to the following ASDUs in the control
-//! direction: type Identification <100> … <101> … <103> … <105>"* and *"When
-//! using the common address FF or FFFF (broadcast address, request of all),
-//! ACTCON, ACTTERM and the interrogated information objects (if any) are
-//! returned with the specific common addresses of the controlled stations as
-//! they would be when caused by commands to specific controlled stations."*
+//! 5-101 clause **7.2.4** (PDF page index 43, printed page 42) allows the
+//! common address `FF`/`FFFF` only on the control-direction types `<100>`,
+//! `<101>`, `<103>` and `<105>`. When it is used (the broadcast address,
+//! addressing every station), each controlled station returns its ACTCON,
+//! ACTTERM and any interrogated objects with its own specific common address,
+//! exactly as it would for a command addressed to it alone.
 //! TS 60870-5-604 5.4.18.15 tests it for this procedure (PIXIT).
 //!
 //! So [`request`] takes whatever common address the caller gives it, a
@@ -119,31 +116,30 @@
 //! * **No data source.** This procedure answers with a time the caller already
 //!   holds, so it takes that time as an argument instead of pulling it from a
 //!   trait.
-//! * **No clock and no timer.** Clause 7.6: *"Controlled stations expect the
-//!   reception of clock synchronization messages within agreed time intervals.
-//!   When the synchronization command does not arrive within this time interval,
-//!   the controlled station sets all time-tagged information objects with a mark
-//!   that the time tag may be inaccurate (invalid)."* 5-101 clause **7.4.6**
-//!   (PDF page index 126, printed page 125) adds *"The summer-time bit is ignored
-//!   in both controlling and controlled stations, and should be set to zero."*
+//! * **No clock and no timer.** Clause 7.6: controlled stations expect a clock
+//!   synchronisation within an agreed interval; if none arrives in time, the
+//!   controlled station marks every time-tagged information object as possibly
+//!   inaccurate (invalid). 5-101 clause **7.4.6** (PDF page index 126, printed
+//!   page 125) adds that both stations ignore the summer-time bit, which
+//!   should be zero.
 //!   The module reads no clock: [`TimeValidity`] keeps the interval rule with
 //!   the current time as an argument, and the caller applies its answer to the
 //!   time tags it sends (see "The time tag's invalid mark" below). The
 //!   `invalid` and `summer_time` fields of [`Cp56Time2a`] round-trip through
 //!   every builder here; choosing between UTC and local time is the
 //!   application's.
-//! * **No transmit-order control.** Clause 7.6: *"This message is transmitted
-//!   after any buffered time-tagged PDUs, that may be waiting for transmission.
-//!   Time-tagged events that occur after the internal clock synchronization are
-//!   transmitted after the `C_CS` ACTCON PDU."* No application-level transmit
+//! * **No transmit-order control.** Clause 7.6: the confirmation goes out after
+//!   any time-tagged PDUs already buffered for transmission, and time-tagged
+//!   events that occur after the internal synchronisation go out after the
+//!   `C_CS` ACTCON. No application-level transmit
 //!   queue exists above [`crate::link`] in this crate, so the ordering is the
 //!   caller's. [`crate::tx::respond_priority`] puts `C_CS_NA_1` in the event
 //!   row of 5-101 Table 16; `iec104-tokio`'s `server::Server` keeps such a
 //!   queue, first in first out within a row, so its confirmation goes out
 //!   behind the events queued before it and ahead of those queued after.
-//! * **No accuracy claim.** Clause 7.6: *"However, clock synchronization may be
-//!   used in configurations where the maximum network delay is less than the
-//!   required accuracy of the clock in the receiving station."* This module
+//! * **No accuracy claim.** Clause 7.6 limits clock synchronisation to
+//!   configurations whose maximum network delay is below the clock accuracy
+//!   the receiving station needs. This module
 //!   sends and classifies frames; it does not claim a synchronised clock.
 //!
 //! # What this module is not
@@ -169,14 +165,12 @@
 //!
 //! # The time tag's invalid mark
 //!
-//! Clause 7.6, verbatim: *"Controlled stations expect the reception of clock
-//! synchronization messages within agreed time intervals. When the
-//! synchronization command does not arrive within this time interval, the
-//! controlled station sets all time-tagged information objects with a mark that
-//! the time tag may be inaccurate (invalid). This mark is also set after station
-//! initializiation (warm and cold boot) of controlled stations before reception
-//! of a valid `C_CS` ACT PDU. Time-tagged events that occur after the reception of
-//! valid `C_CS` ACT PDU are transmitted without the mark."*
+//! Clause 7.6, in summary: a controlled station expects a clock
+//! synchronisation within an agreed interval, and when none arrives in time it
+//! marks every time-tagged information object as possibly inaccurate
+//! (invalid). The same mark applies after a station initialisation (warm or
+//! cold boot) until a valid `C_CS` ACT is received. Time-tagged events that
+//! occur after a valid `C_CS` ACT is received are sent without the mark.
 //!
 //! The mark is the `IV` bit of the time tag (5-101 clauses 7.2.6.18 and
 //! 7.2.6.19, the `invalid` field of [`Cp56Time2a`] and [`Cp24Time2a`]).
@@ -317,8 +311,8 @@ fn frame(
 /// The cause and the information object address are the clause's, not the
 /// caller's, so a frame the standard does not list for type 103 cannot be built
 /// from this API. `common_address` is the caller's, because 5-101 clause 7.2.4
-/// admits the broadcast address `FF`/`FFFF` for this type (*"for example, to
-/// synchronize the local clocks by a clock synchronization command"*). The
+/// admits the broadcast address `FF`/`FFFF` for this type (to set every
+/// station's local clock with one synchronisation command, for instance). The
 /// error is the layout layer's and cannot occur for these arguments; it is
 /// propagated rather than unwrapped because nothing in `src/` panics.
 ///
@@ -361,7 +355,7 @@ pub fn request_with(
 /// (`actcon`).
 ///
 /// **`pre_sync_time` is the time the station had before the correction**, per
-/// clause 7.6 (*"the local time before it was synchronized"*) and clause 7.6.1.
+/// clause 7.6 (the local time as it was before synchronising) and clause 7.6.1.
 /// It is the caller's value: the module owns no clock, so it cannot read one,
 /// and it must not substitute the time the request carried.
 ///
@@ -411,16 +405,16 @@ pub fn answer_with(
 /// Builds the controlled station's spontaneous clock time.
 ///
 /// The frame is the same sixteen octets with cause 3 (`spont`), which figure
-/// 75's caption permits and TS 60870-5-604 Table 16 tests (*"to indicate its
-/// internal date and hour shift immediately after the hour shift or before
-/// sending subsequent ASDUs with short time tag"*).
+/// 75's caption permits and TS 60870-5-604 Table 16 tests (to report the
+/// station's date and hour change, right after the hour changes or before
+/// further ASDUs with a short time tag).
 ///
 /// Nothing in the crate sends this by itself: which event announces the clock
 /// (an hour shift, a daylight-saving change) and when is the application's.
 ///
 /// **This is a 5-101 message, not a 5-104 one.** 104's interoperability sheet
-/// (clause 9) fills the `<103>` / cause 3 box black (*"option not permitted
-/// in this companion standard"*), and 104 cl.7.6 lists only `C_CS ACT` and
+/// (clause 9) fills the `<103>` / cause 3 box black (the option is not
+/// permitted in this companion standard), and 104 cl.7.6 lists only `C_CS ACT` and
 /// `C_CS ACTCON`. 604's test row reasons from short time tags, which 104 does
 /// not permit either. A controlling station on
 /// [`InteropProfile::conventional`](crate::interop::InteropProfile::conventional)
@@ -473,7 +467,7 @@ pub enum Reaction {
         /// The time the request carried.
         time: Cp56Time2a,
         /// `T = 1`: the request was sent under test conditions (5-101
-        /// cl.7.2.3, *"without controlling the process"*), so its time is not
+        /// cl.7.2.3: the process is not controlled), so its time is not
         /// adopted; [`TimeValidity::on_outcome`] does not count it.
         test: bool,
     },
@@ -781,11 +775,10 @@ impl ClockSynchronisation {
 /// A controlled station's record of clause 7.6's rule for the invalid mark of
 /// its time tags.
 ///
-/// Clause 7.6: *"When the synchronization command does not arrive within this
-/// time interval, the controlled station sets all time-tagged information
-/// objects with a mark that the time tag may be inaccurate (invalid). This mark
-/// is also set after station initializiation (warm and cold boot) of controlled
-/// stations before reception of a valid `C_CS` ACT PDU."*
+/// Clause 7.6: when no synchronisation arrives within the agreed interval, the
+/// controlled station marks every time-tagged information object as possibly
+/// inaccurate (invalid); the same mark applies after a station initialisation
+/// (warm or cold boot) until a valid `C_CS` ACT is received.
 ///
 /// A new record is **not synchronised**, which is the state after station
 /// initialisation. Each valid `C_CS ACT` is reported with
@@ -800,7 +793,7 @@ pub struct TimeValidity {
 
 impl TimeValidity {
     /// A record for the agreed re-synchronisation `interval` (clause 7.6's
-    /// *"agreed time intervals"*), in the state after station initialisation:
+    /// agreed interval), in the state after station initialisation:
     /// no valid `C_CS ACT` received yet, so every time tag is marked invalid.
     #[must_use]
     pub const fn new(interval: Duration) -> Self {
@@ -827,15 +820,14 @@ impl TimeValidity {
     /// set from it.
     ///
     /// Call this only for an activation the station accepted and answered with
-    /// a positive `C_CS ACTCON`: clause 7.6 clears the mark on *"reception of
-    /// valid `C_CS` ACT PDU"* only. [`TimeValidity::on_outcome`] makes that
+    /// a positive `C_CS ACTCON`: clause 7.6 clears the mark only when a valid
+    /// `C_CS` ACT is received. [`TimeValidity::on_outcome`] makes that
     /// decision from the procedure's own classification.
     pub const fn synchronised(&mut self, now: Instant) {
         self.last = Some(now);
     }
 
-    /// Station initialisation (a warm or cold boot, clause 7.6's *"station
-    /// initializiation"*) without building a new record: time tags are marked
+    /// Station initialisation (a warm or cold boot, clause 7.6) without building a new record: time tags are marked
     /// invalid until the next valid `C_CS ACT`.
     pub const fn restart(&mut self) {
         self.last = None;
@@ -850,7 +842,7 @@ impl TimeValidity {
     /// positive confirmation. A refused activation ([`Reaction::Refused`], the
     /// clause 7.2.3 mirror with `P/N = 1`), a discarded one, one of another
     /// procedure, and an answer the application turned into a negative
-    /// confirmation (5-101 clause 7.2.3: *"<1> := negative confirm"*, bit 7 of
+    /// confirmation (5-101 clause 7.2.3: `P/N = <1>`, negative confirm, bit 7 of
     /// the cause of transmission octet) do not count, since the station did
     /// not accept the time.
     pub fn on_outcome(&mut self, outcome: &Outcome, now: Instant) -> bool {
@@ -886,8 +878,8 @@ impl TimeValidity {
     /// valid (see [`TimeValidity::time_valid`]).
     ///
     /// `now` is the instant the time tag was taken, which is when the event
-    /// occurred: clause 7.6 sends *"Time-tagged events that occur after the
-    /// reception of valid `C_CS` ACT PDU"* without the mark. The bit is only ever
+    /// occurred: clause 7.6 sends time-tagged events that occur after a valid
+    /// `C_CS` ACT was received without the mark. The bit is only ever
     /// set here, never cleared: a tag the application already marked invalid
     /// stays so.
     #[must_use]

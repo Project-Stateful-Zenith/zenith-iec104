@@ -9,11 +9,11 @@
 //! Table 17 prints `5.4.17.1`, `5.4.17.10`, `5.4.17.50` and `5.4.17.60` in its
 //! `No.` column; its three re-activation blocks (pages 3 and 4 of 5, indices 66
 //! and 67) carry no number there. Their numbers come from the results table,
-//! Table 27 (5 of 7), PDF page index 94 (printed 93): *"5.4.17.20 Re-activate a
-//! running Outstation interrogation – Option 1: the running GI continues."*,
-//! *"5.4.17.30 … Option 2: the running GI is stopped and the second GI is
-//! started"* and *"5.4.17.40 … Option 3: the running GI continues and after
-//! activation termination (COT=10) the second GI is started."*
+//! Table 27 (5 of 7), PDF page index 94 (printed 93), which lists them as
+//! `5.4.17.20` (re-activation, option 1: the running GI goes on), `5.4.17.30`
+//! (option 2: the running GI is abandoned and the second one starts) and
+//! `5.4.17.40` (option 3: the running GI goes on, and the second starts after
+//! its activation termination, COT=10).
 //!
 //! # Coverage, row by row
 //!
@@ -49,28 +49,27 @@
 //! (the module doc of `gi`: *"Which objects belong to group 3 is project data"*).
 //! So for the two packing rows:
 //!
-//! - *"filled up to"* the maximum length is the application's choice of how
-//!   many objects it puts in one ASDU. The case below packs as a conforming
+//! - packing each ASDU as full as the maximum length allows is the
+//!   application's choice of how many objects it puts in one ASDU. The case below packs as a conforming
 //!   application would and checks that the crate forwards the packed ASDUs
 //!   unchanged and in order;
-//! - *"but not exceeding"* the maximum is the crate's: the layout layer refuses
+//! - never going over the maximum is the crate's: the layout layer refuses
 //!   an ASDU over 104 clause 5's 249 octets, so a `DataSource` cannot build one.
 //!   The case asserts that refusal for one object more than fits;
-//! - *"of the same Type, COT and priority"*: 104 clause 7.2 (index 64) removes
-//!   the link classes (*"Request of user data class 1 and 2 are link functions
-//!   of IEC 60870-5-2 and therefore not available in this standard."*), so the
-//!   crate has no priority to group by.
+//! - the "same type, COT and priority" condition: 104 clause 7.2 (index 64)
+//!   drops the class 1 and class 2 user-data requests, as those are link
+//!   functions of 60870-5-2 that 104 does not have, so the crate has no
+//!   priority to group by.
 //!
-//! Likewise the send **order** of the spontaneous event and the GI data (*"With
-//! single transfer, buffered time tagged events are transmitted from the
-//! Controlled station before GI data"*) is the caller's: `tx`'s module doc
+//! Likewise the send **order** of the spontaneous event and the GI data (the row
+//! has buffered time-tagged events go out ahead of the GI data under single
+//! transfer) is the caller's: `tx`'s module doc
 //! says *"Nothing in this module is scheduled, so that order is the caller's to
 //! apply."* The event case therefore checks the crate's part, that the GI
 //! reports the value the process image holds when the data is produced, not the
 //! one it held at the activation.
 //!
-//! *"loss of link (unsuccessful repetitions of the link layer)"* is a 5-101
-//! notion; over 104 it is the loss of the TCP connection, which is how the
+//! Loss of link, defined by failed link-layer repetitions, is a 5-101 notion; over 104 it is the loss of the TCP connection, which is how the
 //! controlling case drives it.
 //!
 //! # Direction
@@ -92,17 +91,16 @@ use iec104::asdu::{
 };
 use iec104::gi::{ReActivation, Scope};
 
-/// 5-101 clause 7.4.5 (PDF page index 123): *"In response to a station
-/// interrogation request, these information objects are reported in type
-/// identifications <1>, <3>, <5>, <7>, <9>, <11>, <13>, <20> or <21>."*, and
+/// 5-101 clause 7.4.5 (PDF page index 123) answers a station interrogation
+/// with the type identifications `<1>`, `<3>`, `<5>`, `<7>`, `<9>`, `<11>`,
+/// `<13>`, `<20>` and `<21>`, and
 /// 5-101 clauses 7.3.5.1–7.3.5.3 (PDF page indices 110–112) list the causes
 /// `<20>` … `<36>` for the parameters of measured values `<110>`, `<111>`,
 /// `<112>`. These twelve are every ASDU of this station's PICS that carries
 /// causes 20–36. All are untagged.
 const INTERROGATED: [u8; 12] = [1, 3, 5, 7, 9, 11, 13, 20, 21, 110, 111, 112];
 
-/// 104 clause 5 (PDF page index 26): *"The maximum length of the ASDU is
-/// limited to 249"*.
+/// 104 clause 5 (PDF page index 26): an ASDU is at most 249 octets long.
 const MAX_ASDU: usize = 249;
 
 /// The ASDU header of the conventional 104 profile: type 1 + VSQ 1 + COT 2 +
@@ -175,7 +173,7 @@ fn assert_object(what: &str, asdu: &[u8], point: &Point, cause: u8, ca: u16) {
     assert_eq!(header.common_address, ca, "{what}: the common address");
     assert!(
         INTERROGATED.contains(&point.type_id),
-        "{what}: \"The Controlled station sends GI data in ASDUs without time stamp\""
+        "{what}: GI data goes out in ASDU types without a time tag"
     );
     assert_eq!(
         objects_of(asdu).expect("the object area"),
@@ -207,18 +205,15 @@ fn station(
 /// Logical Remote Unit (LRU) available in the controlled station"*, the `M`
 /// rows `Reference` `IEC 60870-5-101:2003, 7.4.5`:
 ///
-/// > The Controlled station mirrors the Interrogation Command with COT = 7,
-/// > C_IC_ACTCON to the Controlling station if the Controlled station is ready
-/// > to return the interrogation information
+/// Rows (paraphrased):
 ///
-/// > All Information Objects that are part of the initiated GI with that QOI are
-/// > sent with the corresponding COT (20-36) to the Controlling station
-///
-/// > The Controlled station sends GI data in ASDUs without time stamp
-///
-/// > The Controlled station sends an Interrogation Command with COT = 10,
-/// > C_IC_ACTTERM, to the Controlling station after all configured GI data is
-/// > sent
+/// - a controlled station that is ready to deliver the interrogated data
+///   mirrors the command with COT=7 (`C_IC_ACTCON`);
+/// - every information object belonging to the GI of that QOI is sent with the
+///   matching cause (20 to 36);
+/// - GI data goes out in ASDU types without a time tag;
+/// - once all configured GI data has been sent, the controlled station sends
+///   COT=10 (`C_IC_ACTTERM`).
 ///
 /// DUT: the **controlled** station. Expected values: the `C_IC_NA_1` octets of
 /// 5-101 figure 72 (index 105) with `QOI` `<20>` (clause 7.2.6.22, index 53),
@@ -250,7 +245,7 @@ fn clause_5_4_17_1_a_station_interrogation_is_confirmed_answered_and_terminated(
     assert_eq!(
         ic("5.4.17.1", &answer[0]),
         expect_ic(COT_ACTCON, false, CA, QOI_STATION),
-        "5.4.17.1: \"mirrors the Interrogation Command with COT = 7, C_IC_ACTCON\""
+        "5.4.17.1: the command mirrored with COT 7 (ACTCON)"
     );
     for (asdu, point) in answer[1..=points.len()].iter().zip(&points) {
         assert_object("5.4.17.1", asdu, point, 20, CA);
@@ -258,7 +253,7 @@ fn clause_5_4_17_1_a_station_interrogation_is_confirmed_answered_and_terminated(
     assert_eq!(
         ic("5.4.17.1", answer.last().expect("the last frame")),
         expect_ic(COT_ACTTERM, false, CA, QOI_STATION),
-        "5.4.17.1: \"C_IC_ACTTERM … after all configured GI data is sent\""
+        "5.4.17.1: ACTTERM once all configured GI data is out"
     );
     assert!(
         trailing.is_empty(),
@@ -269,16 +264,15 @@ fn clause_5_4_17_1_a_station_interrogation_is_confirmed_answered_and_terminated(
 /// 604 Table 17 (1 of 5), PDF page index 64, procedure **`5.4.17.1`**, `M`,
 /// `Reference` `IEC 60870-5-101:2003, 7.4.5`:
 ///
-/// > The Controlled station mirrors the Interrogation Command with COT = 7,
-/// > C_IC_ACTCONneg to the Controlling station if the Controlled station is NOT
-/// > ready to return the interrogation information. In this case, the
-/// > Controlling station may repeat the command
+/// Row (paraphrased): a controlled station that is not ready to deliver the
+/// interrogated data mirrors the command with COT=7 and P/N = 1
+/// (`C_IC_ACTCONneg`); the controlling station may then send it again.
 ///
 /// DUT: the **controlled** station, whose `DataSource` is not ready at first.
 /// Expected values: figure 72's frame with cause 7 and `P/N = 1`, then, once
 /// ready, the repeated command answered as in the case above (5-101 clause
-/// 7.4.5, index 124: *"In this case, the station interrogation command may be
-/// repeated."*).
+/// 7.4.5, index 124, permits repeating the station interrogation command in
+/// that case).
 #[test]
 fn clause_5_4_17_1_a_station_not_ready_confirms_negatively_and_the_command_may_be_repeated() {
     let points = vec![single(0x0201, true, &[])];
@@ -292,7 +286,7 @@ fn clause_5_4_17_1_a_station_not_ready_confirms_negatively_and_the_command_may_b
     assert_eq!(
         ic("5.4.17.1", &first[0]),
         expect_ic(COT_ACTCON, true, CA, QOI_STATION),
-        "5.4.17.1: \"C_IC_ACTCONneg … if the Controlled station is NOT ready\""
+        "5.4.17.1: a negative ACTCON while the station is not ready"
     );
     assert!(
         silence.is_empty(),
@@ -311,7 +305,7 @@ fn clause_5_4_17_1_a_station_not_ready_confirms_negatively_and_the_command_may_b
     assert_eq!(
         ic("5.4.17.1", &answer[0]),
         expect_ic(COT_ACTCON, false, CA, QOI_STATION),
-        "5.4.17.1: \"the Controlling station may repeat the command\", now confirmed"
+        "5.4.17.1: the repeated command, now confirmed"
     );
     assert_eq!(
         answer.len(),
@@ -353,18 +347,14 @@ fn packed(sequence: bool, ioas: &[u32], value: impl Fn(usize) -> i16) -> Vec<u8>
 /// `Reference` `IEC 60870-5-3:1992, 5.1.5` and `IEC 60870-5-101:2003, 7.2.2.2`,
 /// `Required` `M`:
 ///
-/// > The Controlled station transmits Interrogated process information data of
-/// > the same Type, COT and priority but with gaps in their addresses as a Set
-/// > of Information elements (SQ:=0) in one single ASDU, filled up to but not
-/// > exceeding the maximum configured ASDU or APDU length as in the PICS.
+/// Row (paraphrased): interrogated data sharing type, COT and priority whose
+/// addresses have gaps is sent as a set of information objects (SQ=0) in a
+/// single ASDU, packed as full as the PICS's configured ASDU or APDU length
+/// allows without going over it;
 ///
-/// and the same row with `Required` `PIXIT`:
-///
-/// > The Controlled station transmits Interrogated process information data of
-/// > the same type, COT and priority and with sequential addresses as a
-/// > Sequence of Information elements (SQ:=1) in one single ASDU, filled up to
-/// > but not exceeding the maximum configured ASDU or APDU length as in the
-/// > PICS.
+/// and the same row with `Required` `PIXIT`, for data with consecutive
+/// addresses sent as a sequence of information elements (SQ=1), packed the
+/// same way.
 ///
 /// DUT: the **controlled** station. The packing is the application's (see the
 /// module doc); the crate's part is that the packed ASDUs reach the wire
@@ -420,7 +410,7 @@ fn clause_5_4_17_1_interrogated_data_is_packed_as_sq0_and_sq1_up_to_the_asdu_lim
             .collect();
         assert!(
             encode_asdu(&header, &objects).is_err(),
-            "5.4.17.1: \"not exceeding the maximum\": SQ = {} with {} objects is refused",
+            "5.4.17.1: over the maximum, SQ = {} with {} objects is refused",
             u8::from(sq),
             ioas.len()
         );
@@ -456,12 +446,12 @@ fn clause_5_4_17_1_interrogated_data_is_packed_as_sq0_and_sq1_up_to_the_asdu_lim
     assert!(h1.sequence && usize::from(h1.count) == n1);
     assert!(
         answer[1].len() <= MAX_ASDU && answer[1].len() + per_object > MAX_ASDU,
-        "5.4.17.1: SQ = 0 \"filled up to but not exceeding\" 249 octets: {}",
+        "5.4.17.1: SQ = 0 packed as full as 249 octets allow: {}",
         answer[1].len()
     );
     assert!(
         answer[2].len() <= MAX_ASDU && answer[2].len() + SCALED_LEN > MAX_ASDU,
-        "5.4.17.1: SQ = 1 \"filled up to but not exceeding\" 249 octets: {}",
+        "5.4.17.1: SQ = 1 packed as full as 249 octets allow: {}",
         answer[2].len()
     );
     let seq_ioas: Vec<u32> = objects_of(&answer[2])
@@ -471,17 +461,17 @@ fn clause_5_4_17_1_interrogated_data_is_packed_as_sq0_and_sq1_up_to_the_asdu_lim
         .collect();
     assert_eq!(
         seq_ioas, sequential,
-        "5-101 cl.7.2.2.1: \"numbers incrementing continuously by +1\""
+        "5-101 cl.7.2.2.1: the addresses rise by one"
     );
 }
 
 /// 604 Table 17 (1 of 5), PDF page index 64, procedure **`5.4.17.1`**, `M`,
 /// `Reference` `IEC 60870-5-101:2003, 7.4.5` / `7.2.2.2`:
 ///
-/// > GI messages contain actual status information. Test by sending an event
-/// > during the GI before the corresponding GI message. The value in the GI
-/// > should be updated. With single transfer, buffered time tagged events are
-/// > transmitted from the Controlled station before GI data
+/// Row (paraphrased): GI data carries the current state, which is tested by
+/// raising an event during the GI ahead of that object's GI message, whose
+/// value should then be the updated one; under single transfer the controlled
+/// station sends buffered time-tagged events ahead of the GI data.
 ///
 /// DUT: the **controlled** station. The interrogation is confirmed while the
 /// object is OFF; the process then changes it to ON and the application sends
@@ -540,10 +530,10 @@ fn clause_5_4_17_1_an_event_during_the_interrogation_updates_its_value() {
     assert_eq!(rest[event_at], event, "the event goes out as tx built it");
     assert!(
         event_at < gi_at,
-        "5.4.17.1: \"buffered time tagged events are transmitted … before GI data\""
+        "5.4.17.1: the buffered time-tagged event goes out ahead of the GI data"
     );
     assert_object(
-        "5.4.17.1: \"The value in the GI should be updated\"",
+        "5.4.17.1: the GI carries the updated value",
         &rest[gi_at],
         &single(ioa, true, &[]),
         20,
@@ -554,8 +544,8 @@ fn clause_5_4_17_1_an_event_during_the_interrogation_updates_its_value() {
 /// 604 Table 17 (1 of 5), PDF page index 64, procedure **`5.4.17.1`**, `M`,
 /// `Reference` `IEC 60870-5-101:2003, 8.5, 8.6`:
 ///
-/// > The tests in this table are performed correctly by every ASDU in the PICS
-/// > that supports the applicable COT=20-36
+/// Row (paraphrased): the table's tests are only complete when run for every
+/// ASDU type in the PICS that supports the relevant causes 20 to 36.
 ///
 /// DUT: the **controlled** station, with one object of each of the twelve types
 /// of [`INTERROGATED`] (their source is on the constant). Expected values:
@@ -611,12 +601,10 @@ fn grouped_points() -> Vec<Point> {
 /// `Reference` `IEC 60870-5-101:2003, 7.4.5` / `7.2.6.22`, `Required` `PICS,
 /// 9.6 Station interrogation`:
 ///
-/// > The tests in this Table are performed correctly for supported General
-/// > Interrogation groups: The Controlling station sends an Interrogation
-/// > Command (ASDU 100) with COT = 6, C_IC_ACT, to the Controlled station with
-/// > QOI=21...36 (group 1...16).
-/// > At least 3 groups need to be tested (unless only 1 or 2 groups are
-/// > supported).
+/// Row (paraphrased): the table's tests are run for each supported GI group,
+/// the controlling station sending ASDU 100 with COT=6 (`C_IC_ACT`) and
+/// QOI=21 to 36 (groups 1 to 16); at least three groups are to be tested,
+/// unless only one or two are supported.
 ///
 /// DUT: the **controlled** station, groups 1, 8 and 16 (`QOI` 21, 28, 36).
 /// Expected values: 5-101 clause 7.2.6.22 (index 53) for the `QOI`, table 14
@@ -664,33 +652,26 @@ fn clause_5_4_17_1_three_groups_are_interrogated_with_their_own_qoi_and_cause() 
 /// `M` for systems with the functionality in the PIXIT, `Reference`
 /// `IEC 60870-5-101:2003, 7.4.5`:
 ///
-/// > Every LRU mirrors the Interrogation Command with COT = 7, C_IC_ACTCON to
-/// > the Controlling station, containing its configured CASDU address
+/// Rows (paraphrased):
 ///
-/// > It may be possible that one or more LRU(s) mirrors the Interrogation
-/// > Command with COT = 7, C_IC_ACTCONneg to the Controlling station (e.g. if
-/// > the LRU(s) is not ready to return the interrogated information),
-/// > containing its configured CASDU address. Then, the controlling station
-/// > starts the normal GI procedure (for one LRU available) containing the
-/// > CASDU address of that/those LRU(s) and finishes correctly the GI for every
-/// > LRU as described
-///
-/// > All Information Objects that are part of the initiated GI with that QOI
-/// > are sent with the corresponding COT (20-36) to the Controlling station for
-/// > every LRU, containing its configured CASDU address
-///
-/// > The Controlled station sends an Interrogation Command with COT = 10,
-/// > C_IC_ACTTERM, for every LRU to the Controlling station after all
-/// > configured GI data of that LRU is sent, containing its configured CASDU
-/// > address
+/// - each LRU mirrors the command with COT=7 (`C_IC_ACTCON`) under its own
+///   configured CASDU;
+/// - an LRU may instead mirror it negatively, COT=7 with `C_IC_ACTCONneg`,
+///   under its own CASDU (for instance when it is not ready to deliver its
+///   data); the controlling station then runs the ordinary single-LRU GI
+///   addressed to that LRU's (or those LRUs') CASDU and completes the GI for
+///   each of them;
+/// - every object of that QOI's GI is sent for each LRU with the matching
+///   cause (20 to 36) under that LRU's CASDU;
+/// - for each LRU, once all of its configured GI data has gone out, the
+///   controlled station sends COT=10 (`C_IC_ACTTERM`) under that LRU's CASDU.
 ///
 /// DUT: the **controlled** station with two LRUs, common addresses 1 and 2,
 /// each its own `gi::Interrogation::controlled`. LRU 2 is not ready for the
 /// broadcast (`FFFF`) interrogation and is interrogated again at its own
-/// address. Expected values: 5-101 clause 7.4.5 (index 124): *"ACTCON, ACTTERM
-/// and the interrogated information objects are returned with the specific
-/// common addresses of the LRUs in exactly the same manner as if they were
-/// initiated by a station interrogation command issued to the specific LRU."*
+/// address. Expected values: 5-101 clause 7.4.5 (index 124): ACTCON, ACTTERM and
+/// the interrogated objects come back under each LRU's own common address, just
+/// as they would for an interrogation addressed to that LRU alone.
 /// Figure 91 lets the LRUs' answers be interspersed, so each LRU's own
 /// sequence is asserted, not the global order.
 #[test]
@@ -748,12 +729,11 @@ fn clause_5_4_17_10_every_lru_answers_a_broadcast_with_its_own_address() {
             .map(|asdu| ic("5.4.17.10", asdu))
             .collect::<Vec<_>>(),
         vec![expect_ic(COT_ACTCON, true, 2, QOI_STATION)],
-        "5.4.17.10: LRU 2 \"mirrors … C_IC_ACTCONneg … containing its configured CASDU \
-         address\", and nothing else"
+        "5.4.17.10: LRU 2 answers with a negative ACTCON under its own CASDU, and \
+         nothing else"
     );
 
-    // "the controlling station starts the normal GI procedure (for one LRU
-    // available) containing the CASDU address of that/those LRU(s)".
+    // The controlling station's single-LRU GI, addressed to LRU 2's CASDU.
     lru2.lock().ready = true;
     peer.send(&c_ic(COT_ACT, false, 2, QOI_STATION))
         .expect("the repeated act to LRU 2");
@@ -785,12 +765,10 @@ fn clause_5_4_17_10_every_lru_answers_a_broadcast_with_its_own_address() {
 /// **`5.4.17.10`**, `Reference` `IEC 60870-5-101:2003, 7.4.5` / `7.2.6.22`,
 /// `Required` `PICS, 9.6 Station interrogation`:
 ///
-/// > The tests in this Table are performed correctly for supported General
-/// > Interrogation groups: The Controlling station sends an Interrogation
-/// > Command (ASDU 100) with COT = 6, C_IC_ACT, to the Controlled station with
-/// > QOI=21...36 (group 1...16) with CASDU broadcast address (FF or FFFF).
-/// > At least 3 groups need to be tested (unless only 1 or 2 groups are
-/// > supported).
+/// Row (paraphrased): the table's tests are run for each supported GI group,
+/// the controlling station sending ASDU 100 with COT=6 (`C_IC_ACT`) and
+/// QOI=21 to 36 (groups 1 to 16) to the broadcast CASDU (`FF` or `FFFF`); at
+/// least three groups are to be tested, unless only one or two are supported.
 ///
 /// DUT: the **controlled** station with two LRUs (common addresses 1 and 2),
 /// groups 1, 8 and 16 broadcast. Expected values: per LRU, the group's `QOI` on
@@ -879,19 +857,17 @@ fn station_objects(tail: &[Vec<u8>], cause: u8) -> Vec<u32> {
 }
 
 /// 604 Table 17 (3 of 5), PDF page index 66 (printed 65), procedure
-/// **`5.4.17.20`** (numbered in Table 27, index 94), *"Re-activate a running
-/// Outstation interrogation Option 1: the running GI continues"*, `Required`
+/// **`5.4.17.20`** (numbered in Table 27, index 94), re-activation option 1
+/// (the running GI goes on), `Required`
 /// `PIXIT`, `Reference` `IEC 60870-5-101:2003, 7.3.4.1` / `7.4.5`:
 ///
-/// > The Controlling station sends an Interrogation Command (ASDU 100) with COT
-/// > = 6, C_IC_ACT, to the Controlled station with QOI=20 (station) or 21..36
-/// > (group 1..16) when a General Interrogation is already running.
+/// Rows (paraphrased):
 ///
-/// > The Controlled station mirrors the Interrogation Command with COT = 7,
-/// > C_IC_ACTCONneg, to the Controlling station
-///
-/// > The Controlled station continues the already running General
-/// > Interrogation
+/// - while a GI is running, the controlling station sends ASDU 100 with COT=6
+///   (`C_IC_ACT`) and QOI=20 (station) or 21 to 36 (groups 1 to 16);
+/// - the controlled station mirrors it negatively, COT=7 with
+///   `C_IC_ACTCONneg`;
+/// - the controlled station carries on with the GI already running.
 ///
 /// DUT: the **controlled** station under `ReActivation::Continue`; the second
 /// activation is group 1 (`QOI` 21). Expected values: the negative
@@ -907,12 +883,12 @@ fn clause_5_4_17_20_option_1_the_running_interrogation_continues() {
             .map(|a| ic("5.4.17.20", a))
             .collect::<Vec<_>>(),
         vec![expect_ic(COT_ACTCON, true, CA, qoi_group(1))],
-        "5.4.17.20: \"mirrors the Interrogation Command with COT = 7, C_IC_ACTCONneg\""
+        "5.4.17.20: the second command mirrored negatively with COT 7"
     );
     assert_eq!(
         station_objects(&tail, 20),
         vec![0x0601, 0x0608, 0x0610, 0x0611, 0x0620],
-        "5.4.17.20: \"continues the already running General Interrogation\""
+        "5.4.17.20: the running GI carries on"
     );
     let terms: Vec<IcFrame> = tail.iter().filter_map(|a| ic_frame(a)).collect();
     assert_eq!(
@@ -927,17 +903,13 @@ fn clause_5_4_17_20_option_1_the_running_interrogation_continues() {
 }
 
 /// 604 Table 17 (4 of 5), PDF page index 67 (printed 66), procedure
-/// **`5.4.17.30`** (numbered in Table 27, index 94), *"Re-activate a running
-/// Outstation interrogation Option 2: the running GI is stopped and the second
-/// GI is started"*, `Required` `PIXIT`:
+/// **`5.4.17.30`** (numbered in Table 27, index 94), re-activation option 2
+/// (the running GI is abandoned and the second one starts), `Required` `PIXIT`:
 ///
-/// > The Controlled station stops the running General Interrogation (this may
-/// > be indicated by the Controlled station by sending a C_IC_ACTTERM or a
-/// > C_IC_ACTCONneg) and mirrors the Interrogation Command with COT = 7,
-/// > C_IC_ACTCON to the Controlling station
-///
-/// > The Controlled station continues the normal General Interrogation
-/// > procedure
+/// Rows (paraphrased): the controlled station abandons the running GI (and may
+/// signal that with a `C_IC_ACTTERM` or a `C_IC_ACTCONneg`) and confirms the
+/// new command with COT=7 (`C_IC_ACTCON`); it then runs the GI procedure as
+/// usual.
 ///
 /// DUT: the **controlled** station under `ReActivation::Restart`; the second
 /// activation is group 1 (`QOI` 21). Expected values: the first
@@ -966,7 +938,7 @@ fn clause_5_4_17_30_option_2_the_running_interrogation_stops_and_the_second_star
     assert_eq!(
         station_objects(&tail, 21),
         vec![0x0601, 0x0611],
-        "5.4.17.30: \"continues the normal General Interrogation procedure\""
+        "5.4.17.30: the second GI runs as usual"
     );
     assert_eq!(
         tail.iter().filter_map(|a| ic_frame(a)).collect::<Vec<_>>(),
@@ -976,25 +948,20 @@ fn clause_5_4_17_30_option_2_the_running_interrogation_stops_and_the_second_star
 }
 
 /// 604 Table 17 (4 of 5), PDF page index 67, procedure **`5.4.17.40`**
-/// (numbered in Table 27, index 94), *"Re-activate a running Outstation
-/// interrogation Option 3: the running GI continues and after activation
-/// termination (COT=10) the second GI is started."*, `Required` `PIXIT`:
+/// (numbered in Table 27, index 94), re-activation option 3 (the running GI
+/// goes on, and the second starts after its activation termination, COT=10), `Required` `PIXIT`:
 ///
-/// > The Controlled station continues the running General Interrogation and
-/// > mirrors the second Interrogation Command with COT = 7, C_IC_ACTCON to the
-/// > Controlling station.
-///
-/// > The Controlled station continues with the first General Interrogation
-/// > procedure. After activation termination (COT=10) the Information Objects
-/// > that are part of the second initiated GI are sent with the correct COT
-/// > (20-36) to the Controlling station
+/// Rows (paraphrased): the controlled station keeps the running GI going and
+/// confirms the second command with COT=7 (`C_IC_ACTCON`); it finishes the
+/// first GI, and after that GI's termination (COT=10) sends the second GI's
+/// objects with their proper cause (20 to 36).
 ///
 /// DUT: the **controlled** station under `ReActivation::Queue`; the second
 /// activation is group 16 (`QOI` 36). Expected values: the positive ACTCON of
 /// the second (`QOI` 36); then the first's five objects (cause `<20>`), its
 /// ACTTERM (`QOI` 20), and only after it group 16's objects (`0x0610`,
 /// `0x0611`, cause `<36>`). The second's own ACTTERM is not in the row's text;
-/// 5.4.17.1's *"`C_IC_ACTTERM` … after all configured GI data is sent"* is why
+/// 5.4.17.1's ACTTERM once all configured GI data is out is why
 /// the crate sends it, and this case requires it too.
 #[test]
 fn clause_5_4_17_40_option_3_the_second_interrogation_follows_the_first_termination() {
@@ -1005,7 +972,7 @@ fn clause_5_4_17_40_option_3_the_second_interrogation_follows_the_first_terminat
             .map(|a| ic("5.4.17.40", a))
             .collect::<Vec<_>>(),
         vec![expect_ic(COT_ACTCON, false, CA, qoi_group(16))],
-        "5.4.17.40: \"mirrors the second Interrogation Command with COT = 7, C_IC_ACTCON\""
+        "5.4.17.40: the second command confirmed with COT 7"
     );
     let first_term = tail
         .iter()
@@ -1014,7 +981,7 @@ fn clause_5_4_17_40_option_3_the_second_interrogation_follows_the_first_terminat
     assert_eq!(
         station_objects(&tail[..first_term], 20),
         vec![0x0601, 0x0608, 0x0610, 0x0611, 0x0620],
-        "5.4.17.40: \"continues with the first General Interrogation procedure\""
+        "5.4.17.40: the first GI carries on"
     );
     assert!(
         station_objects(&tail[..first_term], 36).is_empty(),
@@ -1023,8 +990,8 @@ fn clause_5_4_17_40_option_3_the_second_interrogation_follows_the_first_terminat
     assert_eq!(
         station_objects(&tail[first_term..], 36),
         vec![0x0610, 0x0611],
-        "5.4.17.40: \"After activation termination (COT=10) the Information Objects that are \
-         part of the second initiated GI are sent with the correct COT\""
+        "5.4.17.40: after the first termination, the second GI's objects with their own \
+         cause"
     );
     assert_eq!(
         ic_frame(tail.last().expect("last")),
@@ -1038,16 +1005,13 @@ fn clause_5_4_17_40_option_3_the_second_interrogation_follows_the_first_terminat
 /// interrogation"*, `M` for systems supporting the deactivation, `Reference`
 /// `IEC 60870-5-101:2003, 7.3.4.1`:
 ///
-/// > The Controlling station sends an Interrogation Command with COT = 8,
-/// > C_IC_DEACT to the Controlled station with QOI=20 (station) or 21..36
-/// > (group 1..16)
+/// Rows (paraphrased):
 ///
-/// > The Controlled station sends an Interrogation Command with COT = 9,
-/// > C_IC_DEACTCON to the Controlling station
-///
-/// > No further Information Objects that are part of the GI for that QOI are
-/// > sent to the Controlling station. No Interrogation Command with COT = 10
-/// > (ACTTERM) to the Controlling station
+/// - the controlling station sends ASDU 100 with COT=8 (`C_IC_DEACT`) and
+///   QOI=20 (station) or 21 to 36 (groups 1 to 16);
+/// - the controlled station answers with COT=9 (`C_IC_DEACTCON`);
+/// - after that, no more objects of that QOI's GI are sent, and no COT=10
+///   (ACTTERM) follows.
 ///
 /// DUT: the **controlled** station, once for the station (`QOI` 20) and once
 /// for group 5 (`QOI` 25). Expected values: figure 72's frame with cause 9,
@@ -1071,14 +1035,13 @@ fn clause_5_4_17_50_a_deactivated_interrogation_sends_no_more_data_and_no_termin
         assert_eq!(
             ic("5.4.17.50", &answer[0]),
             expect_ic(COT_DEACTCON, false, CA, qoi),
-            "5.4.17.50: \"sends an Interrogation Command with COT = 9, C_IC_DEACTCON\""
+            "5.4.17.50: the deactivation confirmed with COT 9"
         );
         controls.release();
         let after = peer.quiet(300);
         assert!(
             after.is_empty(),
-            "5.4.17.50 (QOI {qoi}): \"No further Information Objects … No Interrogation Command \
-             with COT = 10\": {after:02x?}"
+            "5.4.17.50 (QOI {qoi}): no more objects and no COT 10: {after:02x?}"
         );
         controls
             .release

@@ -72,10 +72,10 @@ fn actions_of(directives: &[Directive]) -> Vec<Action> {
 // cl.7.1: who establishes the connection, and figure 21's repeated attempts
 // ---------------------------------------------------------------------------
 
-/// 5-104 cl.7.1 (index 54, printed 53): *"Connection establishment is performed
-/// by the controlling station in case of a controlled station as a partner; a
-/// fixed selection (parameter) in the case of two equivalent controlling
-/// stations or partners (see figure 1)."* The manager performs no establishment
+/// 5-104 cl.7.1 (index 54, printed 53): with a controlled station as the
+/// partner, the controlling station sets up the connection; between two
+/// equivalent controlling stations or partners, a fixed parameter chooses
+/// which (figure 1). The manager performs no establishment
 /// itself. The first tick asks the caller to, once per station, in station
 /// order.
 #[test]
@@ -141,12 +141,11 @@ fn clause_7_1_an_attempt_is_not_a_connection() {
     );
 }
 
-/// 5-104 cl.7.1, figure 21's own description (index 54, printed 53): *"Figure 21
-/// shows the controlling station repeatedly attempting to establish a
-/// connection with a controlled station. These attempts fail until the
-/// controlled station has performed a local initialization and given a passive
-/// open call to its TCP which has then acquired the listen status (status not
-/// shown in the figure)."* One attempt per t0 expiry, and the retry never gives
+/// 5-104 cl.7.1, figure 21's description (index 54, printed 53): the
+/// controlling station keeps trying to connect to a controlled station, and
+/// each try fails until the controlled station has initialised locally and
+/// done a passive open, putting its TCP into the listen state (a state the
+/// figure leaves out). One attempt per t0 expiry, and the retry never gives
 /// up.
 #[test]
 fn figure_21_every_t0_expiry_starts_another_attempt() {
@@ -182,9 +181,9 @@ fn figure_21_every_t0_expiry_starts_another_attempt() {
     assert!(!manager.station(0).unwrap().is_connected());
 }
 
-/// 5-104 cl.7.1's second half (index 54, printed 53): *"The controlling station
-/// is equivalent to the client (connector), the controlled station to the server
-/// (listener)."* A controlled manager never dials (no `Connect` and no armed t0,
+/// 5-104 cl.7.1's second half (index 54, printed 53): the controlling station
+/// plays the client (the connector) and the controlled station the server (the
+/// listener). A controlled manager never dials (no `Connect` and no armed t0,
 /// however long it is ticked), and its stations come up only through the
 /// caller's own accept.
 #[test]
@@ -251,8 +250,8 @@ fn figure_21_a_refused_dial_is_retried_once_per_t0() {
     );
 }
 
-/// 5-104 clause 9's time-out table (index 114, printed 113): *"t0 30 s
-/// Time-out of connection establishment"*. The manager's retry deadline is that
+/// 5-104 clause 9's time-out table (index 114, printed 113): t0, 30 s, the
+/// connection-establishment time-out. The manager's retry deadline is that
 /// parameter and nothing of its own invention.
 #[test]
 fn clause_9_the_retry_is_the_t0_of_the_stations_own_parameters() {
@@ -304,10 +303,10 @@ fn clause_10_4_figure_33_raises_t0_per_attempt() {
 // cl.10.5: reopening after a failed connection; cl.10.7: per-station timers
 // ---------------------------------------------------------------------------
 
-/// 5-104 cl.10.5 (index 128, printed 127): *"The failed connection is eventually
-/// closed by both sides, and reopening is regularly retried by the controlling
-/// station until the error has been corrected and the connection is
-/// re-established."* The manager is that retry. A connection that lasted at
+/// 5-104 cl.10.5 (index 128, printed 127): both sides end up closing a failed
+/// connection, and the controlling station keeps retrying at intervals until
+/// the fault is cleared and the connection is back. The manager is that retry.
+/// A connection that lasted at
 /// least t0 is reported lost and the next tick asks for a new connection at
 /// once, with a reason saying the connection was lost (one lost sooner waits
 /// for its attempt's t0, see the next test). Every further t0 expiry adds
@@ -351,8 +350,8 @@ fn clause_10_5_reopening_is_retried_until_the_error_is_corrected() {
 }
 
 /// A peer that accepts each connection and closes it at once is not dialed
-/// again at once: clause 10.5's reopening is *"regularly retried"*, and t0
-/// (clause 9: *"Time-out of connection establishment"*) is the station's own
+/// again at once: clause 10.5 retries the reopening at intervals, and t0
+/// (clause 9's connection-establishment time-out) is the station's own
 /// measure of an attempt. A connection lost less than t0 after its attempt
 /// began is dialed again when that t0 runs out, so such a peer gets one
 /// attempt per t0 and not one per round trip.
@@ -385,9 +384,9 @@ fn clause_10_5_a_connection_lost_within_t0_is_dialed_again_after_t0() {
     );
 }
 
-/// 5-104 cl.10.7 (index 136, printed 135): *"It should be possible to set the
-/// values of the timers t0 to t3 individually for each connection within a
-/// redundancy group."* The manager's stations are the crate's other
+/// 5-104 cl.10.7 (index 136, printed 135): t0 to t3 should be settable
+/// separately for each connection of a redundancy group. The manager's
+/// stations are the crate's other
 /// multi-connection value, and clause 10's sentence is why each station carries
 /// its own scheduler: a short t0 on one station must not move another's
 /// deadline.
@@ -477,8 +476,8 @@ fn the_station_carries_its_profile_and_never_invents_one() {
 // cl.5.2: the t3/t1/t2 supervision the manager keeps in step
 // ---------------------------------------------------------------------------
 
-/// 5-104 cl.5.2 (index 34, printed 33): *"The reception of every frame – I frame,
-/// S frame or U frame – retriggers timer t3."* The retrigger belongs to the
+/// 5-104 cl.5.2 (index 34, printed 33): any received frame, whether I, S or U,
+/// restarts t3. The retrigger belongs to the
 /// station the frame arrived on; a frame on one station must not touch another
 /// station's idle deadline.
 #[test]
@@ -628,8 +627,8 @@ fn a_confirmation_the_session_sends_is_never_supervised_by_t1() {
 // ---------------------------------------------------------------------------
 
 /// 5-104 figures 17/18's NOTE 2 and clause 9's own row (index 114, printed 113:
-/// *"t1 15 s Time-out of send or test APDUs"*): *"t1 is the timer of a sent
-/// U-frame or I-frame"*, singular. A peer that confirms every frame about a second
+/// t1 = 15 s for sent or test APDUs): t1 times a sent U-frame or I-frame, in the
+/// singular. A peer that confirms every frame about a second
 /// after it arrives (so that exactly one frame is outstanding at any moment)
 /// never has an unconfirmed frame for more than a second, and must not be
 /// closed: the acknowledgement moves t1 to the frame that is now the oldest.
@@ -774,7 +773,7 @@ fn clause_9_t1_moves_when_an_acknowledgement_refills_the_k_window() {
     assert_eq!(manager.station(0).unwrap().state(), State::Started);
 }
 
-/// Clause 9's t1, "Time-out of send or test APDUs", runs from when each frame
+/// Clause 9's t1, the time-out for sent or test APDUs, runs from when each frame
 /// was sent (figures 17/18 NOTE 2), not from the last acknowledgement. k = 12
 /// frames go out at once and the peer acknowledges one of them 14 s later:
 /// the second frame is then 14 s old and still unconfirmed, so t1 closes the
@@ -825,9 +824,9 @@ fn clause_9_t1_runs_from_the_oldest_unconfirmed_frames_send_time() {
 // cl.5.3: the caller's own requests, through the same timer wiring
 // ---------------------------------------------------------------------------
 
-/// 5-104 cl.5.3 (index 38, printed 37): *"The controlling station must activate
-/// the user data transfer on a connection by sending a STARTDT act via this
-/// connection."* The act goes out as a directive and is supervised by t1
+/// 5-104 cl.5.3 (index 38, printed 37): user data transfer on a connection
+/// starts only when the controlling station sends a STARTDT act on that
+/// connection. The act goes out as a directive and is supervised by t1
 /// (figures 15/16); the con that answers it releases the supervision.
 #[test]
 fn clause_5_3_the_start_act_is_a_directive_and_is_supervised_by_t1() {
@@ -866,9 +865,9 @@ fn clause_5_3_the_start_act_is_a_directive_and_is_supervised_by_t1() {
 /// t1 (clause 5.1: the frame stays in the send buffer until its N(R) comes
 /// back), while the same call on a station that may not send yet is refused by
 /// the session and held in its own clause 5.3 queue. The manager does not add a
-/// second queue of its own. Clause 5.3's *"The controlling station may send
-/// commands or setpoints even if it has not yet received the activation
-/// confirmation."* is why the queued ASDU leaves behind the STARTDT act.
+/// second queue of its own. Clause 5.3 lets the controlling station send
+/// commands or setpoints before the activation confirmation arrives, which is
+/// why the queued ASDU leaves behind the STARTDT act.
 #[test]
 fn a_sent_i_frame_is_a_directive_and_a_refused_one_is_the_sessions_queue() {
     let start = Instant::now();
@@ -1234,10 +1233,10 @@ fn next_deadline_is_the_soonest_station_and_skips_a_terminated_one() {
 
 /// A connection whose session closed itself (here a clause 5 violation in the
 /// APCI) and that the caller re-establishes without reporting the loss is still
-/// a fresh connection: clause 5.1, *"After the establishment of a TCP
-/// connection, the send and receive sequence numbers are set to zero"*, so
-/// nothing of the old connection is outstanding and no t1 (figures 17/18
-/// NOTE 2: *"t1 is the timeout of a sent U-frame or I-frame"*) may run for it.
+/// a fresh connection: clause 5.1 resets the send and receive sequence numbers
+/// to zero once a TCP connection is established, so nothing of the old
+/// connection is outstanding and no t1 (figures 17/18 NOTE 2: the time-out of
+/// a sent U-frame or I-frame) may run for it.
 /// Only the idle timer t3 of clause 5.2 is due.
 #[test]
 fn a_reestablished_connection_keeps_no_t1_of_the_one_that_closed_itself() {

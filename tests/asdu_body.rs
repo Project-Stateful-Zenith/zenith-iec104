@@ -3,8 +3,8 @@
 //! Sources: IEC 60870-5-101:2003 clause 7.2.2 /
 //! figure 12 (the variable structure qualifier: `N` and `SQ`), clause 7.2.2.1
 //! (SQ = 0 addresses each object, SQ = 1 addresses a sequence by its base
-//! address and "the following SINGLE INFORMATION ELEMENTs … are identified by
-//! numbers incrementing continuously by +1 from this offset", with only one
+//! address, each following element taking the next address, one higher than
+//! the one before, with only one
 //! INFORMATION OBJECT on the wire), clause 7.2.5 / figure 21 (the `UI24`
 //! information object address, `<0> := INFORMATION OBJECT ADDRESS is
 //! irrelevant`), and IEC 60870-5-104:2006 clause 5 (max ASDU 249 octets).
@@ -63,8 +63,8 @@ const fn header(sequence: bool, count: u8) -> Header {
 // SQ = 0: one information object address per object
 // ---------------------------------------------------------------------------
 
-/// 5-101 cl.7.2.2.1: with SQ = 0 "each SINGLE INFORMATION ELEMENT … is
-/// addressed by the INFORMATION OBJECT ADDRESS"; the Beckhoff vector carries 7
+/// 5-101 cl.7.2.2.1: with SQ = 0 every element carries its own information
+/// object address; the Beckhoff vector carries 7
 /// `M_ME_NB_1` objects of 3 octets each.
 #[test]
 fn sq0_decodes_every_object_of_the_beckhoff_vector() {
@@ -122,8 +122,8 @@ fn sq0_re_encoding_reproduces_the_wire_octets() {
 // SQ = 1: a sequence addressed by its base IOA
 // ---------------------------------------------------------------------------
 
-/// 5-101 cl.7.2.2.1: "In case of a sequence … only one INFORMATION OBJECT per
-/// ASDU is allocated", and the elements are at base + i.
+/// 5-101 cl.7.2.2.1: a sequence occupies a single information object in the
+/// ASDU, and the elements are at base + i.
 #[test]
 fn sq1_yields_the_base_address_and_the_following_ones() {
     // Base 0x3010, three 3-octet elements, ONE IOA on the wire.
@@ -198,8 +198,8 @@ fn a_zero_object_count_with_a_trailing_octet_is_rejected() {
     );
 }
 
-/// 5-101 cl.7.2.5: "If the INFORMATION OBJECT ADDRESS is not relevant (not
-/// used) in some ASDUs, it is set to zero." IOA 0 is a legal address that
+/// 5-101 cl.7.2.5: an ASDU for which the information object address has no
+/// relevance (is unused) carries zero there. IOA 0 is a legal address that
 /// round-trips.
 #[test]
 fn ioa_zero_is_legal_and_named_irrelevant() {
@@ -364,8 +364,8 @@ fn a_written_address_beyond_ui24_is_rejected() {
     );
 }
 
-/// 5-101 cl.7.2.2.1 makes the sequence's elements "equal COMBINATIONs OF
-/// INFORMATION ELEMENTs", so unequal element lengths cannot be encoded.
+/// 5-101 cl.7.2.2.1 requires the sequence's elements to be equal
+/// combinations of information elements, so unequal element lengths cannot be encoded.
 #[test]
 fn a_sequence_with_unequal_element_lengths_is_rejected() {
     let h = header(true, 2);
@@ -390,7 +390,7 @@ fn a_sequence_with_unequal_element_lengths_is_rejected() {
 }
 
 /// The equality rule is not an SQ = 1 quirk: clause 7.2.2.1 says an SQ = 0 ASDU
-/// holds "one or more than one **equal** INFORMATION OBJECTs".
+/// holds one or more information objects, all of them **equal**.
 #[test]
 fn a_sq0_body_with_unequal_elements_is_rejected() {
     let h = header(false, 2);

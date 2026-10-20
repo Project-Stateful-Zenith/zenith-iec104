@@ -17,8 +17,8 @@
 //! 131) with figure 35 (index 134, printed 133); 10.7 State transition diagrams
 //! (index 136, printed 135) with figure 36, the controlled station's (index 138,
 //! printed 137) and figure 37, the controlling station's (index 140, printed
-//! 139); cl.7.1's *"Connection establishment is performed by the controlling
-//! station in case of a controlled station as a partner"* (page index 54,
+//! 139); cl.7.1's rule that the controlling station establishes the
+//! connection when its partner is a controlled station (page index 54,
 //! printed 53); cl.5.3 for STARTDT/STOPDT as the selection mechanism and
 //! cl.5.2 for the TESTFR supervision of rule 5; 5-101 cl.7.2.6.21 for the `COI` the ENDINIT carries;
 //! and TS 60870-5-604 Table 13, *"Redundant link conformance test procedures"*
@@ -52,8 +52,8 @@ use iec104::redundancy::{
 
 /// The ASDU a calling station sends: `C_IC_NA_1`, cause 6 (activation), common
 /// address 12, information object address 0, `QOI` 20: the station
-/// interrogation 5-104 clause 10.3 asks for *"as soon as possible after the
-/// completion of making one of the connections in started state"*.
+/// interrogation 5-104 clause 10.3 asks for promptly once one of the
+/// connections has been brought into the started state.
 fn station_interrogation() -> Vec<u8> {
     vec![0x64, 0x01, 0x06, 0x00, 0x0C, 0x00, 0x00, 0x00, 0x00, 0x14]
 }
@@ -107,8 +107,8 @@ fn start_member(group: &mut RedundancyGroup, index: usize) {
 
 // ------------------------------------------------------------------- rule 1
 
-/// Rule 1: *"The controlling and controlled station shall be able to handle
-/// multiple (N) logical connections."*
+/// Rule 1: both the controlling and the controlled station must cope with
+/// several (N) logical connections.
 #[test]
 fn rule_1_the_group_handles_multiple_logical_connections() {
     let group =
@@ -124,8 +124,8 @@ fn rule_1_the_group_handles_multiple_logical_connections() {
         assert_eq!(group.member(index).expect("a member").params().k, 12);
     }
 
-    // One connection is the standard's case (10.1: *"mainly focuses on the use
-    // of a single TCP connection"*), and it is a group of one here.
+    // One connection is the standard's case (10.1: the standard is mostly about
+    // a single TCP connection), and it is a group of one here.
     let single =
         RedundancyGroup::uniform(Role::Controlled, LinkParams::default(), 1).expect("a group");
     assert_eq!(single.len(), 1);
@@ -133,11 +133,9 @@ fn rule_1_the_group_handles_multiple_logical_connections() {
 }
 
 /// Rule 1, second half: each logical connection is its own state machine with
-/// its own time-outs. 10.2's *"Send and receive counters on each connection
-/// within a redundancy group continue their functionality independently of the
-/// use of STARTDT/STOPDT"* needs separate counters, and clause 10.7's *"set the
-/// values of the timers t0 to t3 individually for each connection"* needs
-/// separate schedulers.
+/// its own time-outs. 10.2 keeps each connection's send and receive counters
+/// running whatever STARTDT/STOPDT does, which needs separate counters, and
+/// clause 10.7's per-connection t0 to t3 values need separate schedulers.
 #[test]
 fn rule_1_every_member_is_a_session_with_its_own_timers() {
     let group =
@@ -172,7 +170,7 @@ fn rule_1_every_member_is_a_session_with_its_own_timers() {
 
 // ------------------------------------------------------------------- rule 2
 
-/// Rule 2: *"The N logical connections represent one redundancy group."*
+/// Rule 2: the N logical connections together form one redundancy group.
 #[test]
 fn rule_2_the_n_connections_represent_one_group() {
     let group =
@@ -201,8 +199,8 @@ fn rule_2_a_group_with_no_members_is_refused() {
 
 // ------------------------------------------------------------------- rule 3
 
-/// Rule 3: *"Only one logical connection is in the started state and
-/// sending/receiving user data at a time for one redundancy group."* No started
+/// Rule 3: within a redundancy group, at most one logical connection at a
+/// time is started and carries user data in either direction. No started
 /// connection means nobody may carry user data.
 #[test]
 fn rule_3_no_started_connection_carries_no_user_data() {
@@ -271,8 +269,8 @@ fn rule_3_user_data_goes_out_on_exactly_one_connection() {
     assert_eq!(other.pending_user_data(), 0);
 }
 
-/// Rule 3 as the requirement *"no duplicate delivery of the same ASDU across
-/// the group"*: one ASDU offered twice reaches the wire
+/// Rule 3 read as: no ASDU is delivered twice across the group. One ASDU
+/// offered twice reaches the wire
 /// once per offer, on one connection, and a second connection never gets a copy
 /// of it.
 #[test]
@@ -400,8 +398,8 @@ fn rule_3_a_member_index_out_of_range_is_a_typed_refusal() {
 
 // ------------------------------------------------------------------- rule 4
 
-/// Rule 4: *"The controlling station decides which one of the N connections is
-/// be in started state."*
+/// Rule 4: it is the controlling station that picks which of the N
+/// connections is started.
 #[test]
 fn rule_4_the_controlling_station_decides() {
     let mut group =
@@ -424,8 +422,8 @@ fn rule_4_the_controlling_station_decides() {
     assert_eq!(group.state(1), Ok(State::Stopped));
 }
 
-/// Rule 4: *"the selection and switchover of the started connection is always
-/// initiated by the controlling station"* (index 118). A controlled station
+/// Rule 4: choosing and switching the started connection is always the
+/// controlling station's initiative (index 118). A controlled station
 /// does not select at all.
 #[test]
 fn rule_4_a_controlled_station_does_not_select() {
@@ -445,9 +443,9 @@ fn rule_4_a_controlling_station_does_not_take_its_naming_from_an_act() {
     assert_eq!(group.started(), Ok(0));
 }
 
-/// Rule 4's controlled half, verbatim: *"The controlled station (station B)
-/// always understands the connection on which it last received a `STARTDT_ACT` as
-/// the started connection."* The naming is positional, not stateful.
+/// Rule 4's controlled half: the controlled station (station B) always takes
+/// the connection where its most recent `STARTDT_ACT` arrived to be the started
+/// one. The naming is positional, not stateful.
 #[test]
 fn rule_4_the_controlled_station_names_the_last_connection_it_saw_an_act_on() {
     let mut group =
@@ -492,8 +490,8 @@ fn rule_4_naming_the_connection_already_selected_is_refused() {
 
 // ------------------------------------------------------------------- rule 5
 
-/// Rule 5: *"All logical connections of a redundancy group shall be supervised
-/// by test frames as described in 5.2."* TS 60870-5-604 `5.4.13.1` (index 58,
+/// Rule 5: every logical connection of a redundancy group is supervised with
+/// the test frames of 5.2. TS 60870-5-604 `5.4.13.1` (index 58,
 /// *"Periodic check of ALL redundant connections"*) makes the same point: t3 runs
 /// on the started connection **and on all the stopped connections**.
 #[test]
@@ -527,14 +525,13 @@ fn rule_5_every_connection_is_supervised_by_its_own_test_frames() {
     }
 }
 
-/// 10.2: *"Send and receive counters on each connection within a redundancy
-/// group continue their functionality independently of the use of
-/// STARTDT/STOPDT."* The started connection's counters survive a full
+/// 10.2: each connection's send and receive counters keep running whatever
+/// STARTDT/STOPDT does. The started connection's counters survive a full
 /// STOPDT→STARTDT cycle; the stopped connection keeps its own at zero.
 ///
 /// TS 60870-5-604's `5.4.13.10` (page index 58, the automatic switch-over case)
-/// corroborates the sentence: *"The send- and receive counters are not reset to
-/// \"0\" as long as the TCP connection is established."*
+/// corroborates the sentence: the send and receive counters are not reset to
+/// 0 while the TCP connection stays established.
 #[test]
 fn the_counters_of_each_connection_stay_independent() {
     let mut group = controlling_group(2, 0);
@@ -620,12 +617,12 @@ fn the_counters_of_each_connection_stay_independent() {
     assert_eq!(group.member(1).expect("a member").session().v_r().get(), 0);
 }
 
-/// Rule 5 with clause 10.7's words (index 136): *"It should be possible to set
-/// the values of the timers t0 to t3 individually for each connection within a
-/// redundancy group."* Each member carries its own parameters, so two members of
-/// one group may run different `t1`. The same clause's *asymmetric* `t1` is the
-/// case of *"shorter t1 in the controlling station than in the controlled
-/// station"*, i.e. between the two stations of a group, not between two members
+/// Rule 5 with clause 10.7 (index 136): within a redundancy group, each
+/// connection should allow its own t0 to t3 values. Each member carries its own
+/// parameters, so two members of one group may run different `t1`. The same
+/// clause's *asymmetric* `t1` is the case where the controlling station's t1 is
+/// shorter than the controlled station's, i.e. between the two stations of a
+/// group, not between two members
 /// of one station's group. What a group *does* when a member's `t1` expires is
 /// 10.7's behaviour, pinned by
 /// [`clause_10_7_the_asymmetric_t1_switches_over_on_the_shorter_timeout`].
@@ -674,8 +671,8 @@ fn rule_5_each_connection_carries_its_own_time_outs() {
 
 // ------------------------------------------------------------------- rule 6
 
-/// Rule 6: *"A redundancy group shall rely upon only one process image
-/// (database/event buffer)."* The image is the caller's: the group routes the
+/// Rule 6: a redundancy group uses a single process image (database and event
+/// buffer). The image is the caller's: the group routes the
 /// octets it is handed, byte for byte, and stores none of them; `src/rd.rs` and
 /// `src/gi.rs` take their data the same way.
 #[test]
@@ -714,9 +711,9 @@ fn rule_6_the_group_holds_no_process_image() {
 
 // ------------------------------------------------------------------- rule 7
 
-/// Rule 7: *"If more than one controlling station need to access the same
-/// controlled station simultaneously, each controlling station must be assigned
-/// to a different redundancy group (process image)."* Two groups are two
+/// Rule 7: when several controlling stations need the same controlled station
+/// at the same time, each must have a redundancy group (process image) of its
+/// own. Two groups are two
 /// independent process images and two independent sets of counters.
 #[test]
 fn rule_7_each_controlling_station_gets_its_own_group() {
@@ -797,10 +794,9 @@ const fn endinit(reverse_direction_data: bool) -> EndInit {
     }
 }
 
-/// 10.3, verbatim (PDF page index 120, printed 119): *"After connection
-/// establishment, the stopped state is always default, and one of the
-/// connections (e.g. connection 1) is therefore changed from the stopped into
-/// the started state to enable user data transfer on this connection."*
+/// 10.3 (PDF page index 120, printed 119): every connection starts out
+/// stopped once established, so one of them (connection 1, say) is moved from
+/// stopped to started for user data to flow on it.
 ///
 /// Figure 32 (index 122) draws the change as *"send STARTDT"* / `U (STARTDT
 /// act)` on the one connection, *"receive STARTDT"* / `U (STARTDT con)` on the
@@ -849,9 +845,9 @@ fn clause_10_3_the_stopped_state_is_the_default_after_establishment() {
     assert_eq!(group.state(1), Ok(State::Started));
 }
 
-/// 10.3's one connection, against rule 3 (index 118): *"Only one logical
-/// connection is in the started state and sending/receiving user data at a time
-/// for one redundancy group."* The group starts the connection it is asked to
+/// 10.3's one connection, against rule 3 (index 118): within a redundancy
+/// group, at most one logical connection at a time is started and carries user
+/// data. The group starts the connection it is asked to
 /// start and leaves the other N-1 in the stopped state, sending no act for
 /// them.
 #[test]
@@ -903,11 +899,10 @@ fn clause_10_3_only_one_connection_is_started() {
     }
 }
 
-/// 10.3, verbatim (index 120): *"The ENDINIT.req (optional but recommended,
-/// Figures 32 and 33) may always be useful to advise the other station that the
-/// sending station is now ready to respond to an interrogation request. In case
-/// of initialisation of the controlling station, it is only issued if data in
-/// the reverse direction is defined."*
+/// 10.3 (index 120): the ENDINIT.req, optional but recommended (figures 32 and
+/// 33), can always serve to tell the other station that the sender is now
+/// ready to answer an interrogation. When it is the controlling station that
+/// initialises, it sends one only if data in the reverse direction is defined.
 ///
 /// The frame is the `M_EI_NA_1` of `init::end_of_initialisation`, handed to
 /// the started connection exactly as any other user ASDU is (rule 3). The
@@ -973,10 +968,9 @@ fn clause_10_3_endinit_is_issued_only_if_the_reverse_direction_is_defined() {
     );
 }
 
-/// 10.3, verbatim (index 120): *"The controlling station shall initiate a
-/// station interrogation procedure as soon as possible after the completion of
-/// making one of the connections in started state as shown in Figures 32 and
-/// 33."* Figure 32 (index 122) prints it as the box *"Following function:
+/// 10.3 (index 120): once one of the connections is started, the controlling
+/// station must start a station interrogation as early as it can (figures 32
+/// and 33). Figure 32 (index 122) prints it as the box *"Following function:
 /// Station interrogation"*.
 ///
 /// The value is `init::FollowUp::StationInterrogation`; the request it names is
@@ -1020,12 +1014,10 @@ fn clause_10_3_the_station_interrogation_follows_the_first_started_connection() 
     );
 }
 
-/// Rule 4 (index 118, printed 117): *"The controlling station decides which one
-/// of the N connections is be in started state."* 10.3 (index 120, printed
-/// 119): *"After connection establishment, the stopped state is always default,
-/// and one of the connections (e.g. connection 1) is therefore changed from the
-/// stopped into the started state to enable user data transfer on this
-/// connection."*
+/// Rule 4 (index 118, printed 117): it is the controlling station that picks
+/// which of the N connections is started. 10.3 (index 120, printed 119): every
+/// connection starts out stopped once established, so one of them (connection
+/// 1, say) is moved from stopped to started for user data to flow on it.
 ///
 /// The decision and the procedure that carries it out are one flow, not two:
 /// [`RedundancyGroup::select`] names the connection and
@@ -1067,13 +1059,13 @@ fn clause_10_3_start_carries_out_the_selection() {
     );
 }
 
-/// 10.3's change (*"is therefore changed from the stopped into the started
-/// state"*) is a change, so a second start of the connection that already is
+/// 10.3's move from stopped to started is a change, so a second start of the
+/// connection that already is
 /// the group's is the "already in the state the caller asks for" refusal, with
 /// the member's own state, before and after the confirmation. A controlled
-/// station starts nothing of its own: rule 4's *"the selection and switchover
-/// of the started connection is always initiated by the controlling station"*
-/// (index 118), and its initialisation is 10.4.
+/// station starts nothing of its own: rule 4 leaves choosing and switching the
+/// started connection to the controlling station (index 118), and its
+/// initialisation is 10.4.
 #[test]
 fn clause_10_3_a_second_start_on_the_started_connection_is_refused() {
     let mut group =
@@ -1126,10 +1118,10 @@ fn clause_10_3_a_second_start_on_the_started_connection_is_refused() {
     assert_eq!(controlled.started_index(), None);
 }
 
-/// Figure 32's NOTE, verbatim (index 122, printed 121): *"The sequential
-/// interrelationship between the procedures on the connections is not fixed.
-/// For example, establishment of the connections may be started and go on in
-/// parallel."* The group's API therefore imposes no establishment order: it
+/// Figure 32's NOTE (index 122, printed 121): no fixed order ties the
+/// procedures on the different connections together; the connections may, for
+/// instance, be established in parallel. The group's API therefore imposes no
+/// establishment order: it
 /// starts whichever connection the caller has brought up, whatever its index,
 /// and leaves the others alone.
 #[test]
@@ -1189,9 +1181,8 @@ fn monitoring_data() -> Vec<u8> {
 }
 
 /// Brings every connection of the group up, as clause 7.1 has the controlling
-/// station do: *"Connection establishment is performed by the controlling
-/// station in the case of a controlled station as a partner"* (index 118;
-/// index 54 for the 7.1 wording).
+/// station do when its partner is a controlled station (index 118; index 54
+/// for 7.1 itself).
 fn establish_all(group: &mut RedundancyGroup) {
     for index in 0..group.len() {
         group
@@ -1202,14 +1193,13 @@ fn establish_all(group: &mut RedundancyGroup) {
     }
 }
 
-/// 10.4, verbatim (PDF page index 124, printed 123): *"After restart of the
-/// controlled station, the connections are established according to 7.1, but no
-/// user data is transmitted from the controlled station until started state on
-/// one connection is established."*
+/// 10.4 (PDF page index 124, printed 123): after the controlled station
+/// restarts, its connections are established as 7.1 describes, but it sends no
+/// user data until one connection has reached the started state.
 ///
 /// The whole subsection is on that page; figure 33 (index 126, printed 125)
 /// draws the sequence. Established connections are `Stopped` (clause 5.3, index
-/// 38: *"STOPDT is the default state when a connection is established"*), so the
+/// 38: a newly established connection is in the STOPDT state), so the
 /// group names no started one and every route refuses.
 #[test]
 fn clause_10_4_no_user_data_before_one_connection_is_started() {
@@ -1235,10 +1225,10 @@ fn clause_10_4_no_user_data_before_one_connection_is_started() {
     }
 }
 
-/// Rule 4's controlled half, verbatim (index 118, printed 117): *"The
-/// controlled station (station B) always understands the connection on which it
-/// last received a `STARTDT_ACT` as the started connection. It confirms the
-/// activation request by issuing a `STARTDT_CON`."* 10.4 (index 124) is that
+/// Rule 4's controlled half (index 118, printed 117): the controlled station
+/// (station B) always takes the connection where its most recent `STARTDT_ACT`
+/// arrived to be the started one, and confirms the activation with a
+/// `STARTDT_CON`. 10.4 (index 124) is that
 /// station's initialisation, and figure 33 (index 126) draws the step as
 /// `receive STARTDT` / `U (STARTDT act)`.
 ///
@@ -1258,8 +1248,8 @@ fn clause_10_4_the_last_act_names_the_started_connection() {
 
     // A second act, on another member, is the last one received: it moves the
     // group's naming. 10.7's close rule (index 136) closes the connection left
-    // behind with it (*"Any connection that is not in the STOPPED state is
-    // immediately closed at the event of a Start on a new connection."*), so the
+    // behind with it (a start on a new connection closes at once every
+    // connection not in the STOPPED state), so the
     // connection that was started is terminated, and it is not the group's
     // started connection any more either way.
     let actions = group.on_startdt_act(2).expect("an act arrived on 2");
@@ -1290,14 +1280,14 @@ fn clause_10_4_the_last_act_names_the_started_connection() {
 }
 
 /// The confirmation is the connection's own, clause 5.3 (index 38, printed 37):
-/// *"The controlled station responds to this command with a STARTDT con."* 10.2
-/// (index 118): *"It confirms the activation request by issuing a `STARTDT_CON`."*
+/// the controlled station answers the command with STARTDT con. 10.2 (index
+/// 118): the activation is confirmed with a `STARTDT_CON`.
 ///
 /// `on_startdt_act` feeds the received frame to the member's session: the act's
 /// whole answer on the wire is the member's `Session::on_frame` answer, so the group invents no frame of its
 /// own. A controlling station takes its naming from its own decision instead
-/// (rule 4, index 118: *"the selection and switchover of the started connection
-/// is always initiated by the controlling station"*).
+/// (rule 4, index 118: choosing and switching the started connection is always
+/// the controlling station's initiative).
 #[test]
 fn clause_10_4_the_confirmation_is_the_sessions_startdt_con() {
     let mut group = controlled_group(2);
@@ -1329,11 +1319,11 @@ fn clause_10_4_the_confirmation_is_the_sessions_startdt_con() {
     assert_eq!(controlling.state(1), Ok(State::Stopped));
 }
 
-/// What a controlled group must not do. 10.2 (index 118): *"the selection and
-/// switchover of the started connection is always initiated by the controlling
-/// station"*; 10.3 (index 120, printed 119): *"In case of initialisation of the
-/// controlling station, it is only issued if data in the reverse direction is
-/// defined"*. 10.3's procedure and its condition are the controlling station's,
+/// What a controlled group must not do. 10.2 (index 118): choosing and
+/// switching the started connection is always the controlling station's
+/// initiative; 10.3 (index 120, printed 119): when the controlling station
+/// initialises, it sends the ENDINIT only if data in the reverse direction is
+/// defined. 10.3's procedure and its condition are the controlling station's,
 /// so a controlled group selects nothing, starts nothing, issues no
 /// `ENDINIT.req` of its own and runs no station interrogation.
 ///
@@ -1378,8 +1368,8 @@ fn clause_10_4_a_controlled_group_runs_no_controlling_station_procedure() {
     assert_eq!(group.on_startdt_act(2).err(), Some(out_of_range));
 }
 
-/// Clause 5.3, verbatim (index 38, printed 37): *"Any pending user data in the
-/// controlled station is sent only after the STARTDT con."* The controlled
+/// Clause 5.3 (index 38, printed 37): the controlled station holds back
+/// pending user data until the STARTDT con. The controlled
 /// station's monitoring data is handed to the group like any other user ASDU
 /// (rule 3) and waits in **that** connection's own clause 5.3 queue (never in
 /// the group and never in a second member) until the connection answers the
@@ -1469,13 +1459,12 @@ fn asdu_of(action: &Action) -> Option<Vec<u8>> {
     }
 }
 
-/// 10.5, verbatim (PDF page index 128, printed 127): *"If communication fails
-/// on the currently started connection (e.g. connection m) when the controlling
-/// station attempts to transmit user data (e.g. a command ASDU), a connection
-/// switchover will be performed (preferably automatic). … When transmission
-/// timeout (t1) has elapsed, one of the stopped connections (connection n) is
-/// started using the STARTDT function, The command is then directed to the new
-/// started connection"*.
+/// 10.5 (PDF page index 128, printed 127): when the controlling station tries
+/// to send user data (a command ASDU, say) and the started connection
+/// (connection m) fails, a switchover follows, preferably automatically. Once
+/// the transmission time-out t1 expires, STARTDT starts one of the stopped
+/// connections (connection n), and the command goes to that newly started
+/// connection.
 ///
 /// Figure 34 (index 130) draws the sequence as `COMMAND (example)` / `Timeout
 /// t1` / `U (STARTDT act)` / `U (STARTDT con)` / `COMMAND (repeated)`.
@@ -1524,17 +1513,16 @@ fn clause_10_5_the_t1_on_the_started_connection_switches_over() {
     );
     assert_eq!(group.route(1), Ok(1));
 
-    // *"Any subsequent user data (e.g. events) are now transmitted on the new
-    // started connection."*
+    // From here on, user data (events, say) goes out on the newly started
+    // connection.
     let action = group
         .send_user_data(1, &monitoring_data())
         .expect("the new started connection takes it")
         .expect("the act is out, so the controlling station may send");
     assert_eq!(sent_i(&[action]), vec![(0, 0, monitoring_data())]);
 
-    // *"Care shall be taken that data are not lost during a connection
-    // switchover, for example by doing a station interrogation procedure after
-    // a switchover has been performed."* 10.3's follow-up value is that step,
+    // A switchover must not lose data; a station interrogation after it is one
+    // way to ensure that (10.5). 10.3's follow-up value is that step,
     // once the new connection has completed its start.
     assert_eq!(group.follow_up(1), Ok(None));
     group
@@ -1546,9 +1534,8 @@ fn clause_10_5_the_t1_on_the_started_connection_switches_over() {
     assert_eq!(group.follow_up(1), Ok(Some(FollowUp::StationInterrogation)));
 }
 
-/// 10.5, verbatim (index 128): *"A connection switchover will also be performed
-/// whenever a `TESTFR_ACT` on the started connection fails and hence reports a
-/// communication error on this connection."*
+/// 10.5 (index 128): a failed `TESTFR_ACT` on the started connection signals a
+/// communication error there, and also triggers a switchover.
 ///
 /// The failure is the t1 that supervises that act expiring with no `TESTFR con`:
 /// figure 14's unconfirmed act ending in `Time-out t1` → `Active close`
@@ -1586,8 +1573,8 @@ fn clause_10_5_a_failed_testfr_act_on_the_started_connection_switches_over() {
 
 /// A controlling group dials a member whose connection was lost less than t0
 /// after its attempt began only when that t0 runs out (clause 10.5's
-/// reopening is *"regularly retried"*; clause 9's t0 is the *"Time-out of
-/// connection establishment"*), so a peer that closes every connection at
+/// reopening is retried at regular intervals; clause 9's t0 is the
+/// connection establishment time-out), so a peer that closes every connection at
 /// once gets one attempt per t0, as the connection manager gives it.
 #[test]
 fn clause_10_5_a_member_lost_within_t0_is_dialed_again_after_t0() {
@@ -1606,18 +1593,18 @@ fn clause_10_5_a_member_lost_within_t0_is_dialed_again_after_t0() {
     assert_eq!(group.tick(start + t0).connect, vec![0]);
 }
 
-/// 10.5, verbatim (index 128): *"The failed connection is eventually closed by
-/// both sides, and reopening is regularly retried by the controlling station
-/// until the error has been corrected and the connection is re-established."*
+/// 10.5 (index 128): both sides end up closing the failed connection, and the
+/// controlling station keeps trying to reopen it at regular intervals until
+/// the fault is cleared and the connection is back.
 /// Figure 34 (index 130) draws the close as `active close` / `<CTL=FIN>` /
 /// `CLOSED` and the retry as `Timeout t0` / `active close`.
 ///
 /// The group's half of the close is the connection's own t1 reaction; reopening
 /// is the caller's, because the crate owns no socket (clause 7.1, index 54;
 /// `iec104::manager` is the connection manager that retries). TS 60870-5-604's `5.4.13.20` (index 59,
-/// printed 58) puts the retry with the caller too: *"The Controlling station
-/// tries at regular intervals to create a new Stopped connection for the now
-/// closed inoperable connection to the Controlled station."*
+/// printed 58) puts the retry with the caller too: the controlling station
+/// periodically tries to open a new stopped connection to the controlled
+/// station in place of the inoperable one it closed.
 #[test]
 fn clause_10_5_the_failed_connection_is_closed_and_reopening_is_the_callers() {
     let mut group = group_with_a_standby_member();
@@ -1646,8 +1633,8 @@ fn clause_10_5_the_failed_connection_is_closed_and_reopening_is_the_callers() {
         Ok(State::PendingStarted),
         "only the takeover was started"
     );
-    // TS 60870-5-604 5.4.13.10 (index 58): *"The send- and receive counters are
-    // not reset to \"0\" as long as the TCP connection is established."* The
+    // TS 60870-5-604 5.4.13.10 (index 58): the send and receive counters are not
+    // reset to 0 while the TCP connection stays established. The
     // close did not reset them either.
     assert_eq!(group.member(0).expect("a member").session().v_s().get(), 1);
     assert_eq!(group.member(0).expect("a member").session().v_r().get(), 0);
@@ -1662,14 +1649,13 @@ fn clause_10_5_the_failed_connection_is_closed_and_reopening_is_the_callers() {
     assert_eq!(group.member(0).expect("a member").session().v_s().get(), 0);
 }
 
-/// 10.5, verbatim (index 128): *"The command is then directed to the new
-/// started connection, either by re-transmitting the ASDU on this connection or
-/// by terminating the ongoing application function and reinitiating it towards
-/// the new connection (it is left to the application if the ESDU is
-/// retransmitted)."* 10.6, verbatim (index 132, printed 131): *"In general, any
-/// unconfirmed user data will be retransmitted on the new started connection
-/// after a connection switchover has been performed, including potential
-/// unconfirmed ACTCONs or ACTTERMs."* Figure 35 (index 134, printed 133) draws
+/// 10.5 (index 128): the command then goes to the newly started connection,
+/// either by sending the ASDU again there or by ending the running application
+/// function and starting it afresh on the new connection; whether the ASDU is
+/// sent again is the application's choice. 10.6 (index 132, printed 131): as a
+/// rule, after a switchover, all user data still unconfirmed, any unconfirmed
+/// ACTCONs or ACTTERMs among it, is sent again on the newly started
+/// connection. Figure 35 (index 134, printed 133) draws
 /// it as `Connection switchover` / `EVENT (retransmitted)`.
 ///
 /// The decision is the application's and the group reports what it did as a
@@ -1745,8 +1731,8 @@ fn clause_10_5_the_esdu_is_retransmitted_or_left_to_the_application() {
     );
 }
 
-/// 10.5, verbatim (index 128): *"If communication fails on the currently
-/// started connection"*: the trigger is that connection and no other. A t1 on
+/// 10.5 (index 128) makes the trigger a failure of the connection that is
+/// started now: that connection and no other. A t1 on
 /// a stopped connection is that connection's own failure: it closes, and the
 /// group's naming does not move. A t1 on a connection that is already
 /// terminated is not a failure at all, and t2/t3 stay the connection's own
@@ -1786,14 +1772,14 @@ fn clause_10_5_a_t1_off_the_started_connection_is_not_a_switchover() {
     assert_eq!(sent_u(&outcome.actions), Some(UFunction::TestFrAct));
 }
 
-/// 10.5, verbatim (index 128): *"one of the stopped connections (connection n)
-/// is started using the STARTDT function"*. When no stopped connection is left
+/// 10.5 (index 128): STARTDT starts one of the stopped connections
+/// (connection n). When no stopped connection is left
 /// to take over, the group starts none, names no new connection and reports it
 /// rather than picking one that is already in use.
 ///
 /// TS 60870-5-604 `5.4.13.20` (index 59) is the corroborating case: the
-/// inoperable connection is closed and *"The Controlling station tries at
-/// regular intervals to create a new Stopped connection"*. The retry is the
+/// inoperable connection is closed and the controlling station periodically
+/// tries to open a new stopped connection. The retry is the
 /// caller's (the caller owns the sockets; `iec104::manager` drives the retry).
 #[test]
 fn clause_10_5_no_stopped_connection_is_left_to_take_over() {
@@ -1829,11 +1815,10 @@ fn clause_10_5_no_stopped_connection_is_left_to_take_over() {
     );
 }
 
-/// 10.5, verbatim (index 128): *"The controlled station shall only acknowledge
-/// user data received on the connection on which it last received a `STARTDT_ACT`
-/// (the started connection)."* 10.6, verbatim (index 132): *"The controlling
-/// station shall not acknowledge user data received on a connection which is
-/// not started."*
+/// 10.5 (index 128): the controlled station acknowledges user data only on the
+/// connection where its most recent `STARTDT_ACT` arrived (the started
+/// connection). 10.6 (index 132): the controlling station must not acknowledge
+/// user data that arrives on a connection that is not started.
 ///
 /// The group is the layer that knows which connection is the started one, so it
 /// is the layer that refuses an I- or S-frame on any other: the frame is not fed
@@ -1891,20 +1876,18 @@ fn clause_10_6_only_the_started_connection_is_acknowledged() {
     assert_eq!(actions, vec![Action::Send(Apci::U(UFunction::TestFrCon))]);
 }
 
-/// 10.6, verbatim (index 132): *"If communication fails on the started
-/// connection when the controlled station attempts to transmit user data (e.g.
-/// an event ASDU), the controlling station shall detect the failure and perform
-/// a connection switchover before the ASDU can be retransmitted on one of the
-/// previously stopped connections. … A `STARTDT_ACT` will eventually be received
-/// on one of the stopped connections (connection m) as a result of a timeout
-/// (t1) in the controlling station to a TESTFR frame on the currently started
-/// but failed connection. The selected stopped connection now becomes the new
-/// started connection, and the pending event is retransmitted on this
-/// connection."*
+/// 10.6 (index 132): when the controlled station tries to send user data (an
+/// event ASDU, say) and the started connection fails, the controlling station
+/// must notice the failure and switch over before the ASDU can go out again on
+/// one of the formerly stopped connections. The controlling station's t1 on a
+/// TESTFR over the failed started connection expires, so a `STARTDT_ACT`
+/// sooner or later arrives on one of the stopped connections (connection m);
+/// that connection becomes the started one, and the pending event is sent
+/// again on it.
 ///
 /// A controlled station starts no connection of its own (rule 4, index 118:
-/// *"the selection and switchover of the started connection is always initiated
-/// by the controlling station"*): it reports the failure and its naming moves
+/// choosing and switching the started connection is always the controlling
+/// station's initiative): it reports the failure and its naming moves
 /// when the peer's act arrives on a stopped member (10.4, index 124).
 #[test]
 fn clause_10_6_the_controlling_station_starts_the_new_connection() {
@@ -2029,13 +2012,11 @@ fn clause_10_5_one_asdu_reaches_one_connection_across_a_switchover() {
     );
 }
 
-/// 10.2, verbatim (index 118, printed 117): *"Send and receive counters on each
-/// connection within a redundancy group continue their functionality
-/// independently of the use of STARTDT/STOPDT."* TS 60870-5-604 `5.4.13.10`
-/// (index 58, printed 57) extends it to the switchover: *"The send- and receive
-/// counters are not reset to \"0\" as long as the TCP connection is established.
-/// Each TCP connection, not affected by STARTDT and STOPDT procedures or
-/// switch-over procedures, maintains its send- and receive counter."*
+/// 10.2 (index 118, printed 117): each connection's send and receive counters
+/// keep running whatever STARTDT/STOPDT does. TS 60870-5-604 `5.4.13.10`
+/// (index 58, printed 57) extends it to the switchover: the counters are not
+/// reset to 0 while the TCP connection stays established, and every TCP
+/// connection keeps its own pair regardless of STARTDT, STOPDT or switchover.
 ///
 /// So a standby connection that has carried frames of its own before it takes
 /// over keeps its numbering, and the connection that takes over does not inherit
@@ -2125,8 +2106,8 @@ fn the_timeout_paths_refuse_a_name_that_is_no_member() {
 /// k = 1 window (so it holds the next ASDU in its own clause 5.3 queue), and
 /// member 1 is an established, stopped connection with the standard window.
 ///
-/// The two parameter sets are clause 10.7's *"individually for each connection"*
-/// itself: the failed connection's narrow window does not narrow the one that
+/// The two parameter sets are clause 10.7's per-connection values themselves:
+/// the failed connection's narrow window does not narrow the one that
 /// takes over.
 fn group_with_a_one_frame_window() -> RedundancyGroup {
     let mut group = RedundancyGroup::new(
@@ -2150,8 +2131,8 @@ fn group_with_a_one_frame_window() -> RedundancyGroup {
     group
 }
 
-/// 10.5, verbatim (index 128, printed 127): *"it is left to the application if
-/// the ESDU is retransmitted"*, together with the group's own requirement,
+/// 10.5 (index 128, printed 127): whether the ASDU is sent again is the
+/// application's choice, together with the group's own requirement,
 /// *"one ASDU handed to the group once reaches the wire on exactly one
 /// connection, before and after a switchover"*.
 ///
@@ -2233,9 +2214,8 @@ fn clause_10_5_a_failed_connections_data_is_replayed_only_once() {
     );
 }
 
-/// 10.5, verbatim (index 128, printed 127): *"Care shall be taken that data are
-/// not lost during a connection switchover, for example by doing a station
-/// interrogation procedure after a switchover has been performed."*
+/// 10.5 (index 128, printed 127): a switchover must not lose data; a station
+/// interrogation after the switchover is one way to ensure that.
 ///
 /// With the k window full (k = 1) the second ASDU waits in the started
 /// connection's **own** clause 5.3 queue, and that queue is cleared with the
@@ -2499,8 +2479,8 @@ fn clause_10_5_a_re_established_connection_is_replayable_again() {
     );
 
     // And the data a *still* unconfirmed connection holds is replayable on its own
-    // account, per 10.6 (index 132): *"any unconfirmed user data will be
-    // retransmitted on the new started connection"*.
+    // account, per 10.6 (index 132): unconfirmed user data is sent again on the
+    // newly started connection.
     assert_eq!(
         group.retransmit_unconfirmed(1, Replay::Retransmit),
         Ok(ReplayOutcome::Retransmitted {
@@ -2515,11 +2495,10 @@ fn clause_10_5_a_re_established_connection_is_replayable_again() {
     assert_eq!(group.member(0).expect("a member").session().v_s().get(), 1);
 }
 
-/// 10.6, verbatim (index 132, printed 131): *"In general, any unconfirmed user
-/// data will be retransmitted on the new started connection after a connection
-/// switchover has been performed, including potential unconfirmed ACTCONs or
-/// ACTTERMs."* And 10.5 (index 128, printed 127): *"Care shall be taken that
-/// data are not lost during a connection switchover"*.
+/// 10.6 (index 132, printed 131): as a rule, after a switchover, all user data
+/// still unconfirmed, any unconfirmed ACTCONs or ACTTERMs among it, is sent
+/// again on the newly started connection. And 10.5 (index 128, printed 127): a
+/// switchover must not lose data.
 ///
 /// A repeated `STARTDT_ACT` on the connection that already is the group's is
 /// clause 5.3's retransmission of the act, answered with a `STARTDT_CON`; the
@@ -2656,8 +2635,8 @@ fn sent_s(actions: &[Action]) -> Vec<u16> {
 }
 
 /// The connections that are not in the `STOPPED` state and not terminated, for
-/// rule 3 (index 118): *"Only one logical connection is in the started state and
-/// sending/receiving user data at a time for one redundancy group."*
+/// rule 3 (index 118): within a redundancy group, at most one logical
+/// connection at a time is started and carries user data.
 fn live_states(group: &RedundancyGroup) -> Vec<(usize, State)> {
     (0..group.len())
         .filter_map(|index| {
@@ -2670,9 +2649,8 @@ fn live_states(group: &RedundancyGroup) -> Vec<(usize, State)> {
         .collect()
 }
 
-/// 10.7, verbatim (PDF page index 136, printed 135): *"Any connection that is
-/// not in the STOPPED state is immediately closed at the event of a Start on a
-/// new connection."*
+/// 10.7 (PDF page index 136, printed 135): a start on a new connection closes
+/// at once every connection not in the STOPPED state.
 ///
 /// This is the group's central rule, and the one a naive group implementation
 /// gets wrong: starting a new connection **closes the connection that was started
@@ -2745,8 +2723,8 @@ fn clause_10_7_the_close_rule_reaches_a_connection_that_is_only_pending() {
 }
 
 /// 10.7's close rule is not only `start`'s: 10.5's automatic switchover starts a
-/// new connection too (index 128: *"one of the stopped connections (connection n)
-/// is started using the STARTDT function"*), so that Start closes the members
+/// new connection too (index 128: STARTDT starts one of the stopped
+/// connections, connection n), so that Start closes the members
 /// that are not stopped just the same. A connection the caller has brought up
 /// straight through `Member::session_mut`, bypassing the group, is exactly such
 /// a member: it is not the group's started connection and it is not `Stopped`
@@ -2795,9 +2773,9 @@ fn clause_10_7_the_automatic_switchover_closes_the_members_that_are_not_stopped(
     assert_eq!(live_states(&group), vec![(1, State::PendingStarted)]);
 }
 
-/// Figures 10/11's NOTE (printed page 31): *"To avoid retransmission of APDU's
-/// that have already been accepted, an S-frame should, if possible, be sent
-/// prior to the active close."* 10.7's close is the connection's own close, so
+/// Figures 10/11's NOTE (printed page 31): where possible, an S-frame should
+/// precede the active close, so that APDUs already accepted are not sent
+/// again. 10.7's close is the connection's own close, so
 /// the acknowledgement the peer is owed is emitted before it. The ordering comes
 /// from the session's close; the group adds nothing of its own.
 #[test]
@@ -2839,11 +2817,10 @@ fn clause_10_7_the_close_acknowledges_received_frames_first() {
     );
 }
 
-/// 10.2, verbatim (index 118, printed 117): *"Manual connection switchover can
-/// be performed by first issuing a `STOPDT_ACT` on the currently started
-/// connection and then a `STARTDT_ACT` on the selected new started connection.
-/// This will gracefully terminate data transfer on the first connection before
-/// it is resumed on the new connection."*
+/// 10.2 (index 118, printed 117): a manual switchover is a `STOPDT_ACT` on the
+/// connection that is started now, then a `STARTDT_ACT` on the one chosen to
+/// take over; data transfer thus ends cleanly on the first before it resumes on
+/// the second.
 ///
 /// The switchover is the **two requests it is**: a `switch()` that hid the
 /// `STOPDT_ACT` would be the wrong shape, so the STOPDT is visible in the first
@@ -2899,10 +2876,10 @@ fn clause_10_7_manual_switchover_is_a_stop_then_a_start() {
 /// TS 60870-5-604 `5.4.13.30` *"Manual switching over the Started connection to
 /// another redundant Stopped connection: (manual switch-over)"* (indices 59–60,
 /// printed 58–59), step by step: the `STOPDT_ACT`, the pending STOPDT state, the
-/// controlled station *"acknowledges all yet unacknowledged I-frames from the
-/// Controlling station with one or more S-frames"*, the `STOPDT_CON` that
-/// *"transforms the previously Started connection to a Stopped connection"*, and
-/// only then the `STARTDT_ACT` *"over the selected Stopped connection"*.
+/// controlled station's S-frame(s) acknowledging every I-frame from the
+/// controlling station still unacknowledged, the `STOPDT_CON` that turns the
+/// formerly started connection into a stopped one, and only then the
+/// `STARTDT_ACT` on the stopped connection chosen.
 #[test]
 fn ts_604_5_4_13_30_the_steps_of_a_manual_switchover() {
     let mut group = group_with_a_standby_member();
@@ -2953,9 +2930,9 @@ fn ts_604_5_4_13_30_the_steps_of_a_manual_switchover() {
 
 /// The two refusals the first request of the manual switchover can produce, and
 /// their order: 10.2 (index 118) has the *Controlling* station issue the
-/// `STOPDT_ACT` *"on the currently started connection"* (rule 4's *"the selection
-/// and switchover of the started connection is always initiated by the
-/// controlling station"*), and figure 37 (index 140) draws the stop out of the
+/// `STOPDT_ACT` on the connection that is started now (rule 4: choosing and
+/// switching the started connection is always the controlling station's
+/// initiative), and figure 37 (index 140) draws the stop out of the
 /// `STARTED connection` box, so a connection that is not started has no such
 /// transition to take.
 #[test]
@@ -3014,11 +2991,10 @@ fn clause_10_7_the_stop_is_the_controlling_stations_request_on_the_started_conne
     );
 }
 
-/// 10.7, verbatim (index 136, printed 135): *"This means that asymmetric timeouts
-/// t1 can also be used (and t2 correspondingly), i.e. shorter t1 in the
-/// controlling station than in the controlled station to reduce switchover
-/// time."* And: *"It should be possible to set the values of the timers t0 to
-/// t3 individually for each connection within a redundancy group."*
+/// 10.7 (index 136, printed 135): t1 (and likewise t2) may be asymmetric, the
+/// controlling station's t1 shorter than the controlled station's, to cut the
+/// switchover time. And: within a redundancy group, each connection should
+/// allow its own t0 to t3 values.
 ///
 /// No code is needed for the asymmetry: each member carries its own `Timers`
 /// built from its own `LinkParams`, so the controlling station's `t1 = 5 s` is
@@ -3328,14 +3304,13 @@ fn clause_10_7_figure_37_the_boxes_of_the_controlling_station() {
 /// Figure 37's `User application requests connection change[]/Active close`
 /// (index 140), the one transition clause 10 draws that figures 17/18 do not,
 /// and figure 36's incoming `Close initiated by another connection[]/` (index
-/// 138). 10.7 (index 136) makes it the second form of a manual switchover:
-/// *"Manual switchover is initiated by the user application either by a Stop on
-/// the started connection followed by a Start on another connection, or simply
-/// by issuing a connection change request."*
+/// 138). 10.7 (index 136) makes it the second form of a manual switchover: the
+/// user application starts one either with a Stop on the started connection and
+/// then a Start on another, or with a single connection change request.
 ///
 /// TS 60870-5-604 `5.4.13.20` (index 59, printed 58) is why there is no role
-/// guard: *"either"* station *"initiates a TCP active close on the inoperable
-/// connection (which may never arrive)"*.
+/// guard: *"either"* station may actively close the inoperable connection's
+/// TCP side (a close that may never reach the peer).
 #[test]
 fn clause_10_7_the_connection_change_is_an_active_close() {
     let mut group = group_with_a_standby_member();
@@ -3387,10 +3362,10 @@ fn clause_10_7_the_connection_change_is_an_active_close() {
 
 /// TS 60870-5-604 Table 13 (indices 58–60, printed 57–59), `5.4.13.1`
 /// *"Periodic check of ALL redundant connections"* (index 58): the inactivity
-/// time t3 runs on *"the Started connection"* **and** on *"all the Stopped
-/// connections"*, each starting its own TESTFR procedure. This is clause 10.2's
-/// rule 5 (*"All logical connections of a redundancy group shall be supervised
-/// by test frames as described in 5.2."*) at group level, where a t3 is
+/// time t3 runs on the started connection **and** on every stopped one, each
+/// starting its own TESTFR procedure. This is clause 10.2's rule 5 (every
+/// logical connection of a redundancy group is supervised with the test frames
+/// of 5.2) at group level, where a t3 is
 /// supervision and never 10.5's switchover trigger.
 #[test]
 fn ts_604_5_4_13_1_the_periodic_check_runs_on_every_connection() {
@@ -3479,8 +3454,8 @@ fn a_member_that_was_never_connected_is_not_a_standby() {
     assert!(group.start(1).is_ok());
 }
 
-/// 10.5: *"Care shall be taken that data are not lost during a connection
-/// switchover."* When the started connection fails on a controlled station,
+/// 10.5: a switchover must not lose data. When the started connection fails on
+/// a controlled station,
 /// the group stops naming it, holds the data raised in the gap, and hands it
 /// to the next connection the peer starts, right behind its STARTDT con.
 #[test]
@@ -3656,9 +3631,9 @@ fn next_deadline_is_the_soonest_members_timer() {
     );
 }
 
-/// Each member keeps its own parameters (clause 10.7, index 136: *"It should be
-/// possible to set the values of the timers t0 to t3 individually for each
-/// connection"*), so the soonest deadline is the member with the shorter t3.
+/// Each member keeps its own parameters (clause 10.7, index 136: each
+/// connection should allow its own t0 to t3 values), so the soonest deadline
+/// is the member with the shorter t3.
 #[test]
 fn next_deadline_honours_each_members_own_timers() {
     let t0 = Instant::now();
@@ -3676,8 +3651,8 @@ fn next_deadline_honours_each_members_own_timers() {
 /// A started connection its own session closed (figure 11's sequence error,
 /// `Active close`) is no longer the started connection once the caller
 /// reports the socket gone (rule 3), and the user data handed over meanwhile
-/// is held for the next one (10.5, index 128: *"Care shall be taken that data
-/// are not lost during a connection switchover"*).
+/// is held for the next one (10.5, index 128: a switchover must not lose
+/// data).
 #[test]
 fn a_started_connection_closed_by_its_own_session_drops_the_naming_when_lost() {
     let t0 = Instant::now();
@@ -3765,7 +3740,7 @@ fn a_re_established_member_inherits_no_timer_from_the_closed_connection() {
 /// the caller reports it gone: `tick` asks for no second connection in the
 /// meantime (one connection per member, 10.2), and once the loss is reported
 /// the reopening of a connection that lasted longer than t0 is immediate
-/// (10.5: *"reopening is regularly retried"*), not a t0 later. The connection
+/// (10.5: reopening is retried at regular intervals), not a t0 later. The connection
 /// manager behaves the same way.
 #[test]
 fn a_self_closed_member_is_not_dialed_until_its_socket_is_reported_gone() {
@@ -3805,8 +3780,8 @@ fn a_self_closed_member_is_not_dialed_until_its_socket_is_reported_gone() {
     assert_eq!(group.tick(later).connect, [0], "reopened at once");
 }
 
-/// 10.5 (index 128): *"Care shall be taken that data are not lost during a
-/// connection switchover"*. This holds also when the failed connection is
+/// 10.5 (index 128): a switchover must not lose data. This holds also when the
+/// failed connection is
 /// reopened before the caller replays its data: the fresh session's send buffer starts
 /// empty (clause 5.1), but the group keeps the unconfirmed ASDU, and the
 /// replay (10.6) puts it on the new started connection.
@@ -3948,8 +3923,8 @@ fn small_window_outstation() -> RedundancyGroup {
     RedundancyGroup::uniform(Role::Controlled, params, 2).expect("group")
 }
 
-/// 10.5 (index 128): *"Care shall be taken that data are not lost during a
-/// connection switchover"*. The data a failed connection leaves is both what
+/// 10.5 (index 128): a switchover must not lose data. The data a failed
+/// connection leaves is both what
 /// its send buffer never had confirmed and what still waited in its clause 5.3
 /// queue (a full k window, clause 5.5). All of it is counted and all of it is
 /// replayed, also when the master reconnects on the same member and starts it.
@@ -3989,8 +3964,8 @@ fn clause_10_5_the_queued_data_of_a_failed_connection_is_replayed_too() {
     assert_eq!(group.member(0).unwrap().session().pending_user_data(), 1);
 }
 
-/// 10.5: the application may instead *"terminate the ongoing application
-/// function and reinitiate it towards the new connection"*. `Discard` says so:
+/// 10.5: the application may instead end the running application function and
+/// start it afresh on the new connection. `Discard` says so:
 /// the failed connection's data is dropped, and a later failure counts and
 /// replays only its own.
 #[test]
@@ -4043,12 +4018,11 @@ fn leave_keeps_the_data_for_a_later_decision() {
     );
 }
 
-/// 10.2's manual switchover (*"first issuing a `STOPDT_ACT` on the currently
-/// started connection and then a `STARTDT_ACT` on the selected new started
-/// connection"*) with user data handed over between the two: it waited in the
-/// stopped connection's clause 5.3 queue, never went out, and moves with the
-/// naming (10.5: *"Care shall be taken that data are not lost during a
-/// connection switchover"*). It leaves right behind the new STARTDT act (the
+/// 10.2's manual switchover (a `STOPDT_ACT` on the connection that is started
+/// now, then a `STARTDT_ACT` on the one chosen to take over) with user data
+/// handed over between the two: it waited in the stopped connection's clause
+/// 5.3 queue, never went out, and moves with the naming (10.5: a switchover
+/// must not lose data). It leaves right behind the new STARTDT act (the
 /// controlling station may send before the con, clause 5.3) and nowhere else.
 #[test]
 fn clause_10_2_data_queued_during_a_manual_switchover_moves_to_the_new_connection() {
@@ -4196,9 +4170,9 @@ fn a_parse_error_on_the_started_connection_closes_it_through_the_group() {
     );
 }
 
-/// 10.6, verbatim (index 132): *"any unconfirmed user data will be
-/// retransmitted on the new started connection after a connection switchover
-/// has been performed"*. What the failed connection left unconfirmed is older
+/// 10.6 (index 132): after a switchover, all user data still unconfirmed is
+/// sent again on the newly started connection. What the failed connection left
+/// unconfirmed is older
 /// than the data the group held while no connection was started, so on the new
 /// connection the replay goes first and the held data behind it.
 #[test]
@@ -4243,8 +4217,8 @@ fn clause_10_6_the_replay_goes_out_before_the_held_data() {
     assert_eq!(asdus, vec![a1, d2], "the replay first, then the held data");
 }
 
-/// 10.5: *"Care shall be taken that data are not lost during a connection
-/// switchover"*, and 10.6 keeps it in order. `Discard` releases the data the
+/// 10.5: a switchover must not lose data, and 10.6 keeps it in order.
+/// `Discard` releases the data the
 /// group held onto the started connection, which already runs (clause 5.3:
 /// STARTDT con received), so it goes out with the decision and not at a later
 /// acknowledgement, and data sent after it queues behind it.
@@ -4309,8 +4283,9 @@ fn clause_10_5_discard_sends_the_held_data_before_newer_data() {
     );
 }
 
-/// 10.5 (index 128): *"one ASDU handed to the group once reaches the wire on
-/// exactly one connection"*. A failed connection re-established by hand (not
+/// The group's own requirement from 10.5 (index 128): *"one ASDU handed to the
+/// group once reaches the wire on exactly one connection"*. A failed connection
+/// re-established by hand (not
 /// through the group) and failing again before it is named leaves only what
 /// its fresh session held (clause 5.1); the earlier failure's data, captured
 /// already, is offered for replay once.

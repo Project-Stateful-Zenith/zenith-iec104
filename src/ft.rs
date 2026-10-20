@@ -6,7 +6,7 @@
 //!
 //! 5-104 clause **7.11** (PDF page index 72, printed page 71) is headed *"File
 //! transfer (6.12 of IEC 60870-5-5) Control and monitor direction"* and its table
-//! rows are, verbatim and in order:
+//! rows are, in order:
 //!
 //! ```text
 //! A_CALL_DIRECTORY.req  send     F_SC      A_DIRECTORY.req      send     F_DR
@@ -77,19 +77,18 @@
 //! [`crate::rd`] do for a function they do not use.
 //!
 //! 5-101 clause **7.4.11** *"Selections from file transfer"* (index 130,
-//! printed page 129) is, verbatim in full: *"Options of IEC 60870-5-5, 6.12:
-//! `F_SC_NA_1` (Call directory) in the control direction is used. `F_DR_TA_1`
-//! (Directory) in monitor direction is used."* Those are the two halves of one
+//! printed page 129) selects exactly two options of IEC 60870-5-5, 6.12:
+//! `F_SC_NA_1` (call directory) in the control direction and `F_DR_TA_1`
+//! (directory) in the monitor direction. Those are the two halves of one
 //! directory exchange (the call travels to the controlled station, the
 //! directory comes back), which is 604's monitor-direction case. It is not the
 //! source of [`Selection`]; 104 clause 9.6's row is.
 //!
 //! # The APDU ceiling is the only length rule
 //!
-//! 5-104 index **26** (printed page 25), verbatim: *"The maximum length of the
-//! ASDU is limited to 249 because the maximum value of the field length of APDU
-//! is 253 (`APDUmax` = 255 minus start and length octet) and the length of the
-//! control field is 4 octets."* It limits two things:
+//! 5-104 index **26** (printed page 25): an ASDU is at most 249 octets, since
+//! the APDU length field is at most 253 (`APDUmax` = 255 less the start and
+//! length octets) and the control field takes 4. It limits two things:
 //!
 //! * one `F_SG_NA_1` object carries at most **236** segment octets
 //!   (`249 − 6 − 3 − NOF 2 − NOS 1 − LOS 1`): [`MAX_SEGMENT`], refused by
@@ -106,10 +105,9 @@
 //!
 //! # The checksum
 //!
-//! `CHS` is 5-101 clause **7.2.6.37** (index 58), verbatim: *"arithmetic sum
-//! disregarding overflows (sum modulo 256) over all octets of a section (when
-//! used in a last segment PDU) or of a complete file (when used in a last section
-//! PDU)"*. [`checksum`] computes it and [`check_checksum`] compares a received
+//! `CHS` is 5-101 clause **7.2.6.37** (index 58): the sum modulo 256 (overflow
+//! ignored) of every octet of a section, in a last-segment PDU, or of the whole
+//! file, in a last-section PDU. [`checksum`] computes it and [`check_checksum`] compares a received
 //! one, reporting [`FtError::ChecksumMismatch`]. The crate holds no file, so
 //! the octets summed are the caller's; [`segment`] likewise takes the caller's
 //! octet slice and writes `LOS` from its length.
@@ -132,18 +130,18 @@
 //! 7.2.4 (index 43) permits a broadcast for `C_IC_NA_1`, `C_CI_NA_1`,
 //! `C_CS_NA_1` and `C_RP_NA_1` alone. A file-transfer frame that *arrives* at
 //! `FF`/`FFFF` at a controlled station is refused with the class-46 mirror, by
-//! TS 60870-5-604 **5.4.10.10** (index 54): *"The Controlled station rejects
-//! all other ASDU Types with a Broadcast CASDU value by mirroring the ASDU with
-//! P/N = 1 negative (and with COT = 46, if supported)"*. A controlling station,
+//! TS 60870-5-604 **5.4.10.10** (index 54): the controlled station refuses any
+//! other type sent to the broadcast common address by mirroring it with
+//! `P/N = 1`, and with cause 46 too if it supports that cause. A controlling station,
 //! which receives in the monitor direction, discards it instead
 //! ([`Reaction::Discard`]): only a controlled station sends the causes 44 to 47.
 //!
 //! # Addressing
 //!
-//! 5-101 clause **7.4.11.1** (index 131, printed page 130): *"Each file
-//! (directory or subdirectory) is unambiguously defined by the combination of
-//! the common address of the ASDU and the information object address which
-//! includes the name of file as an additional information."* This crate takes
+//! 5-101 clause **7.4.11.1** (index 131, printed page 130): a file (or
+//! directory, or subdirectory) is identified uniquely by the ASDU's common
+//! address together with the information object address, with the name of
+//! file as additional information. This crate takes
 //! both addresses from the caller and never invents either.
 //!
 //! # Example
@@ -674,7 +672,7 @@ pub enum FtError {
         max: usize,
     },
     /// A received segment states one length in `LOS` and carries another number
-    /// of octets. `LOS` `<1..n>` is the *"number of octets of the segment"*
+    /// of octets. `LOS` `<1..n>` counts the segment's octets
     /// (7.2.6.36, index 58), so the two must agree.
     SegmentLengthMismatch {
         /// The length `LOS` states.
@@ -695,8 +693,8 @@ pub enum FtError {
         /// The limit that applied.
         max: usize,
     },
-    /// A checksum that does not add up: 5-101 clause 7.2.6.37's *"arithmetic sum
-    /// disregarding overflows"* over the octets the caller states, against the
+    /// A checksum that does not add up: 5-101 clause 7.2.6.37's sum modulo 256
+    /// over the octets the caller states, against the
     /// `CHS` the frame carried. Whether the station logs it, asks for the
     /// section again or drops the transfer is the application's decision.
     ChecksumMismatch {
@@ -898,8 +896,8 @@ impl FileTransferProcedure {
     ///    station, which receives every frame in the control direction whichever
     ///    way the file travels; a controlling station, which receives in the
     ///    monitor direction, [`Reaction::Discard`]s with nothing sent
-    ///    (cl.7.2.3; TS 60870-5-604 §5.1: *"only a controlled station is allowed
-    ///    to send these COT"*).
+    ///    (cl.7.2.3; TS 60870-5-604 §5.1: only a controlled station may send
+    ///    these causes).
     /// 4. **Otherwise** the frame is decoded with [`decode_frame`]'s checks, so
     ///    a short prefix of any length is a typed error. A frame of a direction
     ///    the station does not serve is refused: a **controlled** station sends
@@ -946,10 +944,10 @@ impl FileTransferProcedure {
         // discards one received in the monitor direction. That is the direction
         // the *frame* travelled, not the file: every frame a controlled station
         // receives came from the controlling station, in the control direction,
-        // whichever way the file goes. *"ASDUs in the control direction with
-        // undefined values … are mirrored by the controlled station"*, and TS
-        // 60870-5-604 §5.1 (index 10): COT 44-47 *"are only defined in Monitor
-        // direction (only a controlled station is allowed to send these COT)"*.
+        // whichever way the file goes. The controlled station mirrors a
+        // control-direction ASDU with undefined values, and TS 60870-5-604
+        // §5.1 (index 10) defines COT 44-47 in the monitor direction only:
+        // only a controlled station may send them.
         let control_direction = self.role == Role::Controlled;
         if header.common_address == self.sizes.broadcast_common_address() {
             let which = Unspecified::CommonAddress;
@@ -1190,10 +1188,9 @@ const fn nos_of(frame: &Frame) -> Option<Nos> {
 
 /// `CHS`: the checksum of 5-101 clause 7.2.6.37 (index 58).
 ///
-/// The clause, verbatim: *"arithmetic sum
-/// disregarding overflows (sum modulo 256) over all octets of a section (when
-/// used in a last segment PDU) or of a complete file (when used in a last section
-/// PDU)"*.
+/// The clause defines it as the sum modulo 256 (overflow ignored) of every
+/// octet of a section, in a last-segment PDU, or of the whole file, in a
+/// last-section PDU.
 ///
 /// This crate holds no file, so the caller passes the octets: the section's
 /// for a last segment, the whole file's for a last section.

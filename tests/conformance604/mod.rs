@@ -28,11 +28,11 @@
 //!
 //! # Direction, and why it is a per-case decision
 //!
-//! §5.1 (index 10, printed 9) makes the direction part of the test: *"For
-//! testing reverse direction, the same test procedures apply in the opposite
-//! direction (replace "Controlling" with "Controlled" and vice versa), except
-//! for COT44-47 which are only defined in Monitor direction (only a controlled
-//! station is allowed to send these COT)."* Every case's doc comment names the
+//! §5.1 (index 10, printed 9) makes the direction part of the test: the
+//! reverse direction is tested with the same procedures, the roles of
+//! controlling and controlled station swapped, except that COT 44-47 exist
+//! only in the monitor direction, so only a controlled station may send them.
+//! Every case's doc comment names the
 //! role it drives and whether that exception applies.
 
 #![allow(dead_code)]
@@ -110,8 +110,8 @@ pub fn asdu(type_id: u8, cause: u8, ca: u16, ioa: u32, payload: u8) -> Vec<u8> {
 }
 
 /// The same builder with 5-101 clause 7.2.3's T flag chosen, for 604 `5.4.10.5`'s
-/// *"Test bit = 0: ASDU generated during normal conditions"* / *"Test bit = 1:
-/// ASDU generated during test conditions"* rows (index 53, `Required` `M` and
+/// two rows on the T bit, 0 for an ASDU produced under normal conditions and 1
+/// for one produced under test conditions (index 53, `Required` `M` and
 /// `Required` `PIXIT` respectively, as the page's `Required` column reads cell
 /// by cell).
 pub fn asdu_test(type_id: u8, cause: u8, ca: u16, ioa: u32, payload: u8, test: bool) -> Vec<u8> {
@@ -153,9 +153,9 @@ fn build_asdu(type_id: u8, cause: u8, ca: u16, test: bool, body: &[u8]) -> Vec<u
 }
 
 /// The four ASDU types 604 `5.4.10.10` (index 54) permits the broadcast CASDU
-/// on: *"Broadcast CASDU value (0xFF<FF>) only used in control direction with
-/// ASDU Types 100 (Interrogation), 101 (Counter interrogation), 103 (Clock Sync)
-/// or 105 (Reset Process)."*
+/// on: the broadcast common address (`0xFF`, or `0xFFFF` with two octets) is
+/// confined to the control direction and to types 100 (interrogation), 101
+/// (counter interrogation), 103 (clock synchronisation) and 105 (reset process).
 pub const BROADCAST_TYPES: [u8; 4] = [100, 101, 103, 105];
 
 // -------------------------- well-formed samples for the type loops
@@ -168,7 +168,7 @@ pub const BROADCAST_TYPES: [u8; 4] = [100, 101, 103, 105];
 
 /// The segment octets the `<125>` `F_SG_NA_1` sample's `LOS` states. Its
 /// element is `NOF` 2 + `NOS` 1 + `LOS` 1 + the segment, so this is the `n` of
-/// figure 88's *"Octet 1 … Octet n"* (5-101 clause 7.3.6.6, index 119).
+/// figure 88's segment octets 1 to n (5-101 clause 7.3.6.6, index 119).
 pub const SAMPLE_SEGMENT_LEN: usize = 2;
 
 /// The one `CP56Time2a` sample the loops use where a time tag is required:
@@ -432,8 +432,8 @@ pub fn monitor_cause(type_id: u8) -> u8 {
 ///
 /// - the broadcast CASDU `FF FF` is a **known** address for the four system
 ///   types [`BROADCAST_TYPES`] names, and an undefined one for every other type
-///   (*"The Controlled station rejects all other ASDU Types with a Broadcast
-///   CASDU value by mirroring the ASDU with P/N = 1 negative"*);
+///   (604 `5.4.10.10`: any other type carrying the broadcast CASDU is refused
+///   by the controlled station, which mirrors it with P/N = 1, negative);
 /// - the four system types carry the *irrelevant* information object address 0
 ///   (5-101 clause 7.2.5), so IOA 0 is held for them.
 pub fn station_profile(asdu: &[u8]) -> Result<Known, String> {
@@ -458,8 +458,8 @@ pub fn station_profile(asdu: &[u8]) -> Result<Known, String> {
 /// and the one object address it holds.
 ///
 /// The broadcast CASDU is never this station's own address. 604 `5.4.10.10`
-/// (index 54, `Required M`): *"The Controlling station handles any received
-/// ASDU with a Broadcast CASDU as an ASDU with an undefined CASDU."*
+/// (index 54, `Required M`): a controlling station that receives an ASDU with
+/// the broadcast CASDU treats it the same as one with an undefined CASDU.
 pub fn controlling_profile(asdu: &[u8]) -> Result<Known, String> {
     let header = Header::parse(asdu).map_err(|e| format!("the header: {e:?}"))?;
     let addresses_known = if header.count == 0 {
@@ -491,9 +491,9 @@ pub fn controlling_discard(asdu: &[u8]) -> Result<Option<Discard>, String> {
 /// the file-transfer family of table 13), i.e. the ASDUs a **controlling**
 /// station puts on the wire.
 ///
-/// This is the set 604 `5.4.11.1`'s NOTE, *"These tests are performed correctly
-/// for each supported ASDU"* (page index 54), asks the controlled-station cases
-/// to run over: the harness profile is `Known::standard`, a station that
+/// This is the set 604 `5.4.11.1`'s NOTE (page index 54) asks the
+/// controlled-station cases to run over, as it requires the tests for every
+/// supported ASDU: the harness profile is `Known::standard`, a station that
 /// implements everything the standard's tables define, so "supported" is 5-104
 /// clause 6's selection, [`TypeId::is_selected_104`].
 ///
@@ -610,9 +610,9 @@ impl ControlledStation {
 
     /// A station holding `pre_start` ASDUs in its clause 5.3 queue: data the
     /// application handed over while data transfer was not enabled, which
-    /// `Session::queue_i_frame` holds until the STARTDT con (clause 5.3: "Any
-    /// pending user data in the controlled station is sent only after the
-    /// STARTDT con").
+    /// `Session::queue_i_frame` holds until the STARTDT con (clause 5.3: the
+    /// controlled station holds back pending user data until after the
+    /// STARTDT con).
     pub fn start_with_queue(pre_start: Vec<Vec<u8>>) -> Result<Self, String> {
         Self::start_app(MirrorApp, pre_start)
     }
@@ -734,8 +734,8 @@ fn serve(
                 }
                 write_action(&mut stream, action, &mut report)?;
             }
-            // 604 §5.3.2.70: an I- or S-frame in a Stopped connection "results
-            // in a TCP Active close". The station closes the socket, which is
+            // 604 §5.3.2.70: an I- or S-frame in a Stopped connection leads to
+            // a TCP active close. The station closes the socket, which is
             // what the peer observes as EOF.
             if !report.closes.is_empty() {
                 let _ = stream.shutdown(Shutdown::Both);
@@ -958,10 +958,10 @@ pub fn mirror_of(request: &[u8]) -> Result<(Apci, Vec<u8>, StationReport), Strin
 //
 // Each of 604's `5.4.10.1`, `5.4.10.5`, `5.4.10.10` and `5.4.11.1` carries a
 // **controlling-station** row beside the controlled-station half the cases above
-// drive: *"Any undefined or not supported ASDU received by the controlling
-// station is ignored (or discarded)"*, and for `5.4.10.10` *"The Controlling
-// station handles any received ASDU with a Broadcast CASDU as an ASDU with an
-// undefined CASDU"* (index 53-54). §5.1 makes the direction part of the test, so
+// drive: the controlling station ignores (or discards) any ASDU it receives that
+// is undefined or unsupported, and for `5.4.10.10` it treats an ASDU with the
+// broadcast CASDU as one with an undefined CASDU (index 53-54). §5.1 makes the
+// direction part of the test, so
 // that half needs the other role: the interoperability harness's
 // [`interop::Station`] is this library as the **controlling** station, and
 // [`MonitorPeer`] is a mock *controlled* peer

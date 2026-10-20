@@ -394,7 +394,7 @@ async fn a_direct_command_ends_at_its_termination() {
     assert_eq!(call.await.unwrap(), Ok(CommandOutcome::Terminated));
 }
 
-/// 5-101 cl.7.4.7: *"`C_SE` ACTTERM may be used optionally"*. A station that
+/// 5-101 cl.7.4.7: the `C_SE` `ACTTERM` is optional. A station that
 /// does not terminate set-points ends the command at its confirmation.
 #[tokio::test(start_paused = true)]
 async fn an_unterminated_set_point_ends_at_its_confirmation() {
@@ -538,9 +538,8 @@ async fn a_second_command_for_the_same_object_is_busy() {
     );
 }
 
-/// TS 60870-5-604 Table 19: *"Command function during a running general
-/// interrogation is processed and executed without waiting for the GI to
-/// finish."*
+/// TS 60870-5-604 Table 19: a command arriving while a general interrogation
+/// runs is handled and executed at once, not after the GI ends.
 #[tokio::test(start_paused = true)]
 async fn a_command_runs_during_an_interrogation() {
     let (client, mut station, _dials) = started(config()).await;
@@ -846,8 +845,8 @@ async fn a_manual_select_waits_for_the_execute() {
     assert_eq!(call.await.unwrap(), Ok(CommandOutcome::Terminated));
 }
 
-/// TS 60870-5-604 5.4.19.10: *"The Controlling station sends the same Command
-/// message with COT=8, `C_SC/DC/SE/RC_DEACT`, and S/E=1 (SELECT)"*, the station
+/// TS 60870-5-604 5.4.19.10: the controlling station repeats the command with
+/// COT = 8 (`C_SC/DC/SE/RC_DEACT`) and S/E = 1 (select), the station
 /// confirms with cause 9 (5-101 figure 64), and the select is gone: an
 /// execute is refused without sending.
 #[tokio::test(start_paused = true)]
@@ -869,9 +868,9 @@ async fn a_cancel_deactivates_the_select() {
     assert!(station.silent_for(Duration::from_secs(60)).await);
 }
 
-/// 5-101 cl.7.2.3: *"The P/N-bit indicates the positive or negative
-/// confirmation of activation requested by the primary application
-/// function."* The same bit on the `DEACTCON` (cause 9, 5-101 figure 64)
+/// 5-101 cl.7.2.3: the P/N bit tells whether an activation the primary
+/// application function asked for is confirmed positively or negatively.
+/// The same bit on the `DEACTCON` (cause 9, 5-101 figure 64)
 /// refuses the deactivation: a negative `DEACTCON` is a refused cancel.
 #[tokio::test(start_paused = true)]
 async fn a_negative_deactivation_confirmation_is_rejected() {
@@ -916,8 +915,8 @@ async fn a_refused_manual_select_leaves_nothing_to_execute() {
     assert!(station.silent_for(Duration::from_secs(60)).await);
 }
 
-/// TS 60870-5-604 Table 19: the execute must carry *"exactly the same
-/// information as the SELECT message"*. An execute of OFF after a select of
+/// TS 60870-5-604 Table 19: the execute must carry information identical to
+/// its select. An execute of OFF after a select of
 /// ON is refused without sending, and the select stays for the right one.
 #[tokio::test(start_paused = true)]
 async fn an_execute_other_than_the_select_is_not_sent() {
@@ -1020,8 +1019,8 @@ async fn a_select_does_not_survive_a_lost_connection() {
     assert!(station.silent_for(Duration::from_secs(60)).await);
 }
 
-/// 5-101 cl.7.4.7: *"The select procedure is only used in case of a select
-/// and execute function."* A direct-execute station has no select.
+/// 5-101 cl.7.4.7: selecting belongs to the select-and-execute function
+/// alone. A direct-execute station has no select.
 #[tokio::test(start_paused = true)]
 async fn a_direct_station_has_no_manual_select() {
     let (client, mut station, _dials) = started(config()).await;
@@ -1055,10 +1054,9 @@ async fn interrogating(
     call
 }
 
-/// TS 60870-5-604 5.4.17.50: *"The Controlling station sends an
-/// Interrogation Command with COT = 8, `C_IC_DEACT`"*, *"The Controlled station
-/// sends an Interrogation Command with COT = 9, `C_IC_DEACTCON`"*, and *"No
-/// Interrogation Command with COT = 10 (ACTTERM)"* follows: the stop returns,
+/// TS 60870-5-604 5.4.17.50: the controlling station sends the interrogation
+/// command with COT = 8 (`C_IC_DEACT`), the controlled station answers with
+/// COT = 9 (`C_IC_DEACTCON`), and no COT = 10 (`ACTTERM`) follows: the stop returns,
 /// and the interrogation ends as stopped.
 #[tokio::test(start_paused = true)]
 async fn a_stop_deactivates_the_running_interrogation() {
@@ -1199,9 +1197,8 @@ async fn a_negative_test_confirmation_is_rejected() {
     assert_eq!(call.await.unwrap(), Err(ClientError::Rejected));
 }
 
-/// 104 cl.8.8: *"The TSC in the response shall match the request"*; TS
-/// 60870-5-604 5.4.22.1: *"Mismatching values of TSC are detected by the
-/// Primary station"*.
+/// 104 cl.8.8: the response's TSC must equal the request's; TS 60870-5-604
+/// 5.4.22.1: the primary station detects a TSC mismatch.
 #[tokio::test(start_paused = true)]
 async fn a_test_confirmation_with_another_tsc_is_a_mismatch() {
     let (client, mut station, _dials) = started(config()).await;
@@ -1391,8 +1388,8 @@ fn spawn_load(client: &Client, value: i16) -> JoinHandle<Result<Parameter, Clien
 }
 
 /// 104 cl.7.9: `P_ME ACT`, `P_ME ACTCON`. TS 60870-5-604 5.4.21.1: the
-/// confirmation *"contain the actual parameter value that is in operation.
-/// -The actual value in this case is the \"new\" value"*.
+/// confirmation carries the parameter value in operation, which here is the
+/// new one.
 #[tokio::test(start_paused = true)]
 async fn a_parameter_load_returns_the_value_in_operation() {
     let (client, mut station, _dials) = started(config()).await;
@@ -1402,9 +1399,9 @@ async fn a_parameter_load_returns_the_value_in_operation() {
     assert_eq!(call.await.unwrap(), Ok(threshold(500)));
 }
 
-/// TS 60870-5-604 5.4.21.10: *"The Controlled station mirrors the same ASDU
-/// with COT=7(ACTCONneg) … The actual value in this case is the \"old\"
-/// existing value"*.
+/// TS 60870-5-604 5.4.21.10: the controlled station returns the ASDU with
+/// COT = 7 negative (`ACTCON` with P/N = 1), carrying the value in
+/// operation, which here is the old one still in place.
 #[tokio::test(start_paused = true)]
 async fn a_refused_parameter_load_reports_the_old_value() {
     let (client, mut station, _dials) = started(config()).await;
@@ -1471,8 +1468,8 @@ async fn a_mirrored_parameter_load_is_refused_with_its_cause() {
     );
 }
 
-/// 5-101 cl.7.4.9: *"`P_AC` ACT/ACTCON and DEACT/DEACTCON are used only in
-/// combination with QPA := <3>"*; `QPA` `<1>` is refused unsent.
+/// 5-101 cl.7.4.9: `P_AC` `ACT`/`ACTCON` and `DEACT`/`DEACTCON` occur only
+/// with QPA = <3>; `QPA` `<1>` is refused unsent.
 #[tokio::test(start_paused = true)]
 async fn an_unused_activation_qualifier_is_not_sent() {
     let (client, mut station, _dials) = started(config()).await;
@@ -1549,7 +1546,7 @@ async fn a_group_discards_what_the_failed_connection_carried() {
 
 /// With the replay chosen, a command whose I-frame the failed connection
 /// never had acknowledged goes out again on the connection the t1
-/// switchover started (10.5, 10.6: *"the pending event is retransmitted"*),
+/// switchover started (10.5, 10.6: the pending event is sent again there),
 /// and its answers arrive there.
 #[tokio::test(start_paused = true)]
 async fn a_group_replays_on_the_next_started_connection() {
@@ -1780,8 +1777,8 @@ async fn an_invalid_value_is_stored_with_its_quality() {
     assert_eq!(entry.cause, Cause::Spontaneous);
 }
 
-/// An ASDU with the test bit set (5-101 cl.7.2.3: *"generated during test
-/// conditions"*, *"without controlling the process"*) reaches the
+/// An ASDU with the test bit set (5-101 cl.7.2.3: produced under test
+/// conditions, without acting on the process) reaches the
 /// subscribers but does not change the image.
 #[tokio::test(start_paused = true)]
 async fn a_test_asdu_does_not_change_the_image() {

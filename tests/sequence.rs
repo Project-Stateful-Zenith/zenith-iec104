@@ -31,8 +31,8 @@ const fn n(v: u16) -> SeqNo {
 
 #[test]
 fn counters_start_at_zero_after_connection_establishment() {
-    // clause 5.1: "After the establishment of a TCP connection, the send and
-    // receive sequence numbers are set to zero."
+    // clause 5.1: both sequence numbers start at zero once the TCP connection
+    // is established.
     let mut s = seq(12, 8);
     assert_eq!(s.v_s(), n(0));
     assert_eq!(s.v_r(), n(0));
@@ -62,8 +62,8 @@ fn a_sent_frame_is_stamped_with_ns_and_carries_the_acknowledgement_number() {
 
 #[test]
 fn the_transmitter_stops_at_k_unacknowledged_frames_and_resumes_on_ack() {
-    // clause 5.5: "The transmitter stops the transmission at k unacknowledged
-    // I format APDUs."
+    // clause 5.5: the sender stops sending once k I-format APDUs are
+    // unacknowledged.
     let mut s = seq(4, 3);
     for expected in 0..4 {
         assert_eq!(
@@ -85,8 +85,8 @@ fn the_transmitter_stops_at_k_unacknowledged_frames_and_resumes_on_ack() {
 
 #[test]
 fn a_partial_acknowledgement_only_releases_what_it_covers() {
-    // clause 5.1: N(R) is "a valid acknowledge for all numbers <= the received
-    // number", so the frames above it stay in the buffer.
+    // clause 5.1: N(R) acknowledges every number up to and including the one
+    // received, so the frames above it stay in the buffer.
     let mut s = seq(12, 8);
     for _ in 0..3 {
         s.buffer_i_frame(&[0x01]).unwrap();
@@ -107,9 +107,9 @@ fn a_partial_acknowledgement_only_releases_what_it_covers() {
 
 #[test]
 fn the_receiver_acknowledges_after_w_received_frames() {
-    // clause 5.5: "The receiver acknowledges at the latest after receiving w
-    // I format APDUs". The standard's footnote adds "Acknowledging before k
-    // is reached avoids a transmission stop."
+    // clause 5.5: the receiver acknowledges no later than the w-th received
+    // I-format APDU. The standard's footnote adds that acknowledging before k
+    // is reached keeps the sender from stopping.
     let mut s = seq(12, 3);
     assert_eq!(s.note_i_frame_received(n(0)).unwrap(), None);
     assert_eq!(s.note_i_frame_received(n(1)).unwrap(), None);
@@ -153,8 +153,8 @@ fn a_wrong_ns_is_a_sequence_error() {
 
 #[test]
 fn an_acknowledgement_for_an_unsent_frame_is_rejected() {
-    // clause 5.1: N(R) acknowledges "the number whose APDUs are properly
-    // received", and a number we never sent cannot be valid.
+    // clause 5.1: N(R) acknowledges numbers whose APDUs arrived correctly, and
+    // a number we never sent cannot be valid.
     let mut s = seq(12, 8);
     s.buffer_i_frame(&[0x01]).unwrap();
     let err = s.note_ack_received(n(3)).unwrap_err();

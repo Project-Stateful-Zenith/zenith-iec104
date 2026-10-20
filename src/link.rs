@@ -11,27 +11,25 @@
 //!
 //! The transitions come from clause 5.3 and its state diagrams, figure 17
 //! (controlled station, printed page 41) and figure 18 (controlling station,
-//! printed page 43). The prose rules the diagrams encode:
+//! printed page 43). The prose rules the diagrams encode, in summary:
 //!
-//! - "When the connection is established, user data transfer is not
-//!   automatically enabled from the controlled station on that connection, i.e.
-//!   STOPDT is the default state when a connection is established." So a fresh
-//!   session is [`State::Stopped`].
-//! - "The controlling station must activate the user data transfer on a
-//!   connection by sending a STARTDT act via this connection. The controlled
-//!   station responds to this command with a STARTDT con."
-//! - "If the STARTDT is not confirmed, the connection is closed by the
-//!   controlling station." This is the t1 reaction, [`State::Terminated`].
-//! - "Any pending user data in the controlled station is sent only after the
-//!   STARTDT con."
-//! - "The controlling station may send commands or setpoints even if it has not
-//!   yet received the activation confirmation." This is why the controlling
-//!   station's [`Session::user_data_allowed`] is already true in
-//!   `PendingStarted`.
-//! - "STOPDT act stops the transmission of I-frames immediately."
-//! - "The controlling station should, however, confirm all received messages
-//!   before sending STOPDT act, and the controlled station should confirm all
-//!   received messages before returning STOPDT con."
+//! - A new connection does not enable the controlled station's user data
+//!   transfer by itself: STOPDT is the state every connection starts in. So a
+//!   fresh session is [`State::Stopped`].
+//! - The controlling station enables user data transfer on a connection by
+//!   sending STARTDT act on it, and the controlled station answers with
+//!   STARTDT con.
+//! - If the STARTDT goes unconfirmed, the controlling station closes the
+//!   connection. This is the t1 reaction, [`State::Terminated`].
+//! - The controlled station sends its pending user data only once the STARTDT
+//!   con has gone out.
+//! - The controlling station may already send commands or setpoints before the
+//!   confirmation arrives. This is why the controlling station's
+//!   [`Session::user_data_allowed`] is already true in `PendingStarted`.
+//! - A STOPDT act ends the sending of I-frames at once.
+//! - Before a stop, both sides should first confirm every message received: the
+//!   controlling station before it sends STOPDT act, the controlled station
+//!   before it returns STOPDT con.
 //!
 //! Figure 18, the controlling station, box by box:
 //!
@@ -103,8 +101,8 @@
 //!
 //! # The pending user-data queue
 //!
-//! "Any pending user data in the controlled station is sent only after the
-//! STARTDT con." The session owns that queue, because it is the only layer that
+//! The controlled station sends its pending user data only after the STARTDT
+//! con (clause 5.3). The session owns that queue, because it is the only layer that
 //! knows when the con went out:
 //!
 //! - [`Session::queue_i_frame`] holds an ASDU the application wants sent, and
@@ -130,14 +128,12 @@
 //!
 //! # The TESTFR keep-alive (clause 5.2, figures 13 and 14)
 //!
-//! Clause 5.2: "Unused, but open, connections may be periodically tested in
-//! both directions by sending test APDUs (TESTFR = act) which are confirmed by
-//! the receiving station sending TESTFR = con. Both stations may initiate the
-//! test procedure after a specified period of time in which no data transfers
-//! occur (time out). The reception of every frame – I frame, S frame or U
-//! frame – retriggers timer t3. Station B has to supervise the connection
-//! independently. However, as long as it receives test frames from station A,
-//! it will not send test frames."
+//! Clause 5.2, in summary: an open but idle connection may be tested
+//! periodically in either direction with TESTFR act, which the receiver
+//! confirms with TESTFR con. Either station may start the test once a set time
+//! has passed with no data transfer (a time-out). Every received frame, I, S
+//! or U, restarts t3. Station B supervises the connection on its own, but does
+//! not send test frames while it keeps receiving them from station A.
 //!
 //! - **Initiating.** [`crate::timers::Timers`] reports t3's expiry, and
 //!   [`Session::on_timeout`] answers it with `TESTFR act` (figure 13: `Time-out
@@ -170,7 +166,7 @@
 //!
 //! | Parse error | Reaction | Justification |
 //! | --- | --- | --- |
-//! | `BadStart` | close | clause 5: "START 68H defines the point of start within the data stream"; on TCP, which neither loses nor reorders octets, another octet there means the peer is not speaking clause 5 (lib60870-C closes too) |
+//! | `BadStart` | close | clause 5: 68H marks where an APDU starts in the data stream; on TCP, which neither loses nor reorders octets, another octet there means the peer is not speaking clause 5 (lib60870-C closes too) |
 //! | `Incomplete` | none (wait for the promised length) | clause 5: the length field says how many octets follow |
 //! | `BadLength` | active close | clause 5 bounds the field at 4…253 |
 //! | `IFormatWithoutAsdu` | active close | clause 5: an I-format APDU always contains an ASDU |
@@ -187,12 +183,12 @@
 //!
 //! # The S-frame before an active close
 //!
-//! Figures 10/11 NOTE, printed page 31: "To avoid retransmission of APDU's that
-//! have already been accepted, an S-frame should, if possible, be sent prior to
-//! the active close." Figure 11 draws it as `S(1) (optional)` just before
+//! Figures 10/11 NOTE, printed page 31: where possible, an S-frame should go out
+//! before the active close, so that APDUs already accepted are not sent again.
+//! Figure 11 draws it as `S(1) (optional)` just before
 //! `Active close`. Every active close therefore emits the pending
 //! acknowledgement first, through the same code that confirms received frames
-//! before a stop completes. "If possible" means exactly when
+//! before a stop completes. "Where possible" means exactly when
 //! [`Session::ack_pending`] is true. For a caller this means:
 //!
 //! - **`ack_pending` means "the peer has not been told".** An N(R) on an
@@ -211,9 +207,9 @@
 //! # Where the standard is silent
 //!
 //! The standard describes STARTDT/STOPDT as the *controlling* station's command
-//! over the monitor direction ("STARTDT (Start Data Transfer) and STOPDT (Stop
-//! Data Transfer) are used by the controlling station (for example, Station
-//! A), to control the data transfer from a controlled station") and never says
+//! over the monitor direction (the controlling station, station A for instance,
+//! uses STARTDT and STOPDT to control the data transfer from a controlled
+//! station) and never says
 //! what a controlling station does when it *receives* STARTDT act or STOPDT
 //! act. Figure 18 draws only `U-frame[]/` self-loops for that role, and a
 //! generic U-frame self-loop cannot be the rule, since clause 5.2 requires a
@@ -221,15 +217,13 @@
 //! UNCONFIRMED STOPPED` box an exit for a STARTDT act.
 //!
 //! TS 60870-5-604:2016 §5.3.2.70, its START/STOP checklist row for clause 5.3,
-//! does not close the gap: its row "the controlled station explicitly disables
-//! the transfer of I- and S-frames and the controlling station does not accept
-//! I- or S-frames in a Pending Started connection, but only U-frames" is about
-//! data frames, not about receiving the STARTDT/STOPDT U-frames. The rows it
+//! does not close the gap: its row on the `Pending Started` connection (the
+//! controlled station sends no I- or S-frames there, and the controlling station
+//! accepts only U-frames) is about data frames, not about receiving the STARTDT/STOPDT U-frames. The rows it
 //! does settle agree with this machine: I/S frames in a `Stopped` connection
 //! are an active close, the controlled station may send U-, I- and S-frames
-//! immediately after the STARTDT con, and "Send sequence number N(S) and
-//! Receive Sequence number N(R) remain unchanged during the use of U-frames
-//! with STARTDT / STOPDT indications" (the U-frames never touch
+//! immediately after the STARTDT con, and STARTDT/STOPDT U-frames leave N(S)
+//! and N(R) unchanged (the U-frames never touch
 //! [`crate::seq`]).
 //!
 //! This machine acts on the function's defined effect rather than ignoring it,
@@ -292,7 +286,7 @@ pub enum Timer {
     /// Connection establishment timer (clause 9).
     T0,
     /// Timeout of a sent U-frame or I-frame that was not confirmed (figure 17/18
-    /// note 2: "t1 is the timeout of a sent U-frame or I-frame").
+    /// note 2: t1 times out a sent U-frame or I-frame).
     T1,
     /// Acknowledgement timeout (clause 9; figure 10 of clause 5.1).
     T2,
@@ -379,8 +373,7 @@ pub enum ParseReaction {
 #[must_use]
 pub const fn reaction(err: ParseError) -> ParseReaction {
     match err {
-        // Clause 5: "START 68H defines the point of start within the data
-        // stream". TCP neither loses, corrupts nor reorders octets, so another
+        // Clause 5: 68H marks where an APDU starts in the data stream. TCP neither loses, corrupts nor reorders octets, so another
         // octet there is a peer not speaking clause 5, and skipping to the next
         // 68H would take the peer's following octets for frames.
         ParseError::BadStart(_) => ParseReaction::Close("start octet is not 68H"),
@@ -527,9 +520,9 @@ impl Session {
     /// before a close.
     ///
     /// The acknowledgement that clears it may be an S-frame or the N(R) on an
-    /// I-frame of ours (clause 5.1: "The receiving station acknowledges each
-    /// APDU or a number of APDUs when it returns the Receive Sequence Number up
-    /// to the number whose APDUs are properly received"). So "true" means "the
+    /// I-frame of ours (clause 5.1: the receiver acknowledges one APDU or several
+    /// by returning the receive sequence number up to which it has received
+    /// APDUs correctly). So "true" means "the
     /// peer has not been told about the APDUs we accepted", not "V(R) is ahead
     /// of the last S-frame we sent". A close with this flag false emits no
     /// S-frame.
@@ -565,8 +558,8 @@ impl Session {
     /// Hands one monitoring-direction ASDU to the session to hold until the
     /// connection can carry it.
     ///
-    /// Clause 5.3: "Any pending user data in the controlled station is sent only
-    /// after the STARTDT con." Queued data is emitted by
+    /// Clause 5.3: the controlled station sends its pending user data only after
+    /// the STARTDT con. Queued data is emitted by
     /// [`Session::flush_pending`] when the STARTDT con goes out, when the
     /// controlling station sends its own STARTDT act, and on every received
     /// acknowledgement, so a caller that hands data over while data transfer is
@@ -606,9 +599,8 @@ impl Session {
     /// Takes every ASDU still waiting in the pending queue out of the session,
     /// oldest first, for a caller that moves it to another connection.
     ///
-    /// This serves a redundancy group whose started connection changes (10.5:
-    /// *"Care shall be taken that data are not lost during a connection
-    /// switchover"*). None of it was on the wire, so no sequence number is
+    /// This serves a redundancy group whose started connection changes (10.5
+    /// requires that no data be lost when the connection is switched over). None of it was on the wire, so no sequence number is
     /// involved.
     pub fn take_pending_user_data(&mut self) -> Vec<Vec<u8>> {
         self.pending.drain(..).collect()
@@ -688,8 +680,8 @@ impl Session {
     /// Unlike [`Session::close`] this emits nothing: the peer is gone, so there
     /// is nobody to confirm anything to. The counters and the acknowledgement
     /// obligation stay as they are until [`Session::on_connection_established`]
-    /// restarts them at zero (clause 5.1: "After the establishment of a TCP
-    /// connection, the send and receive sequence numbers are set to zero"). A
+    /// restarts them at zero (clause 5.1: both sequence numbers start at zero
+    /// once a TCP connection is established). A
     /// caller that reconnects must therefore call both, in that order.
     pub fn on_connection_lost(&mut self) -> Vec<Action> {
         self.terminate();
@@ -703,9 +695,8 @@ impl Session {
             (Role::Controlling, State::Stopped) => {
                 self.state = State::PendingStarted;
                 let mut actions = vec![Action::Send(Apci::U(UFunction::StartDtAct))];
-                // Clause 5.3: "The controlling station may send commands or
-                // setpoints even if it has not yet received the activation
-                // confirmation", so its own queue goes out behind the act.
+                // Clause 5.3: the controlling station may send commands or
+                // setpoints before the confirmation arrives, so its own queue goes out behind the act.
                 actions.extend(self.flush_pending());
                 actions
             }
@@ -750,12 +741,11 @@ impl Session {
     /// were received and not yet confirmed. Every active close emits it too
     /// (figures 10/11 NOTE).
     ///
-    /// "The controlling station should, however, confirm all received messages
-    /// before sending STOPDT act, and the controlled station should confirm all
-    /// received messages before returning STOPDT con", and "If unconfirmed
-    /// messages exist in the controlling station, the controlled station must
-    /// confirm these messages by sending an S-frame before sending out the
-    /// STOPDT con."
+    /// Clause 5.3: each side should confirm every received message before a
+    /// stop, the controlling station before it sends STOPDT act and the
+    /// controlled station before it returns STOPDT con; if the controlling
+    /// station has unconfirmed messages outstanding, the controlled station
+    /// must confirm them with an S-frame before it sends the STOPDT con.
     fn confirm_received(&mut self) -> Vec<Action> {
         if self.seq.ack_pending() {
             vec![Action::Send(Apci::S {
@@ -809,7 +799,7 @@ impl Session {
             Timer::T1 if self.state != State::Terminated => {
                 self.active_close("t1 expired with no confirmation")
             }
-            // t2 is the "Time-out for acknowledges in case of no data messages"
+            // t2 is the acknowledgement time-out when no data messages flow
             // (clause 9): send the S-frame the w limit would have produced, if
             // anything was received since the last acknowledgement.
             Timer::T2 if self.user_data_acknowledgeable() && self.seq.ack_pending() => {
@@ -874,8 +864,8 @@ impl Session {
                 }
                 self.stop_con_owed = false;
                 let mut actions = vec![Action::Send(Apci::U(UFunction::StartDtCon))];
-                // Clause 5.3: "Any pending user data in the controlled station is
-                // sent only after the STARTDT con." This is that moment.
+                // Clause 5.3: the controlled station's pending user data goes
+                // out only after the STARTDT con. This is that moment.
                 actions.extend(self.flush_pending());
                 actions
             }
@@ -976,9 +966,9 @@ impl Session {
                 // connection` box exits on "Timeout t1[]/Active close or
                 // I-frame[]/Active close" and has no I-frame self-loop. Only
                 // figure 18's controlling-station box has one, which is what
-                // clause 5.3's "immediately send an S-frame upon receiving an
-                // I-frame while in the Pending STOPPED state or Pending
-                // UNCONFIRMED STOPPED state" is about.
+                // clause 5.3's rule (answer at once with an S-frame any I-frame
+                // received in the Pending STOPPED or Pending UNCONFIRMED STOPPED
+                // state) is about.
                 if self.role == Role::Controlled && self.state == State::PendingUnconfirmedStopped {
                     return self.active_close("I-frame received while pending unconfirmed stopped");
                 }
@@ -1027,9 +1017,8 @@ impl Session {
     /// Closes the connection for the application's own reason.
     ///
     /// Emits the pending acknowledgement first when [`Session::ack_pending`] is
-    /// true (figures 10/11 NOTE: "To avoid retransmission of APDU's that have
-    /// already been accepted, an S-frame should, if possible, be sent prior to
-    /// the active close."), then [`Action::ActiveClose`] carrying `why`, and
+    /// true (figures 10/11 NOTE: where possible, an S-frame precedes the active
+    /// close so accepted APDUs are not sent again), then [`Action::ActiveClose`] carrying `why`, and
     /// leaves the session [`State::Terminated`]. Does nothing once it already
     /// is.
     pub fn close(&mut self, why: &'static str) -> Vec<Action> {

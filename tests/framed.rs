@@ -1,7 +1,7 @@
 //! Stream framing of APDUs.
 //!
-//! IEC 60870-5-104 clause 5: `START = 0x68` "defines the point of start within
-//! the data stream", and the following octet carries the number of octets after
+//! IEC 60870-5-104 clause 5: `START = 0x68` marks where a frame begins in the
+//! stream, and the following octet carries the number of octets after
 //! it. TCP delivers arbitrary chunk boundaries, so the framing layer has to
 //! buffer until a whole APDU is present. An octet where a start octet belongs
 //! is reported as `BadStart`, for the connection to close on (`link::reaction`),

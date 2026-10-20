@@ -1,7 +1,7 @@
 //! Time elements: IEC 60870-5-101:2003 clause 7.2.6.18–7.2.6.20.
 //!
 //! `CP56Time2a` (7.2.6.18) is the seven-octet time tag, `CP24Time2a` (7.2.6.19)
-//! is its three-octet prefix ("the octets 4 up to 7 are discarded"), and
+//! is its three-octet prefix (octets 4 to 7 dropped), and
 //! `CP16Time2a` (7.2.6.20) is a two-octet elapsed time, not a time tag.
 //! The last part converts `CP56Time2a` to and from a time since the Unix epoch.
 

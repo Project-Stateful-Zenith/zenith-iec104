@@ -3,8 +3,8 @@
 //! acquisition through Read – sequential procedure"*) and `5.4.15.10`
 //! (*"COMPATIBILITY WITH OTHER TEST CASES"*).
 //!
-//! The block's NOTE: *"The following tests are only required for systems
-//! supporting Data acquisition through Read."* The crate supports it (`rd`), so
+//! The block's NOTE: the tests apply only to a system that supports data
+//! acquisition through read. The crate supports it (`rd`), so
 //! every row applies.
 //!
 //! # The rows, and where each one is
@@ -20,11 +20,11 @@
 //!
 //! # The type set
 //!
-//! *"Every ASDU in the PICS that supports COT=5"* is 5-101 clause 7.4.14's list
-//! (PDF page index 150), *"The following ASDUs `M_REQ` may be returned in the
-//! monitor direction:"*, intersected with 104 clause 9's time-tag rule (PDF
-//! page index 100: *"In this companion standard only the use of the set <30> –
-//! <40> for ASDUs with time tag is permitted."*): the nine untagged types and
+//! The row's set, every ASDU of the PICS with cause 5, is 5-101 clause 7.4.14's list
+//! (PDF page index 150) of the `M_REQ` types a controlled station may return
+//! in the monitor direction, intersected with 104 clause 9's time-tag rule
+//! (PDF page index 100: of the time-tagged ASDUs, 104 permits only types
+//! `<30>` to `<40>`): the nine untagged types and
 //! their seven `CP56Time2a` alternatives, [`RETURNED`]. The list's `<126>`
 //! `F_DR_TA_1` is file transfer (Table 23) and is not driven here.
 //!
@@ -77,13 +77,12 @@ fn read_command(ioa: u32, originator: u8) -> Vec<u8> {
 /// `Reference` `IEC 60870-5-101:2003, 7.3.4.3` / `IEC 60870-5-5:1995, 6.2.1`,
 /// `Required` `M`:
 ///
-/// > The Controlling station send a Read command (C_RD, ASDU 102) with COT = 5
-/// > to the Controlled station (look at PICS for the supported ASDU's)
+/// the controlling station sends the controlled station a read command
+/// (`C_RD`, type 102) with cause 5, for the ASDUs its PICS lists;
 ///
-/// and the `M` rows *"The values of the object(s) transferred and stored on
-/// the controlling station should represent the actual values on the
-/// controlled station."* and *"The tests in this table are performed correctly
-/// by every ASDU in the PICS that supports COT=5 (REQ)"*.
+/// and the `M` rows that the values the controlling station receives and
+/// stores should be the controlled station's actual values, and that the tests
+/// run for every ASDU of the PICS that supports cause 5 (`REQ`).
 ///
 /// DUT: the **controlling** station, `rd::Read::controlling` over
 /// `interop::Station`. For each type of [`RETURNED`] it reads the object the
@@ -126,7 +125,7 @@ fn clause_5_4_15_1_the_controlling_station_reads_every_returned_type() {
         assert_eq!(
             command,
             &read_command(address(i), ORIGINATOR),
-            "5.4.15.1: \"a Read command (C_RD, ASDU 102) with COT = 5\", figure 74's octets"
+            "5.4.15.1: a read command (C_RD, type 102) with cause 5, figure 74's octets"
         );
     }
     for (i, answer) in answers.iter().enumerate() {
@@ -165,8 +164,8 @@ fn clause_5_4_15_1_the_controlling_station_reads_every_returned_type() {
         assert_eq!(
             stored,
             Ok(vec![address(i)]),
-            "5.4.15.1 (type {type_id}): \"The values of the object(s) transferred and stored on \
-             the controlling station should represent the actual values\""
+            "5.4.15.1 (type {type_id}): the values stored on the controlling station must be \
+             the controlled station's actual values"
         );
     }
 }
@@ -246,10 +245,9 @@ impl StationApp for ReadApp {
 /// `Reference` `IEC 60870-5-101:2003, 7.3.1` / `IEC 60870-5-101:2003, 7.4.2` /
 /// `IEC 60870-5-5:1995, 6.2.1`, `Required` `M`:
 ///
-/// > The Controlled station sends the requested Information Object in the
-/// > correct ASDU that is configured for the requested Information Object
-/// > (look at PICS 9.5, "Type identification and cause of transmission
-/// > assignments" for the supported ASDUs) to the Controlling station
+/// the controlled station answers with the requested information object, in
+/// the ASDU type configured for that object (PICS 9.5, *"Type identification
+/// and cause of transmission assignments"*, lists them);
 ///
 /// and the `M` rows on the values and on every ASDU with COT=5.
 ///
@@ -260,12 +258,12 @@ impl StationApp for ReadApp {
 /// 7.4.14's list first, so the loop is the standard's set.
 ///
 /// Expected, from the standard: the answer is the ASDU configured for the
-/// address (its type), with cause `<5>` (5-101 clause 7.4.14, index 150:
-/// *"transmit it as an `M_PDU` with the cause of transmission <5> REQ"*), one
+/// address (its type), with cause `<5>` (5-101 clause 7.4.14, index 150: the
+/// answer is an `M_PDU` carrying cause `<5>` `REQ`), one
 /// object at the address read, the value the station holds, the station's
 /// common address, and the command's originator address echoed (5-101 clause
-/// 7.2.3: *"the controlled station should echo this originator address in the
-/// response in the monitor direction"*).
+/// 7.2.3: the controlled station should return the command's originator
+/// address in its monitor-direction answer).
 #[test]
 fn clause_5_4_15_1_the_controlled_station_answers_with_the_configured_asdu() {
     let library: Vec<u8> = RETURNED_TYPES.iter().map(|t| t.to_u8()).collect();

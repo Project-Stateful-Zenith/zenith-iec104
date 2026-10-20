@@ -29,7 +29,7 @@ use crate::conformance604::interop::Station;
 use crate::conformance604::{ORIGINATOR, Peer, StationApp, deadline};
 
 /// The broadcast common address of the two-octet profile, 5-101 clause 7.2.4
-/// (PDF page index 43): *"FF or FFFF"*.
+/// (PDF page index 43): all ones, `0xFF` or `0xFFFF`.
 pub const BROADCAST: u16 = 0xFFFF;
 
 /// 5-101 clause 7.2.6.22 (PDF page index 53): `<20>` station interrogation.
@@ -162,9 +162,9 @@ pub struct Point {
     pub type_id: u8,
     pub element: Vec<u8>,
     /// The groups (1..=16) the object belongs to. Every object belongs to the
-    /// station interrogation (5-101 clause 7.4.5: *"The response to a station
-    /// interrogation should include all process information objects that are
-    /// stored in the controlled station."*).
+    /// station interrogation (5-101 clause 7.4.5 says a station interrogation
+    /// should be answered with every process information object the controlled
+    /// station stores).
     pub groups: Vec<u8>,
 }
 
@@ -265,9 +265,9 @@ impl DataSource for SharedImage {
 #[derive(Debug, Default)]
 pub struct Controls {
     /// While false, a confirmed interrogation's data and termination are held:
-    /// the interrogation is *running* (Table 17 page 3 of 5: *"A running GI
-    /// means that the controlling station has not received the `C_IC_TERM` after
-    /// it has sent a `C_IC_ACT`"*). Once true, the application completes every
+    /// the interrogation is *running* (Table 17 page 3 of 5 calls a GI running
+    /// from the controlling station's `C_IC_ACT` until it receives the
+    /// `C_IC_TERM`). Once true, the application completes every
     /// running interrogation.
     pub release: AtomicBool,
     /// Spontaneous ASDUs the application sends before anything it releases
@@ -286,8 +286,8 @@ impl Controls {
 }
 
 /// One logical remote unit: its own `gi::Interrogation::controlled` and image,
-/// under its own common address (5-101 clause 7.4.5: *"Each LRU is defined by a
-/// system-specific common address."*).
+/// under its own common address (5-101 clause 7.4.5: every LRU is identified by
+/// a common address chosen for the system).
 pub struct Lru {
     pub gi: Interrogation,
     pub image: SharedImage,

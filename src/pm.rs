@@ -26,28 +26,23 @@
 //! # The confirmation carries the value now in operation
 //!
 //! 5-101 clause **7.4.9** (PDF page index 130, printed page 129) selects the
-//! profile's options: *"`P_ME` ACT and ACTCON are used for loading single
-//! parameters which are activated immediately after being checked for
-//! feasibility and accepted as having a valid value. In either case (positive
-//! or negative acceptance), the parameter value returned in the ASDU `P_ME`
-//! ACTCON is the value (new or old) of the parameter now in operation."* TS
-//! 60870-5-604 Table 21 (PDF page index 82, printed page 81) makes it a test:
-//! 5.4.21.1, *"The Controlled station mirrors the same ASDU, with
-//! `COT=7_ACTCONpos` … which contain the actual parameter value that is in
-//! operation. -The actual value in this case is the \"new\" value and not the
-//! old parameter value!"*, and 5.4.21.10, *"The Controlled station mirrors the
-//! same ASDU with COT=7(ACTCONneg) … The actual value in this case is the
-//! \"old\" existing value and not the parameter that could not be
-//! activated!"*
+//! profile's options: single parameters are loaded with `P_ME` ACT and ACTCON;
+//! each one is checked for feasibility, accepted if its value is valid, and
+//! then activated at once. Whether the load is accepted or refused, the value
+//! the `P_ME` ACTCON carries is the value (new or old) that is in operation
+//! afterwards. TS 60870-5-604 Table 21 (PDF page index 82, printed page 81)
+//! makes it a test: in 5.4.21.1 the controlled station mirrors the ASDU with
+//! cause 7, positive, carrying the value now in operation, which is the new
+//! one; in 5.4.21.10 it mirrors it with cause 7, negative, carrying the old
+//! value still in operation rather than the one it could not activate.
 //!
 //! [`confirmation`] therefore takes the value as an argument: the crate has no
 //! process image, and keeping parameter state would make it an application
 //! database.
 //!
 //! One feasibility rule is the standard's own. TS 60870-5-604 Table 21,
-//! 5.4.21.10 (PDF page index 82): *"Negative values for the parameters
-//! Threshold value and Smoothing factor always are considered as invalid and not
-//! activated."* A received `P_ME` load whose `KPA` is `<1>` (threshold value) or
+//! 5.4.21.10 (PDF page index 82): a negative threshold value or smoothing
+//! factor is always invalid and is never activated. A received `P_ME` load whose `KPA` is `<1>` (threshold value) or
 //! `<2>` (smoothing factor) with a negative value is therefore
 //! [`Reaction::Infeasible`] ([`ParameterValue::is_infeasible_negative`]), with
 //! an empty [`Outcome::send`]: the negative answer carries the old value, which
@@ -55,21 +50,21 @@
 //! and the value now in operation. The limits `KPA = <3>`/`<4>` have no sign
 //! rule and load normally.
 //!
-//! The same clause makes two more selections. *"`P_AC` ACT/ACTCON and
-//! DEACT/DEACTCON are used only in combination with `QPA := <3>` = act/deact of
-//! persistent cyclic or periodic transmission of the addressed object."* is
-//! enforced on the `QPA` this station sends ([`PmError::QpaNotUsed`]). *"`P_ME`
-//! SPONT for local parameter change is not used."* is a per-station setting,
-//! [`LocalChange`], rather than a silence.
+//! The same clause makes two more selections. The first, that `P_AC`
+//! ACT/ACTCON and DEACT/DEACTCON occur only with `QPA := <3>` (act/deact of
+//! persistent cyclic or periodic transmission of the addressed object), is
+//! enforced on the `QPA` this station sends ([`PmError::QpaNotUsed`]). The
+//! second, that the profile does not use `P_ME` SPONT for a local parameter
+//! change, is a per-station setting, [`LocalChange`], rather than a silence.
 //!
 //! # The confirmation is a mirror
 //!
 //! 5-104 Table 5, *"Parameter in control direction"* (PDF page index 52,
 //! printed page 51), marks `<110>`, `<111>`, `<112>` and `<113>` as `CON`, so
-//! Table 2's NOTE (PDF page index 50, printed page 49) applies: *"ASDUs marked
-//! \"CON\" in the control direction are confirmed application services and may
-//! be mirrored in the monitor direction with different causes of
-//! transmission."* The `ACTCON` is the same type identification, information
+//! Table 2's NOTE (PDF page index 50, printed page 49) applies: a control
+//! direction ASDU marked `CON` is a confirmed service, and the monitor
+//! direction may send it back mirrored with another cause of transmission.
+//! The `ACTCON` is the same type identification, information
 //! object address and element with cause 7 (cause 9 for a `P_AC_NA_1`
 //! deactivation), and `P/N = 1` on a refusal; a negative `P_ME` confirmation
 //! carries the value now in operation as its element. The answer is rebuilt
@@ -81,16 +76,15 @@
 //!
 //! 5-101 cl.7.3.5.1–.4 prints one figure per type with its whole cause list.
 //! Figure 79 (`P_ME_NA_1`, index 110), figure 80 (`P_ME_NB_1`, index 111) and
-//! figure 81 (`P_ME_NC_1`, index 112) read *"in control direction: `<6>`
-//! activation; in monitor direction: `<7>` activation confirmation, `<20>` :=
-//! interrogated by station interrogation, `<21>` := interrogated by group 1
-//! interrogation … up to `<36>` := interrogated by group 16 interrogation,
-//! `<44>`…`<47>`"*. There is no `<8>` and no `<9>`, so a parameter of measured
-//! values cannot be deactivated ([`PmError::DeactivationNotDefined`]). Figure 82
-//! (`P_AC_NA_1`, index 113) adds the deactivation (*"in control direction: `<6>`
-//! activation, `<8>` deactivation; in monitor direction: `<7>` activation
-//! confirmation, `<9>` deactivation confirmation"*) and lists no interrogation
-//! cause.
+//! figure 81 (`P_ME_NC_1`, index 112) list the same causes: `<6>` activation
+//! in the control direction; in the monitor direction `<7>` activation
+//! confirmation, `<20>` (station interrogation), `<21>` to `<36>` (group 1 to
+//! 16 interrogation) and `<44>` to `<47>`. There is no `<8>` and no `<9>`, so a
+//! parameter of measured values cannot be deactivated
+//! ([`PmError::DeactivationNotDefined`]). Figure 82 (`P_AC_NA_1`, index 113)
+//! adds the deactivation: `<6>` and `<8>` in the control direction, `<7>` and
+//! `<9>` (activation and deactivation confirmation) in the monitor direction,
+//! and no interrogation cause.
 //!
 //! [`Family::is_control_cause`] and [`Family::is_monitor_cause`] are those
 //! lists, plus **`<3>` spontaneous** for the three `P_ME` types. Figures 79–81
@@ -108,31 +102,29 @@
 //! index 55): `QPM := CP8{KPA,LPC,POP}` with `KPA := UI6[1..6]<0..63>`, *"kind of
 //! parameter"*: `<0>` *not used*, `<1>` threshold value, `<2>` smoothing
 //! factor, `<3>` low limit for transmission of measured values, `<4>` high
-//! limit, `<5..31>` *"reserved for standard definitions of this companion
-//! standard (compatible range)"*, `<32..63>` *"reserved for special use (private
-//! range)"*. `LPC` is the local parameter change and `POP` the parameter
-//! operation, and the clause says *"LPC and POP are not used in this standard
-//! and set to zero."* [`PmError::KpaNotUsed`] and [`PmError::QpmNotZeroed`]
+//! limit, `<5..31>` reserved for this companion standard (the compatible
+//! range), `<32..63>` reserved for special use (the private range). `LPC` is
+//! the local parameter change and `POP` the parameter operation; the clause
+//! does not use either and requires both to be zero. [`PmError::KpaNotUsed`] and [`PmError::QpmNotZeroed`]
 //! apply those rules to the loads and announcements this crate builds
 //! ([`load`], [`announcement`]). A confirmation ([`confirmation`],
 //! [`ParameterLoading::refuse`]) carries the value the caller passes without
 //! that check, and a mirror of a received frame reproduces the bits the peer
-//! sent. The clause also says *"Each
-//! parameter has to be defined by an unambiguous INFORMATION OBJECT ADDRESS per
-//! system."*
+//! sent. The clause also requires every parameter to have its own information
+//! object address, unique within the system.
 //!
 //! `QPA` is cl.7.2.6.25 (index 55): `<0>` not used, `<1>` act/deact of the
 //! previously loaded parameters (object address = 0), `<2>` act/deact of the
 //! parameter of the addressed object, `<3>` act/deact of persistent cyclic or
 //! periodic transmission of the addressed object, `<4..127>` reserved,
-//! `<128..255>` private. `<1>` and `<2>` carry the footnote *"Not used in this
-//! companion standard (reserved for extension of parameter loading
-//! functions)"*. TS 60870-5-604 5.4.21.15 (PDF page index 82) makes that a
-//! test: *"The Controlled station will reject any received Parameter Activation
-//! command (ASDU 113) with QPA = 1 or 2. The Controlled station mirrors the same
-//! ASDU with P/N=<1> negative (and with COT = 44, if supported)"*. The refusal
-//! is therefore a frame, not an error: [`ParameterLoading::on_request`] answers
-//! with cause 7 (or 9) and `P/N = 1`. Because `COT = 44` is *"if supported"*, a
+//! `<128..255>` private. A footnote marks `<1>` and `<2>` as unused by this
+//! companion standard, kept for a future extension of parameter loading. TS
+//! 60870-5-604 5.4.21.15 (PDF page index 82) makes that a test: the controlled
+//! station refuses a received `P_AC_NA_1` (ASDU 113) whose `QPA` is 1 or 2 by
+//! mirroring it with `P/N = 1`, and with cause 44 too if it supports that
+//! cause. The refusal is therefore a frame, not an error:
+//! [`ParameterLoading::on_request`] answers with cause 7 (or 9) and `P/N = 1`.
+//! Because cause 44 is conditional on support, a
 //! station that supports it uses [`unknown_reply`] with
 //! [`crate::asdu::Unspecified::TypeIdentification`] instead.
 //!
@@ -142,15 +134,15 @@
 //!
 //! The private range `<128..255>` is accepted on reception and by the builders,
 //! although cl.7.4.9 selects `QPA := <3>` only: that selection is about what a
-//! station sends, and cl.7.2.6.25 keeps `<128..255>` *"for special use (private
-//! range)"*, the same reading `KPA`'s private range gets.
+//! station sends, and cl.7.2.6.25 reserves `<128..255>` for special use (the
+//! private range), the same reading `KPA`'s private range gets.
 //!
 //! # The answer echoes the request's originator address
 //!
-//! 5-101 clause 7.2.3 (PDF page index 38, printed page 37): *"the information
-//! source should set the originator address of the ASDUs in the command
-//! direction, and the controlled station should echo this originator address in
-//! the response in the monitor direction."* Every answer [`ParameterLoading`]
+//! 5-101 clause 7.2.3 (PDF page index 38, printed page 37): the source of a
+//! command should set its originator address, and the controlled station
+//! should return that same originator address in its monitor-direction
+//! response. Every answer [`ParameterLoading`]
 //! builds (`ACTCON`, `DEACTCON`, the negative confirmation and the 44–47
 //! mirror) carries the received frame's originator address and test bit, and
 //! the answering station's own common address. The free builders
@@ -159,14 +151,14 @@
 //!
 //! A parameter is never broadcast. TS 60870-5-604 5.4.10.10 (PDF page index 54)
 //! permits the global address `<65535>` only with types 100/101/103/105, so
-//! *"all other ASDU Types"* at that address, parameters included, are mirrored
+//! every other type at that address, parameters included, are mirrored
 //! with `P/N = 1`, whatever the caller's [`Known`] says.
 //!
 //! # What is left to the caller
 //!
 //! - Whether the station uses `P_ME SPONT` ([`LocalChange`]).
-//! - Whether a parameter value is **feasible**: cl.7.4.9's *"checked for
-//!   feasibility and accepted as having a valid value"* is the application's,
+//! - Whether a parameter value is **feasible**: cl.7.4.9's feasibility and
+//!   validity check is the application's,
 //!   because the crate has no process image. A caller that will not accept a
 //!   received load answers with [`ParameterLoading::refuse`], which writes the
 //!   negative confirmation with the value now in operation. The one rule the
@@ -176,9 +168,9 @@
 //! - What the value now in operation is, and which information object addresses
 //!   exist (the caller's [`Known`] answers the second).
 //! - What a `KPA` in the private range `<32..63>` means: the clause leaves it
-//!   *"for special use"*, that is, to agreement between the system user and the
+//!   for special use, that is, to agreement between the system user and the
 //!   vendor (5-101 cl.7.3).
-//! - Timing: the *"activated immediately"* of cl.7.4.9 is the application's, and
+//! - Timing: cl.7.4.9's immediate activation is the application's, and
 //!   this module reads no clock and holds no timer.
 //!
 //! # Example
@@ -290,7 +282,7 @@ impl Family {
     }
 
     /// Whether the family has a deactivation at all. 5-101 cl.7.3.5's figures
-    /// 79–81 print *"in control direction: `<6>` := activation"* and no `<8>`
+    /// 79–81 list only `<6>` (activation) in the control direction, no `<8>`,
     /// for the three `P_ME` types; figure 82 prints `<6>` **and** `<8>` for
     /// `P_AC_NA_1`.
     #[must_use]
@@ -316,7 +308,7 @@ impl Family {
     ///
     /// The lists are figures 79–82's, plus `<3>` spontaneous for the three
     /// `P_ME` types. Figures 79–81 omit it because 5-101 cl.7.4.9 does not use
-    /// the service (*"`P_ME` SPONT for local parameter change is not used."*),
+    /// the service (`P_ME` SPONT for a local parameter change),
     /// but 5-104 cl.7.9's service table names the frame (`A_LCPACH`,
     /// `P_ME SPONT`), and a label's second word is its cause of transmission. A
     /// station that does not use the service says so with
@@ -417,9 +409,9 @@ impl ParameterValue {
     /// Whether the standard forbids this value outright: a **negative**
     /// threshold value (`KPA = <1>`) or smoothing factor (`KPA = <2>`).
     ///
-    /// TS 60870-5-604 Table 21, 5.4.21.10 (PDF page index 82): *"Negative
-    /// values for the parameters Threshold value and Smoothing factor always
-    /// are considered as invalid and not activated."* The rule names those two
+    /// TS 60870-5-604 Table 21, 5.4.21.10 (PDF page index 82): a negative
+    /// threshold value or smoothing factor is always invalid and is never
+    /// activated. The rule names those two
     /// kinds only, so a negative value of any other `KPA` (the limits `<3>`/`<4>`
     /// or the private range) returns `false`.
     #[must_use]
@@ -441,8 +433,8 @@ impl ParameterValue {
 /// One parameter ASDU's whole information object: the address the parameter is
 /// known by and its element.
 ///
-/// 5-101 cl.7.2.6.24: *"Each parameter has to be defined by an unambiguous
-/// INFORMATION OBJECT ADDRESS per system."* The crate carries the address and
+/// 5-101 cl.7.2.6.24 requires every parameter to have its own information
+/// object address, unique within the system. The crate carries the address and
 /// does not check its uniqueness.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Parameter {
@@ -497,7 +489,7 @@ pub enum Role {
 /// change.
 ///
 /// 5-101 cl.7.4.9 (PDF page index 130, printed page 129) selects the options:
-/// *"`P_ME` SPONT for local parameter change is not used."* The service exists in
+/// the profile does not use `P_ME` SPONT for a local parameter change. The service exists in
 /// 5-104 cl.7.9's table (`A_LCPACH.req`/`.ind`, `P_ME SPONT`), so a station that
 /// uses it says so here rather than being silent about it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -544,13 +536,11 @@ pub enum Reaction {
     /// A parameter deactivation arrived (`P_AC DEACT`, cause 8) or was
     /// answered with its cause-9 mirror. Like [`Reaction::Confirmed`], it
     /// carries the `P/N` flag. 5-101 cl.7.2.3 defines the bit without tying it
-    /// to a cause: *"P/N := BS1\[7\] <0..1> <0> := positive confirm <1> :=
-    /// negative confirm"*. Its prose names only the activation (*"The P/N-bit
-    /// indicates the positive or negative confirmation of activation requested
-    /// by the primary application function"*), but TS 60870-5-604 5.4.21.15
-    /// has the station reject *"any received Parameter Activation command
-    /// (ASDU 113) with QPA = 1 or 2"* by mirroring it *"with
-    /// P/N=<1>negative"*, a deactivation included. So a `DEACTCON` with
+    /// to a cause: `P/N := BS1[7]`, `<0>` positive and `<1>` negative
+    /// confirm. Its prose ties the bit only to confirming an activation the
+    /// primary application function requested, but TS 60870-5-604 5.4.21.15
+    /// has the station refuse any received `P_AC_NA_1` (ASDU 113) with
+    /// `QPA` 1 or 2 by mirroring it with `P/N = 1`, a deactivation included. So a `DEACTCON` with
     /// `negative` true is a deactivation the station refused.
     Deactivated {
         /// The information object address of the parameter.
@@ -562,9 +552,9 @@ pub enum Reaction {
     },
     /// A load the station must not confirm positively: 5-101 cl.7.4.9's
     /// feasibility check failed on a rule of the standard itself. TS
-    /// 60870-5-604 Table 21, 5.4.21.10 (PDF page index 82) says *"Negative
-    /// values for the parameters Threshold value and Smoothing factor always
-    /// are considered as invalid and not activated"*, so a negative value of
+    /// 60870-5-604 Table 21, 5.4.21.10 (PDF page index 82) treats a negative
+    /// threshold value or smoothing factor as always invalid and never
+    /// activated, so a negative value of
     /// `KPA = <1>` or `KPA = <2>` is not activated and the answer is an
     /// `ACTCONneg` carrying the **old** value.
     ///
@@ -682,8 +672,8 @@ pub enum PmError {
         /// The kind of parameter the value named.
         kpa: u8,
     },
-    /// A `QPM` whose `LPC` or `POP` bit is set. 5-101 cl.7.2.6.24: *"LPC and
-    /// POP are not used in this standard and set to zero."* This crate writes
+    /// A `QPM` whose `LPC` or `POP` bit is set. 5-101 cl.7.2.6.24 does not use
+    /// either and requires both to be zero. This crate writes
     /// neither; a mirror of a received frame still reproduces them, because the
     /// mirror reproduces every field it decodes.
     QpmNotZeroed,
@@ -850,10 +840,10 @@ pub fn mirror_with(
 
 /// Builds the control-direction load: a parameter of measured values with cause
 /// 6 (`act`), 5-104 cl.7.9's `A_PARAM.req` row and figure 79/80/81's
-/// *"in control direction: `<6>` := activation"*.
+/// control-direction cause `<6>` (activation).
 ///
-/// The value is the caller's to check: cl.7.4.9's *"checked for feasibility and
-/// accepted as having a valid value"* is the application's, because this crate
+/// The value is the caller's to check: cl.7.4.9's feasibility and validity
+/// check is the application's, because this crate
 /// has no process image. What **is** checked is the clause's own value grammar:
 /// a `QPM` whose `LPC`/`POP` is set or whose `KPA` is in a range the clause marks
 /// *not used*/*reserved* is refused rather than put on the wire.
@@ -1080,9 +1070,9 @@ pub fn announcement_with(
 /// cause 7 (`actcon`) and `P/N` as given, for both the positive and the
 /// negative confirmation.
 ///
-/// `parameter` carries the value now in operation (5-101 cl.7.4.9: *"the
-/// parameter value returned in the ASDU `P_ME` ACTCON is the value (new or old)
-/// of the parameter now in operation"*): the request's own value when the
+/// `parameter` carries the value now in operation (5-101 cl.7.4.9: the
+/// `P_ME` ACTCON returns the value, new or old, that is in operation after
+/// the load): the request's own value when the
 /// station accepts it (TS 60870-5-604 5.4.21.1) and the old one on the negative
 /// answer (5.4.21.10). The value is an argument because the crate keeps no
 /// parameter state.
@@ -1409,8 +1399,8 @@ impl ParameterLoading {
         }
         let header = Header::parse_with(asdu, self.sizes)?;
         // A parameter is never broadcast: TS 60870-5-604 5.4.10.10's broadcast
-        // CASDU carries types 100/101/103/105 only, and "all other ASDU Types"
-        // are mirrored with P/N = 1. The check reads the header, so it holds
+        // CASDU carries types 100/101/103/105 only, and every other type is
+        // mirrored with P/N = 1. The check reads the header, so it holds
         // whatever `Known` says, and it runs before the discard rule because a
         // broadcast parameter must be answered, not swallowed. A received
         // mirror is left to the discard rule so two stations cannot mirror each
@@ -1473,8 +1463,8 @@ impl ParameterLoading {
                         );
                     }
                     // TS 60870-5-604 5.4.21.10: a negative threshold value or
-                    // smoothing factor is "considered as invalid and not
-                    // activated". The ACTCONneg carries the old value, which
+                    // smoothing factor is always invalid and never
+                    // activated. The ACTCONneg carries the old value, which
                     // the crate does not hold, so nothing is sent here and the
                     // caller answers through `refuse`.
                     if parameter.value.is_infeasible_negative() {
@@ -1672,8 +1662,7 @@ impl ParameterLoading {
                     ioa: parameter.ioa,
                     qpa,
                     // 5-101 cl.7.2.3 defines `P/N` without tying it to a
-                    // cause ("<0> := positive confirm <1> := negative
-                    // confirm"), so a `P/N = 1` cause-9 frame is a refused
+                    // cause (`<0>` positive, `<1>` negative confirm), so a `P/N = 1` cause-9 frame is a refused
                     // deactivation.
                     negative: header.negative,
                 },

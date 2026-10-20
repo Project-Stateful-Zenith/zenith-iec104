@@ -5,8 +5,8 @@
 //! synchronisation – Broadcast"*) and `5.4.18.20` (*"COMPATIBILITY WITH OTHER
 //! TEST CASES"*).
 //!
-//! The block's NOTE: *"The following tests are only required for systems
-//! supporting Clock synchronization."* The crate supports it (`cs`).
+//! The block's NOTE limits these tests to systems that support clock
+//! synchronisation. The crate supports it (`cs`).
 //!
 //! # The rows, and where each one is
 //!
@@ -35,24 +35,22 @@
 //! test that application:
 //!
 //! - **IV before the first sync after initialisation**, and **IV after the
-//!   clock accuracy interval**: 104 clause 7.6 (PDF page index 66): *"When the
-//!   synchronization command does not arrive within this time interval, the
-//!   controlled station sets all time-tagged information objects with a mark
-//!   that the time tag may be inaccurate (invalid). This mark is also set after
-//!   station initializiation (warm and cold boot) of controlled stations before
-//!   reception of a valid `C_CS` ACT PDU."* The crate carries the `IV` bit
+//!   clock accuracy interval**: 104 clause 7.6 (PDF page index 66) has the
+//!   controlled station flag every time-tagged information object as possibly
+//!   inaccurate (invalid) when no synchronisation command arrives within that
+//!   interval, and also after a warm or cold start until a valid `C_CS` ACT
+//!   PDU has been received. The crate carries the `IV` bit
 //!   (`Cp56Time2a::invalid`) unchanged; deciding it is the application's.
 //! - **the configured sync interval** of the controlling station is its
 //!   scheduler's. The controlling-station case shows the part the library
 //!   has: a sync is the first I-frame after STARTDT, and the procedure has no
 //!   running state, so the next one is accepted and answered as well.
 //!
-//! The row *"containing the local time minus the value of time correction"*
-//! is read with 104 clause 7.6, which removes the correction: *"The procedure
-//! is a copy of that of 6.7 of IEC 60870-5-5, with the "first bit" and "time
-//! correction" requirements and link layer options (SEND/NO REPLY or
-//! SEND/CONFIRM) removed."* So the confirmation carries *"the local time before
-//! it was synchronized"*.
+//! The row's "local time minus the time correction" is read with 104 clause
+//! 7.6, which takes over 5-5 clause 6.7's procedure but drops its "first bit"
+//! and time-correction requirements and its link-layer options (SEND/NO REPLY,
+//! SEND/CONFIRM). So the confirmation carries the station's local time from
+//! before the synchronisation.
 //!
 //! # Direction
 //!
@@ -205,15 +203,15 @@ impl StationApp for ClockedStation {
 /// `Reference` `IEC 60870-5-104:2006, 7.6` / `IEC 60870-5-5:1995, 6.7`,
 /// `Required` `M`:
 ///
-/// > The Controlled station mirrors ASDU 103 with COT=7, C_CS_ACTCON,
-/// > containing the local time minus the value of time correction in the
-/// > Controlled station before it was adjusted back to the Controlling station
+/// Rows (paraphrased):
 ///
-/// > Any events waiting in the Controlled station BEFORE the Time Sync arrives
-/// > still have their previous, unadjusted time tags
-///
-/// > Events occurring AFTER the Time Sync has arrived in the Controlled station
-/// > use the new, corrected time value
+/// - the controlled station mirrors ASDU 103 back to the controlling station
+///   with COT=7 (`C_CS_ACTCON`), carrying its local time from before the
+///   adjustment, less the time correction;
+/// - events already waiting in the controlled station when the sync arrives
+///   keep their old, unadjusted time tags;
+/// - events that occur after the sync has arrived carry the new, corrected
+///   time.
 ///
 /// DUT: the **controlled** station ([`ClockedStation`]). One event occurred
 /// before the sync, stamped with the station's clock [`T0`], and waits in the
@@ -221,12 +219,11 @@ impl StationApp for ClockedStation {
 /// act` and, without waiting, the `C_CS ACT` with its time [`T_SYNC`] and
 /// originator 9.
 ///
-/// Expected, from 104 clause 7.6 (PDF page index 66): *"After the execution of
-/// the clock sync internally the controlled station generates a `C_CS` ACTCON
-/// PDU that contains the local time before it was synchronized. This message
-/// is transmitted after any buffered time-tagged PDUs, that may be waiting
-/// for transmission. Time-tagged events that occur after the internal clock
-/// synchronization are transmitted after the `C_CS` ACTCON PDU."* So, in order:
+/// Expected, from 104 clause 7.6 (PDF page index 66): once the station has set
+/// its clock it builds a `C_CS` ACTCON PDU holding its local time from before
+/// the sync; that PDU is sent after any time-tagged PDUs already buffered for
+/// transmission, and time-tagged events from after the sync are sent after the
+/// ACTCON. So, in order:
 /// the waiting event labelled [`T0`]; the confirmation, figure 75 with cause 7,
 /// address 0, the originator echoed (5-101 clause 7.2.3) and [`T0`]; the
 /// event after the sync labelled [`T_SYNC`].
@@ -285,21 +282,16 @@ fn clause_5_4_18_1_the_controlled_station_confirms_with_its_time_before_the_sync
 /// `Reference` `IEC 60870-5-104:2006, 7.6` / `IEC 60870-5-5:1995, 6.7`, every
 /// row `Required` `M`:
 ///
-/// > The Controlling station increases its internal time one day and one hour
-/// > ahead
-/// >
-/// > Sequential Clock synchronisation procedure continues
-/// >
-/// > Events occurring AFTER the Time Sync has arrived in the Controlled station
-/// > use the new, corrected time value
-/// >
-/// > The Controlling station increases its internal time one day and one hour
-/// > back.
-/// >
-/// > Sequential Clock synchronisation procedure continues
-/// >
-/// > Events occurring AFTER the Time Sync has arrived in the Controlled station
-/// > use the new, corrected time value
+/// Rows (paraphrased), in order:
+///
+/// 1. the controlling station moves its own clock forward by one day and one
+///    hour;
+/// 2. the sequential clock synchronisation procedure goes on;
+/// 3. events after the sync has reached the controlled station carry the new,
+///    corrected time;
+/// 4. the controlling station moves its clock back by one day and one hour;
+/// 5. the sequential procedure goes on;
+/// 6. events after that sync again carry the new, corrected time.
 ///
 /// DUT: the **controlled** station ([`ClockedStation`]), whose clock is
 /// [`T0`]. The mock controlling station syncs it to [`T_AHEAD`] (one day and
@@ -358,17 +350,17 @@ fn clause_5_4_18_10_the_controlled_station_follows_a_changed_clock() {
 /// **`5.4.18.10`**, `Reference` `IEC 60870-5-104:2006, 7.6` /
 /// `IEC 60870-5-5:1995, 6.7`, `Required` `M`:
 ///
-/// > The Controlling station sends a Clock Synchronisation message (ASDU 103)
-/// > with COT = 6, C_CS_ACT, to the Controlled station
+/// Rows (paraphrased):
 ///
-/// > The time label in the clock synchronization message from the Controlling
-/// > station represents the time of occurrence (plausibility test)
+/// - the controlling station sends ASDU 103 with COT=6 (`C_CS_ACT`) to the
+///   controlled station;
+/// - the time in that message is the time of occurrence (a plausibility
+///   check);
+/// - the sync runs after station initialisation and then at the configured
+///   PID intervals;
 ///
-/// > The clock synchronisation is executed after station initialisation and at
-/// > configured PID intervals
-///
-/// and `5.4.18.10`'s rows (the time one day and one hour ahead, then back, and
-/// *"Sequential Clock synchronisation procedure continues"*).
+/// and `5.4.18.10`'s rows (the time one day and one hour ahead, then back, with
+/// the sequential procedure going on after each).
 ///
 /// DUT: the **controlling** station, `cs::ClockSynchronisation::controlling`
 /// over `interop::Station`. Its first I-frame after STARTDT is a sync with its
@@ -455,17 +447,16 @@ fn clause_5_4_18_1_and_10_the_controlling_station_synchronises_the_clock() {
 /// `Reference` `IEC 60870-5-104:2006, 7.6` / `IEC 60870-5-101, 7.2.4` /
 /// `IEC 60870-5-5:1995, 6.7`, `Required` `PIXIT`:
 ///
-/// > The Controlling station sends a Clock Synchronisation message (ASDU 103)
-/// > with COT = 6, C_CS_ACT and with the Broadcast CASDU, to the Controlled
-/// > station. The Controlled station replies with its own CASDU(s)
+/// Row (paraphrased): the controlling station sends ASDU 103 with COT=6
+/// (`C_CS_ACT`) to the broadcast CASDU, and the controlled station answers
+/// under its own CASDU or CASDUs.
 ///
 /// DUT: the **controlled** station ([`ClockedStation`]). The request is
 /// addressed to `FFFF`. Expected, from 5-101 clause 7.2.4 (PDF page index
-/// 43): *"When using the common address FF or FFFF (broadcast address, request
-/// of all), ACTCON, ACTTERM and the interrogated information objects (if any)
-/// are returned with the specific common addresses of the controlled stations
-/// as they would be when caused by commands to specific controlled stations."*
-/// So the confirmation is the one a request to CA 1 gets: cause 7, CA 1, the
+/// 43): a request to the broadcast address (`FF` or `FFFF`) is answered as if
+/// it had been sent to each controlled station individually: ACTCON, ACTTERM
+/// and any interrogated objects come back under each station's own common
+/// address. So the confirmation is the one a request to CA 1 gets: cause 7, CA 1, the
 /// station's time before the sync.
 #[test]
 fn clause_5_4_18_15_a_broadcast_sync_is_confirmed_with_the_station_address() {
@@ -501,9 +492,8 @@ fn clause_5_4_18_15_a_broadcast_sync_is_confirmed_with_the_station_address() {
 }
 
 /// 604 Table 18, PDF page index 69 (printed 68), procedure **`5.4.18.15`**, the
-/// same row, controlling half: *"The Controlling station sends a Clock
-/// Synchronisation message (ASDU 103) with COT = 6, `C_CS_ACT` and with the
-/// Broadcast CASDU"*.
+/// same row, controlling half: the controlling station sends ASDU 103 with
+/// COT=6 (`C_CS_ACT`) to the broadcast CASDU.
 ///
 /// DUT: the **controlling** station, `cs::ClockSynchronisation::controlling`
 /// with the broadcast common address, over `interop::Station`. 5-101 clause

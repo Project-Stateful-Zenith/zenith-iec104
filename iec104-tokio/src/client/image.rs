@@ -31,16 +31,16 @@ pub struct ImageEntry {
 /// address and information object address.
 ///
 /// It is the controlling station's "network image" that 5-101 cl.7.4.5 has
-/// the station interrogation synchronise (*"The station interrogation is used to synchronize the
-/// process information of the controlling station (network image NIM) and
-/// the controlled stations."*).
+/// the station interrogation synchronise: the interrogation exists to bring
+/// the controlling station's copy of the process information (its network
+/// image, NIM) in line with the controlled stations.
 ///
 /// The application feeds it the [`Update`]s of [`Client::subscribe`]
 /// (interrogation data, spontaneous and cyclic changes, read answers alike),
 /// and each value replaces the one stored for its address. The last to
-/// arrive wins, since the station sends them in order. 5-101 cl.7.2.2.2:
-/// *"the requirement that all values reported for a particular information
-/// object are in correct chronological order must be observed."*
+/// arrive wins, since the station sends them in order. 5-101 cl.7.2.2.2
+/// requires the values reported for any one information object to arrive in
+/// the order they occurred.
 ///
 /// It holds only addresses the station sent, one entry each, and nothing
 /// else: its size is bounded by the station's own address space, not by the
@@ -49,10 +49,10 @@ pub struct ImageEntry {
 /// [`ProcessImage::clear`] empties it.
 ///
 /// Not stored:
-/// - ASDUs with the test bit set. 5-101 cl.7.2.3: *"the test-bit defines
-///   ASDUs which were generated during test conditions. It is used for
-///   example to test transmission and equipment without controlling the
-///   process."* They are not the process's state.
+/// - ASDUs with the test bit set. 5-101 cl.7.2.3: the bit marks ASDUs
+///   produced under test conditions, for instance to exercise transmission
+///   and equipment without acting on the process. They are not the process's
+///   state.
 /// - Types that carry no process value
 ///   ([`Objects::points`](iec104::asdu::Objects::points) gives none: end of
 ///   initialisation, the confirmations of commands and system commands,

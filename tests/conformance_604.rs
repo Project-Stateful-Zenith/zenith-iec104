@@ -54,11 +54,11 @@
 //!   application rule `asdu::unknown::mirror_reply`) against
 //!   [`conformance604::Peer`], a mock controlling station.
 //!
-//! §5.1 (index 10, printed 9) makes the direction part of the test: *"For
-//! testing reverse direction, the same test procedures apply in the opposite
-//! direction (replace "Controlling" with "Controlled" and vice versa), except
-//! for COT44-47 which are only defined in Monitor direction (only a controlled
-//! station is allowed to send these COT)."* Every case's doc comment says which
+//! §5.1 (index 10, printed 9) makes the direction part of the test: the
+//! reverse direction is tested with the same procedures, the roles of
+//! controlling and controlled station swapped, except that COT 44-47 exist
+//! only in the monitor direction, so only a controlled station may send them.
+//! Every case's doc comment says which
 //! role it drives and whether that exception applies.
 //!
 //! Twelve tables (12 and 15 to 25) end with a `COMPATIBILITY WITH OTHER TEST

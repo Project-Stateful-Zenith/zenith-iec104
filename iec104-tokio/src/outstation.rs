@@ -73,8 +73,8 @@ pub async fn serve(listener: TcpListener, handle: Handle) -> io::Result<()> {
 /// picks for its peer address.
 ///
 /// One driver, and so one redundancy group, per
-/// master (10.2 rule 7: *"each controlling station must be assigned to a
-/// different redundancy group"*). A connection `route` refuses (`None`), or
+/// master (10.2 rule 7: no two controlling stations may share a redundancy
+/// group). A connection `route` refuses (`None`), or
 /// whose driver has every member taken or has stopped, is closed at once.
 /// Accept errors are handled as in [`serve`], so this never returns.
 ///

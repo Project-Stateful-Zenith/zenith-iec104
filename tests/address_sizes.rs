@@ -2,19 +2,15 @@
 //!
 //! The ASDU address widths are **system parameters**, not a clause's content:
 //! 5-101 cl.7.2.3 (PDF page index 38, printed 37) defines the originator address
-//! as `UI8[9..16]<0..255>` inside a cause field that figure 14 labels
-//! *"Originator address optional per system"*; cl.7.2.4 (index 42) says of the
-//! common address *"The length of the COMMON ADDRESS (one or two octets) is a
-//! parameter which is fixed per system."*; cl.7.2.5 (index 43) says of the
-//! information object address *"The length of the INFORMATION OBJECT ADDRESS
-//! (one, two or three octets) is a parameter which is fixed per system."*; and
-//! 104 cl.9.5 (index 98) lists all of them as *"system-specific parameter"* with
-//! the options spelled out (*"One octet"* / *"Two octets"* for the CA;
-//! *"One octet"* / *"Two octets"* / *"Three octets"* for the IOA; *"One octet"*
-//! / *"Two octets (with originator address). Originator address is set to zero
-//! if not used"* for the COT), while calling only the APDU length fixed (*"The
-//! maximum length of APDU for both directions is 253. It is a fixed system
-//! parameter."*).
+//! as `UI8[9..16]<0..255>` inside a cause field where figure 14 marks it as
+//! optional, a per-system choice; cl.7.2.4 (index 42) makes the common
+//! address one or two octets long, a length each system fixes; cl.7.2.5 (index
+//! 43) does the same for the information object address with one, two or three
+//! octets; and 104 cl.9.5 (index 98) lists all of them as system-specific
+//! parameters with the options spelled out (one or two octets for the CA; one,
+//! two or three for the IOA; one octet, or two with the originator address,
+//! which is zero when unused, for the COT), while calling only the APDU length
+//! fixed (253 octets at most in both directions, a fixed system parameter).
 //!
 //! [`AddressSizes`] carries the three choices. [`AddressSizes::CONVENTIONAL`]
 //! (originator present, CA two octets, IOA three octets: the example the
@@ -111,8 +107,8 @@ fn the_plain_encode_reports_a_header_it_cannot_carry() {
 #[test]
 fn the_conventional_parser_cannot_read_a_narrower_header() {
     // A five-octet header: type (1), VSQ (1), COT (1), originator (1), CA (1).
-    // That is 104 cl.9.5's *"Two octets (with originator address)"* cause
-    // beside a *"One octet"* CA.
+    // That is 104 cl.9.5's two-octet cause (with the originator address)
+    // beside a one-octet CA.
     let five = [TypeId::MSpNa1.to_u8(), 0x01, 0x03, 0x00, 0x0C];
     assert_eq!(
         Header::parse(&five),
@@ -599,7 +595,7 @@ fn the_segment_reader_reports_the_profiles_own_body_budget() {
     // prefix, MAX_SEGMENT + 1 = 237 payload octets. 6 + 3 + 4 + 237 = 250
     // octets on the wire, so the object area is 244. `AsduError::BodyTooLong`
     // is documented as the object area against the profile's budget
-    // (5-104 cl.5: "The maximum length of the ASDU is limited to 249", less
+    // (5-104 cl.5: the ASDU is 249 octets at most, less
     // the header), so both numbers are object areas, as the writer reports
     // them (`src/asdu/body.rs`): 244 against 243.
     let conventional = segment_frame(AddressSizes::CONVENTIONAL, MAX_SEGMENT + 1);

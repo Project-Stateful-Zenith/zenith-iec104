@@ -586,7 +586,7 @@ fn a_negative_confirmation_may_be_repeated() {
     );
     assert!(!controlling.is_running(Scope::Station));
 
-    // "the station interrogation command may be repeated", and it is not
+    // The station interrogation may be requested again, and it is not
     // locked, because nothing is running.
     let again = controlling.request(Scope::Station).expect("repeat");
     assert_eq!(
@@ -1108,8 +1108,8 @@ fn the_reverse_direction_runs_from_the_same_module() {
 
 /// A controlling station configured with [`SecondActivation::Allowed`] sends an
 /// identical activation again, and then accepts whichever of the three options
-/// the other station implements: TS 60870-5-604 Table 17's *"the Controlling
-/// station shall be able to handle each option"*.
+/// the other station implements: TS 60870-5-604 Table 17 requires the
+/// controlling station to cope with every one of the options.
 #[test]
 fn an_allowed_second_activation_handles_every_option() {
     let mut controlling = Interrogation::controlling(SecondActivation::Allowed, CA, 0);
@@ -1565,8 +1565,8 @@ fn a_group_outside_the_standards_range_is_refused() {
 
 // ------------------------------------------- what "running" means on the wire
 
-/// TS 60870-5-604 Table 17: *"A running GI means that the controlling station
-/// has not received the `C_IC_ACTTERM` after it has sent a `C_IC_ACT`"*. A
+/// TS 60870-5-604 Table 17 defines a GI as running from the controlling
+/// station's `C_IC_ACT` until it receives the matching `C_IC_ACTTERM`. A
 /// termination that overtakes its confirmation still ends the procedure: once
 /// it is received, the scope is no longer running and may be requested again.
 #[test]
@@ -1689,12 +1689,11 @@ fn lru_object(lru: u16) -> Vec<u8> {
     asdu
 }
 
-/// 5-101 clause 7.4.5 (PDF page index 124): *"When issuing a station
-/// interrogation command to a controlled station using the common address FF
-/// or FFFF (request of all), ACTCON, ACTTERM and the interrogated information
-/// objects are returned with the specific common addresses of the LRUs in
-/// exactly the same manner as if they were initiated by a station
-/// interrogation command issued to the specific LRU."* TS 60870-5-604 5.4.17.10
+/// 5-101 clause 7.4.5 (PDF page index 124): a station interrogation sent to
+/// the broadcast common address (FF or FFFF, a request of all) is answered as
+/// if each LRU had been interrogated on its own: the ACTCON, the ACTTERM and
+/// the interrogated objects all come back under each LRU's own common
+/// address. TS 60870-5-604 5.4.17.10
 /// (index 65) has the controlling station finish the GI for every LRU.
 ///
 /// LRU 1 and LRU 2 confirm, LRU 1 terminates first: LRU 2's object and

@@ -4,7 +4,7 @@
 //! # The service, and which type carries it
 //!
 //! 5-104 clause **7.10** (PDF page index 72, printed page 71) is headed *"Test
-//! procedure (6.11 of IEC 60870-5-5)"* and its table is four rows, verbatim:
+//! procedure (6.11 of IEC 60870-5-5)"* and its table has four rows:
 //!
 //! ```text
 //! A_TEST.req  send     C_TS ACT
@@ -48,8 +48,8 @@
 //! with `INFORMATION OBJECT ADDRESS = 0` in the figure's field row and the
 //! causes `<6>` activation (control direction), `<7>` activation confirmation
 //! and `<44>`–`<47>` (monitor direction). `FBP` is 5-101 clause **7.2.6.14**
-//! (index 51, printed page 50), verbatim: *"Fixed test bit pattern, two
-//! octets"*, `FBP := UI16[1..16]<55AAH>` (Type 1.1). A station recognises the
+//! (index 51, printed page 50): a fixed two-octet test bit pattern,
+//! `FBP := UI16[1..16]<55AAH>` (Type 1.1). A station recognises the
 //! command by the pattern, so [`Fbp::parse`] accepts `0x55AA` and nothing else
 //! ([`AsduError::FixedPatternMismatch`]). On the wire it is `AA 55`
 //! ([`Fbp::VALUE`] little-endian).
@@ -60,28 +60,25 @@
 //! `C_TS_TA_1` Test command with time tag `CP56Time2a`"*, *"Single information
 //! object (SQ = 0)"*, and **figure 30** prints `C_TS_TA_1 := CP{Data unit
 //! identifier,Information object address,TSC,CP56Time2a}`,
-//! `TSC := UI16[1..16]<0..65535>`, *"TSC = Test sequence counter, 16 bit"*, the
+//! `TSC := UI16[1..16]<0..65535>` (a 16-bit test sequence counter), the
 //! seven-octet `CP56Time2a`, and the same cause list as figure 76. The clause's
-//! rule, verbatim:
-//!
-//! > The requesting station may choose any value of TSC. The TSC in the
-//! > response shall match the request, and the time in the response shall also
-//! > exactly match the time in the request.
+//! rule: the requesting station is free to pick any TSC value, and the response
+//! shall carry the same TSC and exactly the same time as the request.
 //!
 //! The caller picks the values; the echo check is the crate's. A confirmation
 //! whose value differs from what this station sent is [`TsError::EchoMismatch`],
-//! not [`Reaction::Answered`]. That is what TS 60870-5-604 asks for with
-//! *"Mismatching values of TSC are detected by the Primary station"* (Table 22,
+//! not [`Reaction::Answered`]. That is what TS 60870-5-604 asks for: the
+//! primary station must detect a TSC that does not match (Table 22,
 //! row `5.4.22.1`, index 83, printed page 82, required `M`). Whether to log it,
 //! drop the link or retry is the caller's decision.
 //!
 //! # The confirmation is the command mirrored
 //!
 //! 5-101 Table 11 marks `CON <104>` and 104 Table 4 marks `CON <107>`. The NOTE
-//! under 104 Tables 3 to 6 (index 52) says: *"ASDUs marked CON in the
-//! control direction are confirmed application services and may be mirrored in
-//! the monitor direction with different causes of transmission. These mirrored
-//! ASDUs are used for positive/negative acknowledgements (verifications)."* So
+//! under 104 Tables 3 to 6 (index 52) says that control-direction ASDUs marked
+//! CON are confirmed services: they may come back mirrored in the monitor
+//! direction with another cause of transmission, and that mirror serves as the
+//! positive or negative acknowledgement (verification). So
 //! the `ACTCON` of clause 7.10 is the same type and element with cause `<7>`
 //! instead of `<6>`: the received object area, copied. That is not what
 //! [`crate::cs`] does for type 103, whose `ACTCON` carries the controlled
@@ -93,18 +90,18 @@
 //!   not re-encode the element, so a command at an information object address
 //!   other than the figures' `<0>` is answered at that same address.
 //! * The `P/N` bit makes the acknowledgement positive or negative (5-101 clause
-//!   7.2.3, index 38: *"The P/N-bit indicates the positive or negative
-//!   confirmation of activation requested by the primary application
-//!   function"*), so [`Reaction::Answered`] carries it as its `negative` field.
+//!   7.2.3, index 38: P/N says whether the activation the primary application
+//!   function asked for is confirmed positively or negatively), so
+//!   [`Reaction::Answered`] carries it as its `negative` field.
 //!
 //! # 5-101's selection
 //!
 //! 5-101 clause **7.4.10** (index 130, printed page 129), *"Selections from test
-//! procedure"*, reads in full: *"The complete procedure, defined in IEC
-//! 60870-5-5, 6.11 is used."* 5-101 Table 16 (*"Respond priorities of the
-//! controlled station"*, index 121, printed page 120) has the row *"102, 104,
-//! 105, 110 to 113 | Read command, test procedure, reset process, parameter
-//! loading"* between event reporting and station interrogation. This crate does
+//! procedure"*, selects all of IEC 60870-5-5 6.11, nothing left out. 5-101
+//! Table 16 (*"Respond priorities of the controlled station"*, index 121,
+//! printed page 120) places types `102, 104, 105, 110 to 113` (read, test,
+//! reset process and parameter loading) between event reporting and station
+//! interrogation. This crate does
 //! not order what is sent, so that priority is the caller's.
 //!
 //! # The 44–47 mirror, and why address `<0>` is accepted
@@ -116,8 +113,8 @@
 //!
 //! A test command's information object address is `<0>` by definition: figure
 //! 76's field row prints `INFORMATION OBJECT ADDRESS = 0`, and 5-101 clause
-//! **7.2.5** says *"If the INFORMATION OBJECT ADDRESS is not relevant (not used)
-//! in some ASDUs, it is set to zero"*. So nothing here refuses an address of
+//! **7.2.5** sets the information object address to zero in ASDUs where it is
+//! not relevant (not used). So nothing here refuses an address of
 //! zero. [`crate::rd`] refuses `<0>` because there the address is the object
 //! being read; that rule does not apply here.
 //!
@@ -126,12 +123,12 @@
 //! 5-101 clause **7.2.4** (index 43, printed page 42) restricts the broadcast
 //! address to types `<100>`, `<101>`, `<103>` and `<105>`; neither 104 nor 107 is
 //! on that list. TS 60870-5-604 clause **5.4.10.10** (index 54, printed page
-//! 53) states the receiving side's rule: *"The Controlled station rejects
-//! all other ASDU Types with a Broadcast CASDU value by mirroring the ASDU with
-//! P/N = 1 negative (and with COT = 46, if supported)"*. So the builders refuse
-//! `FF`/`FFFF` ([`TsError::BroadcastAddress`]), the answer carries the station's
-//! own common address, and a broadcast test command that arrives gets the
-//! class-46 mirror whatever the caller's [`Known`] says.
+//! 53) states the receiving side's rule: for any other type addressed to the
+//! broadcast CASDU, the controlled station refuses it by mirroring it with
+//! P/N = 1 (negative), using COT = 46 when it supports that cause. So the
+//! builders refuse `FF`/`FFFF` ([`TsError::BroadcastAddress`]), the answer
+//! carries the station's own common address, and a broadcast test command
+//! that arrives gets the class-46 mirror whatever the caller's [`Known`] says.
 //!
 //! # No state
 //!
@@ -145,15 +142,15 @@
 //!
 //! # What is left to the caller
 //!
-//! * **Whether the test runs on a cycle.** TS 60870-5-604 Table 22's row
-//!   *"The Test command is sent at the configured interval period"* is marked
+//! * **Whether the test runs on a cycle.** TS 60870-5-604 Table 22's row on
+//!   sending the test command every configured interval is marked
 //!   `PID`/`PIXIT` (index 83), a configured interval. This module schedules
 //!   nothing, holds no timer and reads no clock.
 //! * **Which form the station's profile uses**: the [`Selection`]'s `form`.
 //! * **Whether the station uses the function at all**: 104 clause 9.6's
-//!   *"Test procedure (station-specific parameter, mark \"X\" if function is only
-//!   used in the standard direction, \"R\" if only used in the reverse direction,
-//!   and \"B\" if used in both directions)"* (index **112**, printed page 111;
+//!   *"Test procedure"* row, a station-specific parameter marked `X` (standard
+//!   direction only), `R` (reverse direction only) or `B` (both directions)
+//!   (index **112**, printed page 111;
 //!   the *"Read procedure"* checkbox on index 108 is a different function).
 //! * **What to do with a mismatched confirmation** ([`TsError::EchoMismatch`]):
 //!   log it, close the link or retry.
@@ -474,8 +471,8 @@ pub fn request_untagged_with(
 /// with cause `<6>`, `N = 1`, `SQ = 0`, the figure's information object address
 /// of zero, and the caller's `tsc` and `time`.
 ///
-/// The clause's own sentence is why both values are arguments: *"The requesting
-/// station may choose any value of TSC."* The echo of both on the answer is
+/// Both values are arguments because the clause leaves the TSC entirely to the
+/// requesting station. The echo of both on the answer is
 /// [`answer`]'s work, and [`TestProcedure::on_response`] checks it.
 ///
 /// As in [`request_untagged`], the broadcast address is
@@ -571,8 +568,8 @@ pub fn request_with(
 /// command's information object address therefore comes back unchanged even
 /// when it is not `<0>`, and its originator address and `T` bit are echoed.
 /// This follows 104 clause 7.10's `ACTCON` row and the NOTE under 104 Tables 3
-/// to 6 (index 52): *"ASDUs marked CON in the control direction … may be
-/// mirrored in the monitor direction with different causes of transmission."*
+/// to 6 (index 52): a control-direction ASDU marked CON may come back mirrored
+/// in the monitor direction with another cause of transmission.
 ///
 /// `command` is the received frame itself:
 ///
@@ -586,11 +583,11 @@ pub fn request_with(
 ///   is a typed error, and a command whose `FBP` is not `55AAH` is
 ///   [`AsduError::FixedPatternMismatch`] inside [`TsError::Layout`];
 /// * its originator address and `T` bit are echoed (5-101 clause 7.2.3, index
-///   38: *"the controlled station should echo this originator address in the
-///   response in the monitor direction"*).
+///   38: the controlled station should return the originator address in its
+///   monitor-direction response).
 ///
-/// `common_address` is the station's own, since clause 7.2.4 answers with *"the
-/// specific defined COMMON ADDRESS (station address)"*; the broadcast value is
+/// `common_address` is the station's own, since clause 7.2.4 answers with the
+/// station's own defined common address; the broadcast value is
 /// refused ([`TsError::BroadcastAddress`]).
 ///
 /// # Errors
@@ -629,7 +626,7 @@ pub fn answer_with(
     }
     if common_address == sizes.broadcast_common_address() {
         // The answer carries the station's own address, never the broadcast one
-        // (cl.7.2.4's *"specific defined COMMON ADDRESS (station address)"*).
+        // (cl.7.2.4: the answer names the station's own defined common address).
         return Err(TsError::BroadcastAddress { common_address });
     }
     let Some(_) = command_of(command, sizes)? else {
@@ -685,8 +682,7 @@ fn activation_confirmation(
 /// (figure 76's field row).
 ///
 /// `common_address` is the station's own, not the received frame's: clause
-/// 7.2.4 answers with *"the specific defined COMMON ADDRESS (station
-/// address)"*.
+/// 7.2.4 answers with the station's own defined common address.
 ///
 /// A frame that is not a test command is [`TsError::NotThisType`] (its type
 /// identification is neither 104 nor 107) or [`TsError::CauseNotListed`] (a
@@ -860,10 +856,9 @@ pub enum TsError {
         cause: Cause,
     },
     /// The confirmation's value does not match what this station sent. 104
-    /// clause 8.8: *"The TSC in the response shall match the request, and the
-    /// time in the response shall also exactly match the time in the request."*
-    /// TS 60870-5-604 5.4.22.1 (index 83) requires that *"Mismatching values of
-    /// TSC are detected by the Primary station"*; what to do about it is the
+    /// clause 8.8: the response shall carry the request's TSC and exactly the
+    /// request's time. TS 60870-5-604 5.4.22.1 (index 83) requires the primary
+    /// station to detect a TSC that does not match; what to do about it is the
     /// application's decision.
     EchoMismatch {
         /// What this station sent.
@@ -1057,7 +1052,7 @@ impl TestProcedure {
     ///    [`Reaction::Refused`] with the class's cause. It is checked before the
     ///    discard rule because it is the answer the controlling station asked
     ///    for. 5-101 clause 7.2.3's monitor-direction log list names
-    ///    *"mirrored ASDUs due to unknown numbers in the control direction"* as
+    ///    control-direction ASDUs mirrored because of an unknown value as
     ///    something to log, not to drop.
     /// 2. **Clause 7.2.3's discard rule** for everything else, as in the other
     ///    procedure modules.
@@ -1161,15 +1156,15 @@ impl TestProcedure {
     ///    stations cannot mirror each other.
     /// 2. **A broadcast test command** (one of the two types at `FF`/`FFFF`,
     ///    which clause 7.2.4, index 43, restricts to types `<100>`, `<101>`,
-    ///    `<103>` and `<105>`) is *"rejected … by mirroring the ASDU with P/N = 1
-    ///    negative (and with COT = 46, if supported)"* (TS 60870-5-604
+    ///    `<103>` and `<105>`) is refused by a mirror with P/N = 1 (negative),
+    ///    with COT = 46 when supported (TS 60870-5-604
     ///    5.4.10.10, index 54). It is [`Reaction::Refused`] with the class-46
     ///    mirror in [`Outcome::send`], whatever the caller's [`Known`] says, and
     ///    the mirror carries this station's own common address.
     /// 3. **Clause 7.2.3's rule for the control direction**: a frame whose type
     ///    identification, cause of transmission, common address or information
     ///    object address the station does not know (per the caller's [`Known`])
-    ///    is *"mirrored … with bit `P/N := <1>` negative confirm"* with the
+    ///    is mirrored with `P/N := <1>` (negative confirmation) and the
     ///    class's cause ([`Reaction::Refused`] with the mirror in
     ///    [`Outcome::send`]). These are the `<44>`–`<47>` of figures 76 and 30.
     /// 4. **Everything else**: a cause-`<6>` command of this station's selected

@@ -684,9 +684,9 @@ fn the_station_selection_gates_the_producers() {
 
 #[test]
 fn the_double_transmission_pair_is_untagged_first_and_tagged_second() {
-    // 104 clause 9.6 (PDF page index 108): *"may be transmitted in succession
-    // caused by a single status change of an information object"*, with the
-    // same value in both frames.
+    // 104 clause 9.6 (PDF page index 108): one status change of an information
+    // object may produce two transmissions in a row, with the same value in
+    // both frames.
     let pair = doubled(&m_sp(true), time(), CA, ORG).unwrap();
     assert_eq!(pair.len(), 2);
     // `M_SP_NA_1` (type 1) first: 6 + 3 + 1 = 10 octets.
@@ -767,8 +767,8 @@ fn every_pair_of_clause_nine_six_is_untagged_then_tagged_in_the_permitted_set() 
 
 #[test]
 fn clause_nines_permitted_tag_set_is_30_to_40() {
-    // 104 clause 9 (PDF page index 100): *"In this companion standard only the
-    // use of the set <30> – <40> for ASDUs with time tag is permitted."*
+    // 104 clause 9 (PDF page index 100): for time-tagged ASDUs this companion
+    // standard allows only the types <30> to <40>.
     for octet in 30u8..=40 {
         assert!(is_permitted_tag(TypeId::from_u8(octet)), "type {octet}");
     }
@@ -911,8 +911,8 @@ fn a_type_outside_clause_nine_sixs_seven_families_is_refused() {
 
 #[test]
 fn the_project_list_gates_the_double_transmission() {
-    // 104 clause 9.6: *"The particular information object addresses for which
-    // double transmission is enabled are defined in a project-specific list."*
+    // 104 clause 9.6: which information object addresses get double
+    // transmission is set by a list specific to the project.
     let list = ProjectList::new([IOA, 0x4002]);
     assert_eq!(list.addresses(), [IOA, 0x4002]);
     assert_eq!(list.len(), 2);
@@ -1072,8 +1072,7 @@ fn the_discard_rule_runs_first() {
     let station = listening();
     // 5-101 clause 7.2.3 (PDF page index 38): a monitor-direction ASDU the
     // station's profile does not know is discarded and may be logged, and
-    // *"Receipt of one of these ASDUs does not affect the processing of
-    // subsequent messages."*
+    // receiving one must leave the handling of later messages unaffected.
     let frame = cyclic(&m_me_na(0x2000), CA, ORG).unwrap();
     let outcome = station.on_response(&frame, &Known::NOTHING).unwrap();
     assert_eq!(
@@ -1251,7 +1250,7 @@ fn table_16_rows() {
 /// `respond_priority`): `<107>` `C_TS_TA_1` is 104's test command (104 Table
 /// 4) and takes the test procedure's row; return information (causes 11, 12,
 /// 5-101 cl.7.4.7) goes with the events; the background scan (cause 2, 5-101
-/// cl.7.4.13 *"on a low-priority continuous basis"*) with the cyclic data; a
+/// cl.7.4.13, run continuously at low priority) with the cyclic data; a
 /// mirror of a type the table does not list (cause 44, `P/N = 1`) with the
 /// requests.
 #[test]
@@ -1268,11 +1267,11 @@ fn table_16_what_it_does_not_name() {
 }
 
 // ---------------------------------------------------------------------------
-// Packing events: TS 60870-5-604 5.4.16.1 (PDF page index 63): "The
-// Controlled station transmits events of the same Type, COT and priority but
-// with gaps in their addresses as a Set of Information elements (SQ:=0) in one
-// single ASDU, filled until the maximum configured ASDU or ADPU length as in
-// the PICS". The octets below are 5-101 clause 7.2.2.1's variable structure
+// Packing events: TS 60870-5-604 5.4.16.1 (PDF page index 63): events that
+// share type, COT and priority but have non-contiguous addresses go out
+// together in one ASDU as a set of information elements (SQ = 0), filled up
+// to the maximum ASDU or APDU length the PICS configures. The octets below
+// are 5-101 clause 7.2.2.1's variable structure
 // qualifier (SQ = 0, N objects) and clause 7.3.1.11's M_ME_NB_1 object (a
 // three octet address, SVA as two octets low first, QDS), with the
 // conventional sizes: type, VSQ, cause, originator, common address (two).
@@ -1333,7 +1332,7 @@ fn events_that_differ_in_what_5_4_16_1_names_do_not_share_an_asdu() {
 
 #[test]
 fn an_asdu_is_filled_up_to_and_not_beyond_249_octets() {
-    // 5-104 clause 5: "The maximum length of the ASDU is limited to 249".
+    // 5-104 clause 5: the ASDU is 249 octets at most.
     // Six octets of header and six per M_ME_NB_1 object: 40 objects make 246
     // octets, a 41st would make 252.
     let sizes = iec104::asdu::AddressSizes::CONVENTIONAL;

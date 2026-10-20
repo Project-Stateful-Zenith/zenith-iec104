@@ -126,8 +126,8 @@ async fn clause_5_2_t3_sends_testfr_act_on_an_idle_connection() {
     assert_eq!(confirmed.elapsed(), T3);
 }
 
-/// Clause 5.3: *"If the STARTDT is not confirmed, the connection is closed by
-/// the controlling station"*. The close comes t1 after the act, and clause
+/// Clause 5.3: the controlling station closes a connection whose STARTDT
+/// gets no confirmation. The close comes t1 after the act, and clause
 /// 10.5's reopening dials again once the attempt's t0 has run out: the
 /// connection lasted less than t0, so not at once (a peer that takes every
 /// connection and drops it is dialed once per t0, not in a loop).
@@ -208,8 +208,8 @@ async fn clause_5_5_a_full_k_window_queues_and_the_acknowledgement_flushes() {
     assert_eq!(peer.frame().await.unwrap(), i_frame(12, 0, &INTERROGATION));
 }
 
-/// Figures 10/11 NOTE: *"an S-frame should, if possible, be sent prior to the
-/// active close"*. The application's close acknowledges the three I-frames
+/// Figures 10/11 NOTE: where possible, an S-frame should precede the active
+/// close. The application's close acknowledges the three I-frames
 /// received (fewer than w, so none was acknowledged yet), then closes.
 #[tokio::test(start_paused = true)]
 async fn figures_10_11_the_s_frame_goes_out_before_the_active_close() {
@@ -225,8 +225,8 @@ async fn figures_10_11_the_s_frame_goes_out_before_the_active_close() {
     assert_eq!(peer.frame().await, None, "then the close");
 }
 
-/// Clause 5.3: *"The controlling station should, however, confirm all
-/// received messages before sending STOPDT act"*, and STOPDT con stops it.
+/// Clause 5.3: the controlling station should acknowledge everything it
+/// received before it sends STOPDT act, and STOPDT con stops it.
 #[tokio::test(start_paused = true)]
 async fn clause_5_3_the_s_frame_goes_out_before_stopdt_act() {
     let (handle, mut events, _dials, mut peer) = started().await;

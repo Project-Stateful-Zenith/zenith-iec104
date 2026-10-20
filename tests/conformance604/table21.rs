@@ -9,8 +9,8 @@
 //! The library's part is `pm`: it classifies a received `P_ME`/`P_AC` (5-101
 //! clause 7.3.5), decides which answer the standard draws, and builds it. The
 //! **value now in operation** is the application's: 5-101 clause 7.4.9 says the
-//! `ACTCON` carries *"the value (new or old) of the parameter now in
-//! operation"*, and the crate keeps no parameter state. So the controlled
+//! `ACTCON` carries whichever value of the parameter, new or old, is in
+//! operation, and the crate keeps no parameter state. So the controlled
 //! station under test runs [`ParamApp`], glue that stores the value `pm` reports
 //! as loaded and hands back the stored value when `pm` reports a load it must
 //! not activate. The decisions (accept, refuse as infeasible, refuse a `QPA`)
@@ -18,8 +18,8 @@
 //!
 //! The station holds one parameter per type and kind of parameter (`KPA`
 //! `<1>` to `<4>`, 5-101 clause 7.2.6.24) at [`HELD_IOA`]; `P_AC_NA_1` addresses
-//! that object too, or address 0 for `QPA = <1>` (*"act/deact of the previously
-//! loaded parameters (information object address = 0)"*, clause 7.2.6.25).
+//! that object too, or address 0 for `QPA = <1>` (clause 7.2.6.25: that value
+//! switches the previously loaded parameters as a whole, at address 0).
 //!
 //! # Direction
 //!
@@ -32,13 +32,12 @@
 //!
 //! # Not automated
 //!
-//! - *"The values of the object(s) transferred and stored on the controlling
-//!   station should represent the actual values on the controlled station"*
-//!   (`M`): storing is the controlling station's application. The
+//! - The row that the values the controlling station receives and stores
+//!   should be the controlled station's actual values (`M`): storing is the controlling station's application. The
 //!   controlling-station cases check that the library reports the value the
 //!   confirmation carried, which is what such an application stores.
-//! - `5.4.21.10`'s *"If all values for the supported parameters are considered
-//!   valid, then this test can be skipped."*: which values beyond the
+//! - `5.4.21.10`'s allowance to skip the test when every value of the
+//!   supported parameters counts as valid: which values beyond the
 //!   standard's own rule are feasible is the device's. The cases drive the one
 //!   rule the row states for every station (a negative threshold value or
 //!   smoothing factor).
@@ -88,8 +87,8 @@ impl Value {
     }
 
     /// The element octets: the value then `QPM`, whose `KPA` is bits 1 to 6 and
-    /// whose `LPC` and `POP` are zero (*"LPC and POP are not used in this
-    /// standard and set to zero."*, clause 7.2.6.24).
+    /// whose `LPC` and `POP` are zero (clause 7.2.6.24: the standard does not
+    /// use them and sets both to zero).
     fn octets(self) -> Vec<u8> {
         let mut out = match self.type_id {
             110 | 111 => self.n.to_le_bytes().to_vec(),
@@ -277,23 +276,18 @@ fn end(station: ControlledStation, link: Link) {
 /// *"Parameter loading – sequential procedure: Load and activate parameter"*,
 /// every row `Required` `M`:
 ///
-/// > The Controlling station sends a Parameter command (look at PICS for the
-/// > supported ASDUs) with COT = 6 ACT to the Controlled station
-///
-/// > The parameter is loaded and will be activated immediately (after check for
-/// > feasibility and acceptance of being a valid value)
-///
-/// > The Controlled station mirrors the same ASDU, with COT=7_ACTCONpos, to the
-/// > Controlling station, which contain the actual parameter value that is in
-/// > operation. - The actual value in this case is the "new" value and not the
-/// > old parameter value!
-///
-/// > The actual parameter value in the ACTCON is equal to the operational
-/// > parameter in the controlled station (plausibility test)
-///
-/// > The tests in this table are performed correctly by every ASDU in the PICS
-/// > that supports the applicable COT and for each supported parameter
-/// > (Threshold, smoothing factor, high/low limit).
+/// - the controlling station sends a parameter command (an ASDU its PICS
+///   lists) to the controlled station with cause 6 (`ACT`);
+/// - once checked as feasible and valid, the parameter is loaded and takes
+///   effect at once;
+/// - the controlled station mirrors the ASDU back with cause 7, positive
+///   (`ACTCONpos`), carrying the parameter value now in operation, which here
+///   is the new value, not the old one;
+/// - that value in the `ACTCON` equals the parameter the controlled station
+///   operates with (checked for plausibility);
+/// - the tests run for every ASDU of the PICS that supports the cause in
+///   question, and for each supported parameter (threshold, smoothing factor,
+///   high and low limit).
 ///
 /// DUT: the **controlled** station. Every `P_ME` type (110, 111, 112) with every
 /// kind of parameter (`KPA` 1 to 4), then `P_AC_NA_1` with `QPA = <3>`, the one
@@ -345,9 +339,8 @@ fn clause_5_4_21_1_a_loaded_parameter_is_confirmed_with_the_new_value() {
 }
 
 /// 604 `5.4.21.1` in the reverse direction (§5.1), index 82, the row about the
-/// **controlling** station (`M`): *"The Controlling station sends a Parameter
-/// command (look at PICS for the supported ASDUs) with COT = 6 ACT to the
-/// Controlled station"*, and takes the `ACTCONpos` carrying the new value.
+/// **controlling** station (`M`): it sends a parameter command (an ASDU its
+/// PICS lists) to the controlled station with cause 6 (`ACT`), and takes the `ACTCONpos` carrying the new value.
 ///
 /// DUT: the **controlling** station, every `P_ME` type with every `KPA`, then
 /// `P_AC_NA_1` with `QPA = <3>`. What goes on the wire is compared octet for
@@ -421,23 +414,20 @@ fn clause_5_4_21_1_the_controlling_station_loads_and_takes_the_confirmation() {
 /// Negative Confirmation by Controlled station"*, every row `Required` `PICS,
 /// 9.6 Parameter loading, supported parameters`:
 ///
-/// > The parameter is loaded but CANNOT be activated immediately (after check
-/// > for feasibility and acceptance of being a valid value)
-/// > Negative values for the parameters Threshold value and Smoothing factor
-/// > always are considered as invalid and not activated.
-///
-/// > The Controlled station mirrors the same ASDU with COT=7(ACTCONneg) to the
-/// > Controlling station, which indicates that the parameter could not be
-/// > loaded and/or activated.
-/// > The actual value in this case is the "old" existing value and not the
-/// > parameter that could not be activated!
+/// - the parameter is loaded but, after the feasibility and validity check,
+///   cannot take effect at once; a negative threshold value or smoothing
+///   factor is always invalid and never activated;
+/// - the controlled station mirrors the ASDU back with cause 7, negative
+///   (`ACTCONneg`), meaning the parameter was not loaded and/or not activated;
+///   the value it carries is the old one still in operation, not the refused
+///   one.
 ///
 /// DUT: the **controlled** station. For every `P_ME` type, a negative
 /// threshold value (`KPA 1`) and a negative smoothing factor (`KPA 2`) are
 /// answered with the same ASDU, cause 7 with `P/N = 1`, carrying the value in
 /// operation: first the station's initial value, then, after a positive value
-/// has been loaded, that newly loaded one (the *"old existing value"* is
-/// whatever is in operation when the refused load arrives).
+/// has been loaded, that newly loaded one (the "old" value is whatever is in
+/// operation when the refused load arrives).
 #[test]
 fn clause_5_4_21_10_a_negative_threshold_or_smoothing_factor_is_refused_with_the_old_value() {
     let (station, mut link, log) = controlled();
@@ -544,10 +534,9 @@ fn clause_5_4_21_10_the_controlling_station_takes_the_negative_confirmation() {
 /// *"Parameter loading – Parameter activation"*, `Reference`
 /// `IEC 60870-5-101:2003, 7.2.6.25`, `Required` `M`:
 ///
-/// > The Controlled station will reject any received Parameter Activation
-/// > command (ASDU 113) with QPA = 1 or 2. The Controlled station mirrors the
-/// > same ASDU with P/N=<1> negative (and with COT = 44, if supported) to the
-/// > Controlling station
+/// the controlled station rejects every parameter activation command (type
+/// 113) whose `QPA` is 1 or 2, mirroring the ASDU back to the controlling
+/// station with `P/N = <1>` (negative), and with cause 44 if it supports that;
 ///
 /// DUT: the **controlled** station. `QPA = <1>` addresses object 0 and
 /// `QPA = <2>` the addressed object (clause 7.2.6.25). Each answer is the same
@@ -577,9 +566,8 @@ fn clause_5_4_21_15_a_parameter_activation_with_qpa_1_or_2_is_rejected() {
 
 /// 604 `5.4.21.15` in the reverse direction (§5.1), index 82: a **controlling**
 /// station does not send what the controlled station must reject. 5-101 clause
-/// 7.2.6.25 prints `<1>` and `<2>` with the footnote *"Not used in this
-/// companion standard (reserved for extension of parameter loading
-/// functions)"*, and clause 7.4.9 selects `QPA := <3>` only, so the library
+/// 7.2.6.25 footnotes `<1>` and `<2>` as unused by the companion standard and
+/// reserved for future parameter loading functions, and clause 7.4.9 selects `QPA := <3>` only, so the library
 /// refuses to build `P_AC_NA_1` with `QPA` 1 or 2.
 #[test]
 fn clause_5_4_21_15_the_controlling_station_sends_no_qpa_1_or_2() {

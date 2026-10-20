@@ -970,10 +970,9 @@ fn drive_frame_entry_points(case: &str, input: &[u8]) {
             used <= len,
             "{case}: apci::parse consumed {used} octets of a {len}-octet buffer"
         );
-        // 104 cl.5 (index 26): "The maximum length of the ASDU is limited to
-        // 249 because the maximum value of the field length of APDU is 253
-        // (APDUmax = 255 minus start and length octet) and the length of the
-        // control field is 4 octets."
+        // 104 cl.5 (index 26): the ASDU is at most 249 octets, since the
+        // length field tops out at 253 (APDUmax = 255 less the start and
+        // length octets) and the control field takes 4.
         assert!(
             apdu.asdu.len() <= apci::MAX_ASDU,
             "{case}: an APDU carried a {} octet ASDU (clause 5 caps it at {})",
@@ -1543,8 +1542,8 @@ fn drive_test_and_file_transfer(case: &str, asdu: &[u8], known: Known) {
     drive("ts::TestProcedure::on_response", case, len, || {
         let _ = ts_controlling.on_response(asdu, &known, sent);
     });
-    // The test procedure's two answer entry points (5-101 cl.7.2.4's *"the
-    // specific defined COMMON ADDRESS (station address)"*): `answer` reads the
+    // The test procedure's two answer entry points (5-101 cl.7.2.4's station
+    // address, the specific common address): `answer` reads the
     // received command, so the instance must have the procedure **marked used**
     // or `TestProcedure::answer` returns `FunctionNotUsed` before it parses.
     let answering = ts::TestProcedure::controlled(ts::Selection::default().with_used(true), 1, 0);
@@ -1751,14 +1750,12 @@ element_parsers!(
 /// Every legal address profile the checked constructor accepts: 1 or 2 CA
 /// octets × 1, 2 or 3 IOA octets × originator present or absent.
 ///
-/// The three widths are *"system-specific parameter[s]"* of 5-104 cl.9.5
-/// (index 98): *"One octet"* / *"Two octets"* for the common address,
-/// *"One octet"* / *"Structured"* + *"Two octets"* / *"Unstructured"* +
-/// *"Three octets"* for the information object address (the two words are the
-/// sheet's names for those forms), *"One octet"* / *"Two octets (with
-/// originator address)"* for the cause. 5-101 cl.7.2.4 (index 42) and
-/// cl.7.2.5 (index 43) call each length *"a parameter which is fixed per
-/// system"*. **12** combinations.
+/// The three widths are system-specific parameters of 5-104 cl.9.5 (index
+/// 98): one or two octets for the common address; one, two or three octets
+/// for the information object address (the sheet calls the forms `Structured`
+/// and `Unstructured`); one octet, or two with the originator address, for the
+/// cause. 5-101 cl.7.2.4 (index 42) and cl.7.2.5 (index 43) make each length
+/// fixed per system. **12** combinations.
 fn every_profile() -> Vec<AddressSizes> {
     let mut profiles = Vec::new();
     for common_address_octets in 1..=2u8 {
@@ -1840,13 +1837,11 @@ fn laid_out() -> Vec<(TypeId, &'static Layout)> {
         .collect()
 }
 
-/// 104 cl.5, index 26 (printed 25): *"START 68H defines the point of start
-/// within the data stream."* and *"The length of the APDU defines the length of
-/// the body of the APDU, which consists of the four control field octets of the
-/// APCI plus the ASDU. … The maximum length of the ASDU is limited to 249
-/// because the maximum value of the field length of APDU is 253 (`APDUmax` = 255
-/// minus start and length octet) and the length of the control field is 4
-/// octets."*
+/// 104 cl.5, index 26 (printed 25): `68H` marks where a frame starts in the
+/// stream, and the length octet counts the APDU body, which is the APCI's four
+/// control field octets followed by the ASDU. The ASDU is therefore at most 249
+/// octets: the length field tops out at 253 (`APDUmax` = 255 less the start and
+/// length octets), four of which are the control field.
 ///
 /// Seeds: Beckhoff samples 1–3, `STARTDT act`, the Clarke/Reynders/Wright
 /// stream and the committed real-peer capture (see their definitions above).
@@ -1922,7 +1917,7 @@ fn every_prefix_of_every_seed_is_a_typed_error() {
         "the six seeds expand to 165 prefix inputs (17 + 55 + 7 + 7 + 62 + 17)"
     );
 
-    // 104 cl.5, index 28 (printed 27): "I format APDUs always contain an ASDU."
+    // 104 cl.5, index 28 (printed 27): an I-format APDU always carries an ASDU.
     // A length of 4 leaves room for the control field alone, so an I-format
     // frame that claims one is refused rather than read past its own end.
     let short_i = [0x68, 0x04, 0x00, 0x00, 0x00, 0x00];
@@ -1932,12 +1927,11 @@ fn every_prefix_of_every_seed_is_a_typed_error() {
     );
 }
 
-/// 104 cl.5, index 28 (printed 27): *"Control field octet 1 bit 1 = 0 defines
-/// the I format. I format APDUs always contain an ASDU."*; *"Control field
-/// octet 1 bit 1 = 1 and bit 2 = 0 defines the S format. S format APDUs consist
-/// of the APCI only."*; *"Control field octet 1 bit 1 = 1 and bit 2 = 1 defines
-/// the U format. U format APDUs consist of the APCI only."*; *"Only one
-/// function – TESTFR, STOPDT or STARTDT – may be active at the same time."*
+/// 104 cl.5, index 28 (printed 27): in control field octet 1, bit 1 = 0 makes
+/// an I-format APDU, which always carries an ASDU; bits 1 and 2 = 1, 0 make an
+/// S-format APDU and bits 1 and 2 = 1, 1 a U-format APDU, both of them APCI
+/// alone; and at most one of the functions TESTFR, STOPDT and STARTDT may be
+/// active at a time.
 ///
 /// The flip sweep over [`FLIP_SEEDS`], named so an edit to any of them is
 /// visible: Beckhoff sample 1 (the counter-interrogation command), Beckhoff
@@ -1994,10 +1988,10 @@ fn every_octet_position_flipped_is_a_typed_error() {
     );
 }
 
-/// 101 cl.7.2.2, index 34 (printed 33): *"VARIABLE STRUCTURE QUALIFIER :=
-/// CP8{number, SQ}"*; *"number=N := UI7[1..7]<0..127>"*; *"<0> := ASDU contains
-/// no INFORMATION OBJECT"*. And 101 cl.7.2.5, index 44 (printed 43):
-/// *"INFORMATION OBJECT ADDRESS := UI24[1..24]<0..16777215>"*.
+/// 101 cl.7.2.2, index 34 (printed 33): the variable structure qualifier is
+/// `CP8{number, SQ}`, its number `N` is `UI7[1..7]<0..127>`, and `N = 0` means
+/// the ASDU holds no information object. And 101 cl.7.2.5, index 44 (printed
+/// 43): the three-octet information object address is `UI24[1..24]<0..16777215>`.
 ///
 /// One minimal well-formed frame per laid-out type, built through
 /// [`layout_for`] / [`element_len`] rather than stored, so every layout and
@@ -2055,12 +2049,11 @@ fn every_laid_out_type_has_a_minimal_frame_the_corpus_drives() {
 
 /// The width sweep over every legal address profile.
 ///
-/// 104 cl.9.5 (index 98) lists the common address (*"One octet"* / *"Two
-/// octets"*), the information object address (*"One octet"* / *"Two octets"* /
-/// *"Three octets"*) and the cause of transmission (*"One octet"* / *"Two octets
-/// (with originator address). Originator address is set to zero if not used"*)
-/// as *"system-specific parameter"*; 5-101 cl.7.2.4 (index 42) and cl.7.2.5
-/// (index 43) call each length *"a parameter which is fixed per system"*.
+/// 104 cl.9.5 (index 98) lists the common address (one or two octets), the
+/// information object address (one, two or three octets) and the cause of
+/// transmission (one octet, or two with the originator address, which is zero
+/// when unused) as system-specific parameters; 5-101 cl.7.2.4 (index 42) and
+/// cl.7.2.5 (index 43) make each length fixed per system.
 ///
 /// Every one of the twelve combinations the checked constructor accepts carries
 /// a minimal frame of **every** laid-out type. The frame round-trips through
@@ -2207,10 +2200,10 @@ fn every_element_parser_reports_short_prefixes_as_typed_errors() {
     );
 }
 
-/// 104 cl.5, index 26 (printed 25): *"The maximum length of the ASDU is limited
-/// to 249 because the maximum value of the field length of APDU is 253 (`APDUmax`
-/// = 255 minus start and length octet) and the length of the control field is 4
-/// octets."* No octet the length field can carry may size an allocation on its
+/// 104 cl.5, index 26 (printed 25): the ASDU is at most 249 octets, since the
+/// length field tops out at 253 (`APDUmax` = 255 less the start and length
+/// octets) and the control field takes 4. No octet the length field can carry
+/// may size an allocation on its
 /// own: the length octet flip is the case this asserts, and the same bound is
 /// re-checked on a header whose `count` is the 127-object `UI7` ceiling.
 #[test]
@@ -2291,9 +2284,9 @@ fn a_wire_length_cannot_size_an_allocation() {
 
 /// The corpus drives the application modules too. The seeds and one flip sweep
 /// go through every reception entry point of `src/{init,gi,ci,cs,ct,pm,tx,rd,
-/// ts,ft}.rs`, `src/link.rs` and `src/redundancy.rs`; 101 cl.7.2.5's *"ASDUs
-/// with undefined values of INFORMATION OBJECT ADDRESS are discarded by
-/// controlling stations"* is a decision these modules take, so a truncated or
+/// ts,ft}.rs`, `src/link.rs` and `src/redundancy.rs`; 101 cl.7.2.5's rule that
+/// a controlling station discards an ASDU with an undefined information object
+/// address is a decision these modules take, so a truncated or
 /// adversarial ASDU must reach them as a typed error, never as a panic.
 #[test]
 fn the_application_entry_points_never_panic_on_adversarial_asdus() {

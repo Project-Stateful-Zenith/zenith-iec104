@@ -31,12 +31,11 @@
 //!
 //! # The confirmation is a *mirror* of the command
 //!
-//! 5-104 Table 2's NOTE (PDF page index 50, printed page 49): *"ASDUs marked
-//! \"CON\" in the control direction are confirmed application services and may
-//! be mirrored in the monitor direction with different causes of transmission.
-//! These mirrored ASDUs are used for positive/negative acknowledgements
-//! (verifications)."* 5-101 clause **7.2.3** (PDF page index 38, printed page
-//! 37) says the same.
+//! 5-104 Table 2's NOTE (PDF page index 50, printed page 49) makes the
+//! control-direction ASDUs marked "CON" confirmed services: the station may send
+//! them back in the monitor direction under another cause of transmission, and
+//! that mirror is the positive or negative acknowledgement. 5-101 clause
+//! **7.2.3** (PDF page index 38, printed page 37) says the same.
 //!
 //! So an `ACTCON` **is the command ASDU again** (same type identification, same
 //! information object address, same element, same `S/E`) with the cause
@@ -52,10 +51,10 @@
 //!
 //! # The mirror echoes the request's originator address and test bit
 //!
-//! 5-101 clause **7.2.3** (PDF page index 38, printed page 37): *"In these
-//! systems, the information source should set the originator address of the
-//! ASDUs in the command direction, and the controlled station should echo this
-//! originator address in the response in the monitor direction."*
+//! 5-101 clause **7.2.3** (PDF page index 38, printed page 37): where the
+//! originator address is used, the source of a command *should* set it, and the
+//! controlled station *should* return the same originator address in its
+//! monitor-direction response.
 //!
 //! Every answer this module builds for a received frame (the `ACTCON`, the
 //! `DEACTCON`, the `ACTTERM` and the cause 44 to 47 mirror) therefore carries
@@ -66,12 +65,11 @@
 //!
 //! **A command is never broadcast.** cl.7.2.4's global address (`<65535>` with
 //! a two-octet common address), the *broadcast CASDU* of TS 60870-5-604
-//! 5.4.10.10 (PDF page index 54), is *"only used in control direction with ASDU
-//! Types 100 (Interrogation), 101 (Counter interrogation), 103 (Clock Sync) or
-//! 105 (Reset Process)"* (`C_IC`, `C_CI`, `C_CS`, `C_RP`), and *"the
-//! Controlled station rejects all other ASDU Types with a Broadcast CASDU value
-//! by mirroring the ASDU with P/N = 1 negative (and with COT = 46, if
-//! supported)"*. A command addressed to the global address is therefore
+//! 5.4.10.10 (PDF page index 54), is allowed only in the control direction and
+//! only on types 100 (interrogation), 101 (counter interrogation), 103 (clock
+//! synchronization) and 105 (reset process) (`C_IC`, `C_CI`, `C_CS`, `C_RP`).
+//! The controlled station refuses any other type sent to the broadcast CASDU by
+//! mirroring it with P/N = 1, and with COT = 46 if it supports that cause. A command addressed to the global address is therefore
 //! answered with that mirror and **records no state**; it is not answered for
 //! every station in turn. The check reads the received header itself, so the
 //! rule holds whatever the caller's [`Known`] says. Only the fourteen command
@@ -83,19 +81,13 @@
 //! # The per-type cause lists
 //!
 //! 5-101 clause **7.3.2** prints one figure per family and each figure carries
-//! the type's whole cause list. Figure 64 (cl.7.3.2.1, PDF page index 99) reads:
+//! the type's whole cause list. For `C_SC_NA_1` (type 45), Figure 64
+//! (cl.7.3.2.1, PDF page index 99) allows:
 //!
-//! ```text
-//! CAUSES OF TRANSMISSION used with TYPE IDENT 45 := C_SC_NA_1
-//!   in control direction: <6> activation, <8> deactivation
-//!   in monitor direction: <7> activation confirmation,
-//!                         <9> deactivation confirmation,
-//!                         <10> activation termination,
-//!                         <44> unknown type identification,
-//!                         <45> unknown cause of transmission,
-//!                         <46> unknown common address of ASDU,
-//!                         <47> unknown information object address
-//! ```
+//! | Direction | Causes |
+//! | --- | --- |
+//! | control | 6 (activation), 8 (deactivation) |
+//! | monitor | 7 (activation confirmation), 9 (deactivation confirmation), 10 (activation termination), 44–47 (unknown type identification, cause, common address, information object address) |
 //!
 //! Figures 65–70 (cl.7.3.2.2 to .7, PDF page indices 99–103) carry the same
 //! list for types 46–51, and 5-104 clause **8**'s figures 23–29 (types 58–64,
@@ -105,45 +97,42 @@
 //!
 //! # Which of the command procedures are used
 //!
-//! 5-101 clause **7.4.7** (PDF page index 126, printed page 125), verbatim:
+//! 5-101 clause **7.4.7** (PDF page index 126, printed page 125), paraphrased:
 //!
-//! - *"The select procedure is only used in case of a select and execute
-//!   function. DEACT, DEACTCON is only used in case of a select and execute
-//!   function."*
-//! - *"`C_SC`, `C_DC`, `C_RC` ACT, ACTCON and ACTTERM are used."*
-//! - *"`C_SE` ACT and ACTCON is used with direct command transmission or select
-//!   and execute procedures. `C_SE` ACTTERM may be used optionally."*
-//! - *"`RETURN_INF` for control operation commenced is not used."*
-//! - *"`RETURN_INF` for control operation complete is used (if available)."*
-//! - *"S/E of the qualifier of command QOC is irrelevant in ASDUs with causes
-//!   of transmission DEACT and DEACTCON."*
+//! - Select, and `DEACT`/`DEACTCON`, exist only where the station has the
+//!   select-and-execute function.
+//! - `C_SC`, `C_DC` and `C_RC` use `ACT`, `ACTCON` and `ACTTERM`.
+//! - `C_SE` uses `ACT` and `ACTCON` in both direct and select-and-execute
+//!   operation; its `ACTTERM` is optional.
+//! - No `RETURN_INF` is sent when a control operation starts.
+//! - A `RETURN_INF` is sent when a control operation completes, if one is
+//!   available.
+//! - The `S/E` bit of `QOC` does not matter on `DEACT` and `DEACTCON`.
 //!
-//! The first sentence makes the select procedure and the deactivation a
+//! The first point makes the select procedure and the deactivation a
 //! *function* a station may or may not have, so [`CommandMode`] is a
 //! per-station selection (`Direct` or `SelectAndExecute`). The second and third
 //! make the `ACTTERM` policy per family, so [`Termination`] is a per-station
-//! selection too. Of the two `RETURN_INF` sentences only the second is built
+//! selection too. Of the two `RETURN_INF` points only the second is built
 //! ([`ReturnInfo`] has no "commenced" variant), and the last is why
 //! [`deactivation`] writes the `S/E` bit it is given without policing it.
 //!
-//! The clause's NOTE maps the three families onto what they control: *"Usually,
-//! a single command (type identification 45) is used to control an object that
-//! is monitored as a single-point (type identification 1, 2 and 30), a double
-//! command (type identification 46) is used to control an object that is
-//! monitored as double-point (type identification 3, 4 or 31) and a regulating
-//! step command (type identification 47) is used to control an object that is
-//! monitored as a step position information (type identifications 5, 6 and 32)."*
+//! The clause's NOTE pairs each of the three families with what it usually
+//! controls: a single command (type 45) an object reported as a single-point
+//! (types 1, 2 and 30), a double command (type 46) one reported as a
+//! double-point (types 3, 4 or 31), and a regulating step command (type 47) one
+//! reported as a step position (types 5, 6 and 32).
 //! [`monitored_types`] extends the same idea to the set-point and bitstring
 //! families (a normalized set-point controls a normalized measured value, and
 //! so on); that part is the crate's reading, not the NOTE's.
 //!
 //! # The two command sets must not be mixed toward one station
 //!
-//! 5-104 clause **9** (PDF page index 102, printed page 101): *"Either the ASDUs
-//! of the set `<45>` – `<51>` or of the set `<58>` – `<64>` are used."* Table 2's
-//! sentence on the same subject (PDF page index 50, printed page 49): *"Process
-//! information in control direction may be sent with or without a time tag but
-//! must not be mixed when sending to a given station."* [`CommandSet`] is that
+//! 5-104 clause **9** (PDF page index 102, printed page 101) has a station use
+//! one of two sets, `<45>` – `<51>` or `<58>` – `<64>`, not both. Table 2 (PDF
+//! page index 50, printed page 49) says the same: control-direction process
+//! information may carry a time tag or not, but the two forms *must not* be
+//! mixed toward one station. [`CommandSet`] is that
 //! choice as a value on both roles, in the shape of
 //! [`CounterMode`](crate::ci::CounterMode)'s gates. A controlling station
 //! refuses to send a command of the other set with [`CtError::WrongCommandSet`]
@@ -157,8 +146,7 @@
 //!
 //! 5-104 clause **8.1** (PDF page index 76, printed page 75) prints
 //! `C_SC_TA_1 := CP{Data unit identifier,Information object address,SCO,
-//! CP56Time2a}` under *"Figure 23 – ASDU: `C_SC_TA_1`"*, headed *"Single
-//! information object (SQ = 0)"*: 6 header + 3 address + 1 element + 7 time =
+//! CP56Time2a}` in Figure 23, for a single information object (`SQ = 0`): 6 header + 3 address + 1 element + 7 time =
 //! **17 octets**. `C_DC_TA_1 := …{DCO,CP56Time2a}` and the rest follow
 //! (cl.8.2 to 8.7; the set-point families carry their value element plus `QOS`
 //! instead of `SCO`). A [`Command`] holds that time in [`Command::time`], so one
@@ -167,11 +155,10 @@
 //! # The qualifiers, and the one family that has none
 //!
 //! `QOC` is 5-101 clause **7.2.6.26** (PDF page index 55, printed page 54):
-//! `QOC := CP6{QU, S/E}`, `QU := UI5[3..7]<0..31>` with *"<0> := no additional
-//! definition"*, *"<1> := short pulse duration (circuit-breaker), duration
-//! determined by a system parameter in the outstation"*, *"<2> := long pulse
-//! duration …"*, *"<3> := persistent output"*, and `S/E := BS1[8]<0..1>` with
-//! *"<0> := execute"* and *"<1> := select"*. `QOS` (clause 7.2.6.39,
+//! `QOC := CP6{QU, S/E}`, `QU := UI5[3..7]<0..31>`, where `QU` 0 adds no
+//! definition, 1 is a short pulse (circuit-breaker) whose length a system
+//! parameter in the outstation sets, 2 a long pulse, and 3 a persistent output;
+//! `S/E := BS1[8]<0..1>` is 0 for execute and 1 for select. `QOS` (clause 7.2.6.39,
 //! `QOS := CP8{QL, S/E}`) carries the same bit for the three set-point
 //! families. `C_SC_NA_1`/`C_DC_NA_1`/`C_RC_NA_1` put that `QOC` inside the
 //! element (`SCO`/`DCO`/`RCO`).
@@ -180,9 +167,9 @@
 //! `C_BO_NA_1 := CP{Data unit identifier,Information object address,BSI}` (figure
 //! 70, PDF page index 103), so it has no `S/E` bit and cannot select. TS
 //! 60870-5-604 Table 19 agrees by omission: 5.4.19.1 ("Select and Execute", PDF
-//! page index 70) names *"a Single, Double, Regulating step or Setpoint Command
-//! message"* while 5.4.19.20 and 5.4.19.50 ("Direct Execute", PDF page index 73
-//! and 76) add *"Bitstring"*. [`CommandValue::supports_select`] is that fact.
+//! page index 70) covers single, double, regulating step and set-point commands
+//! only, while 5.4.19.20 and 5.4.19.50 ("Direct Execute", PDF page index 73
+//! and 76) add the bitstring command. [`CommandValue::supports_select`] is that fact.
 //! [`CommandTransmission::select`] refuses such a family with
 //! [`CtError::NotSelectable`], while [`CommandTransmission::execute`] serves it
 //! directly, because a station with the select and execute *function* still
@@ -198,30 +185,29 @@
 //! configured delay"*, 5.4.19.50 *"Direct Execute with Negative Confirmation"*.
 //! Four rejection points follow from them:
 //!
-//! - **A not-allowed command state is refused with `P/N = 1`.** *"The controlled
-//!   station does not accept and responds with a P/N=1 if a not allowed command
-//!   (e.g. DCO=0 or 3; RCO=0 or 3) is received"* (5.4.19.30 and .50). `DCS` and
+//! - **A not-allowed command state is refused with `P/N = 1`.** On receiving a
+//!   command that is not allowed (for example `DCO` or `RCO` 0 or 3), the
+//!   controlled station rejects it and answers with `P/N = 1` (5.4.19.30 and
+//!   .50). `DCS` and
 //!   `RCS` values 0 and 3 are the values the clause marks *not permitted*
 //!   (cl.7.2.6.16/.17), so the controlled station answers `ACTCON` with
 //!   `P/N = 1`. [`Command::is_command_state`] is that predicate, and the free
 //!   [`activation`] refuses to build such a command for its own station.
-//! - **An execute that does not match its select is refused.** *"If the EXECUTE
-//!   message from the Controlling does not contain exactly the same information
-//!   as the SELECT message, then the Controlled mirrors the same ASDU with COT=7,
-//!   `C_SC/DC/SE/RC_ACTCONneg` (Negative ACTCON)"* (Table 19 page 2 of 9, PDF page
-//!   index 71). [`Command::state_eq`] compares the element without the `S/E`
+//! - **An execute that does not match its select is refused.** When the
+//!   controlling station's EXECUTE differs in any way from its SELECT, the
+//!   controlled station mirrors the ASDU with COT = 7 as a negative `ACTCON`
+//!   (`C_SC/DC/SE/RC_ACTCONneg`) (Table 19 page 2 of 9, PDF page index 71). [`Command::state_eq`] compares the element without the `S/E`
 //!   bit, which is the one thing that *must* differ between the two.
 //! - **An unknown information object address is mirrored with cause 47** where
-//!   the PIXIT supports it: *"the controlled station could instead mirror the
-//!   same ASDU with COT=47 (unknown Information Object Address)"* (5.4.19.30,
-//!   .50). The caller's [`Known`] decides which addresses are known, exactly as
+//!   the PIXIT supports it: the controlled station may answer with a mirror
+//!   carrying COT = 47 (unknown information object address) instead
+//!   (5.4.19.30, .50). The caller's [`Known`] decides which addresses are known, exactly as
 //!   in [`crate::gi`].
 //! - **A select or execute the station will not serve is answered, not
-//!   ignored.** 5.4.19.30's description begins *"The Controlling station
-//!   sends … with COT = 6 … and S/E=1 (SELECT) to the Controlled station for a
-//!   not controllable or not existing Information object"* and the required
-//!   answer is *"mirrors the same ASDU with COT=7, `C_SC/DC/SE/RC_ACTCONneg`
-//!   (Negative ACTCON)"*. So a select at a [`CommandMode::Direct`] station, a
+//!   ignored.** 5.4.19.30 has the controlling station send a SELECT (COT = 6,
+//!   `S/E = 1`) for an information object that does not exist or cannot be
+//!   controlled, and requires the controlled station to mirror it with COT = 7
+//!   as a negative `ACTCON` (`C_SC/DC/SE/RC_ACTCONneg`). So a select at a [`CommandMode::Direct`] station, a
 //!   second select of an address already selected and an execute at a
 //!   select-and-execute station with no select to repeat each get an
 //!   `ACTCONneg`, and a deactivation with nothing to deactivate gets a negative
@@ -231,14 +217,12 @@
 //!   will not serve.
 //!
 //! **In the control direction an unknown field is mirrored, never discarded.**
-//! 5-101 clause 7.2.3's table (PDF page index 42): *"ASDUs in the control
-//! direction with undefined values in the data unit identifier … and the
-//! information object address are mirrored by the controlled station with bit
-//! \"P/N := <1> negative confirm\" and the following causes of transmission"*:
-//! 44 for a type identification the station does not implement (cl.7.3, index
-//! 59: *"TYPE IDENTIFICATION numbers > 127 are discarded by controlling
-//! stations (monitor direction) or mirrored with CAUSE OF TRANSMISSION = 44 by
-//! controlled stations (control direction)"*), 45 for an unknown cause of
+//! 5-101 clause 7.2.3's table (PDF page index 42) has the controlled station
+//! mirror a control-direction ASDU with an undefined data unit identifier
+//! value or information object address, with `P/N = 1` and a cause naming the
+//! field: 44 for a type identification the station does not implement (cl.7.3,
+//! index 59, has type identifications above 127 discarded by a controlling
+//! station and mirrored with cause 44 by a controlled station), 45 for an unknown cause of
 //! transmission, 46 for a common address that is not the station's own (a
 //! command to the global address included) and 47 for an unknown information
 //! object address. The monitor direction's discard rule ([`discard_reason`])
@@ -259,18 +243,18 @@
 //! while figure 70 gives `C_BO_NA_1` both, so a *tagged* bitstring has no
 //! deactivation ([`CtError::DeactivationNotDefined`]).
 //!
-//! Table 19 also fixes the *order*: *"The controlled station may send the
-//! `RETURN_INF` with COT=3, 11, or 12 after the ACTTERM"*, and *"The Controlling
-//! station performs an overall check on the correct command procedure and
-//! corresponding status change, regardless of the order in which they occur."*
+//! Table 19 also addresses the *order*: the controlled station *may* send the
+//! `RETURN_INF` (COT = 3, 11 or 12) after the `ACTTERM`, and the controlling
+//! station checks the command procedure and the matching status change as a
+//! whole, whatever order they arrive in.
 //! The termination and the return information are therefore two independent
 //! frames the caller may send in either order, and
 //! [`CommandTransmission::on_response`] classifies both as they arrive.
 //!
 //! # What is deliberately the caller's
 //!
-//! * **The outstation's pulse duration.** `QU` is *"duration determined by a
-//!   system parameter in the outstation"* (cl.7.2.6.26): a value that travels,
+//! * **The outstation's pulse duration.** `QU` only selects a pulse whose
+//!   length a system parameter in the outstation sets (cl.7.2.6.26): a value that travels,
 //!   not a timer this crate runs.
 //! * **The clock.** The controlled station's select timeout is configured with
 //!   [`CommandTransmission::with_select_timeout`], but time only enters through
@@ -284,7 +268,7 @@
 //! * **Which command set the station uses:** [`CommandSet`]. The module only
 //!   refuses the other one.
 //! * **Whether `C_SE` and `C_BO` terminate:** [`Termination`], from the
-//!   clause's *"may be used optionally"* and the *"(opt)"* marking of the
+//!   clause's making `C_SE`'s `ACTTERM` optional and the "(opt)" marking of the
 //!   bitstring's `<10>` in figures 70 and 29.
 //! * **Which monitor ASDU reports the object.** `M_SP`/`M_DP`/`M_ST` are
 //!   *families* in 104 clause 7.7's table, and the specific type identification
@@ -303,9 +287,8 @@
 //! * **Not a data source.** Unlike [`crate::gi`] and [`crate::ci`] there is no
 //!   trait here: the return information reports the *controlled object's own*
 //!   state, which the application builds with [`return_information`] when that
-//!   state changes. Clause 7.4.7's *"`RETURN_INF` for control operation complete
-//!   is used (if available)"* leaves to the application whether any is sent at
-//!   all.
+//!   state changes. Clause 7.4.7 sends a completion `RETURN_INF` only if one is
+//!   available, which leaves to the application whether any is sent at all.
 //! * **Not the counter or the interrogation procedures.** `C_IC_NA_1` is
 //!   [`crate::gi`], `C_CI_NA_1` is [`crate::ci`]; the shapes are similar and the
 //!   causes are not.
@@ -387,7 +370,7 @@ pub const CAUSE_DEACTIVATION: Cause = Cause::Deactivation;
 pub const CAUSE_DEACTIVATION_CON: Cause = Cause::DeactivationCon;
 
 /// `<10> activation termination`: the frame that ends an execute (figure 64;
-/// TS 60870-5-604's *"mirrors the previous Command message with COT=10"*).
+/// TS 60870-5-604 has the controlled station mirror the command with COT = 10).
 pub const CAUSE_ACTIVATION_TERM: Cause = Cause::ActivationTermination;
 
 /// The global address of 5-101 clause 7.2.4 for a two-octet common address,
@@ -560,7 +543,7 @@ impl Family {
     /// Whether the family's figure marks its `ACTTERM` *"(opt)"*.
     ///
     /// True for the set-points and the bitstring, the four families whose
-    /// figures print *"`<10>` := activation termination (opt)"*: figures 67–70 (5-101, PDF
+    /// figures mark `<10>` (activation termination) as optional: figures 67–70 (5-101, PDF
     /// page indices 101–103) for types 48–51 and figures 26–29 (5-104, indices
     /// 82–88) for types 61–64. Figures 64–66 and 23–25 print `<10>` without the
     /// marking, so `C_SC`/`C_DC`/`C_RC` always terminate. This is what
@@ -595,9 +578,8 @@ pub fn is_command_type(type_id: TypeId) -> bool {
 
 /// The command set a station sends and receives.
 ///
-/// 5-104 clause 9: *"Either the ASDUs of the set `<45>` – `<51>` or of the set
-/// `<58>` – `<64>` are used."* Table 2: *"must not be mixed when sending to a
-/// given station."*
+/// 5-104 clause 9: a station uses either `<45>` – `<51>` or `<58>` – `<64>`.
+/// Table 2: the two *must not* be mixed toward one station.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CommandSet {
     /// The 5-101 set `<45>`–`<51>`: commands without a time tag.
@@ -626,8 +608,8 @@ pub enum CommandMode {
     Direct,
     /// The select and execute function: a select (`S/E = 1`) precedes the
     /// execute, which repeats the select's information. TS 60870-5-604's
-    /// 5.4.19.1, .10, .30 and .40, and clause 7.4.7's *"The select procedure is
-    /// only used in case of a select and execute function."*
+    /// 5.4.19.1, .10, .30 and .40, and clause 7.4.7, which allows the select
+    /// procedure only with the select and execute function.
     SelectAndExecute,
 }
 
@@ -647,8 +629,8 @@ impl CommandMode {
 
 /// Whether a command family's procedure is terminated.
 ///
-/// 5-101 clause 7.4.7's *"`C_SC`, `C_DC`, `C_RC` ACT, ACTCON and ACTTERM are used."*
-/// against *"`C_SE` ACTTERM may be used optionally."* A per-station PIXIT
+/// 5-101 clause 7.4.7 has `C_SC`, `C_DC` and `C_RC` use `ACTTERM`, and makes
+/// `C_SE`'s `ACTTERM` optional. A per-station PIXIT
 /// selection, not a hard-coded branch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Termination {
@@ -666,7 +648,7 @@ impl Termination {
     /// [`Termination::All`] terminates every family. [`Termination::SetPointsNotTerminated`]
     /// terminates only the families whose figures print `<10>` without the
     /// *"(opt)"* marking (`C_SC`, `C_DC` and `C_RC`), and leaves both the
-    /// set-points of cl.7.4.7's *"`C_SE` ACTTERM may be used optionally"* **and**
+    /// set-points, whose `ACTTERM` cl.7.4.7 makes optional, **and**
     /// the bitstring to the caller, because figures 70 and 29 mark the
     /// bitstring's `<10>` optional too ([`Family::termination_is_optional`]).
     #[must_use]
@@ -680,11 +662,11 @@ impl Termination {
 
 /// The cause of a return information.
 ///
-/// 5-101 clause 7.4.7's *"`RETURN_INF` for control operation complete is used (if
-/// available)"* and TS 60870-5-604 Table 19's *"The Controlled station generates an event (`RETURN_INF`) with COT=11
-/// (`RETURN_INF` caused by a remote command) or COT=12 (`RETURN_INF` caused by a
-/// local command) … The controlled station may send the `RETURN_INF` with COT=3,
-/// 11, or 12 after the ACTTERM."*
+/// 5-101 clause 7.4.7 sends a completion `RETURN_INF` if one is available.
+/// TS 60870-5-604 Table 19 has the controlled station report it as an event
+/// with COT = 11 (caused by a remote command) or COT = 12 (caused by a local
+/// command), and lets it send the `RETURN_INF` with COT = 3, 11 or 12 after the
+/// `ACTTERM`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ReturnInfo {
     /// `<11>`: the object changed as a result of a **remote** command.
@@ -853,12 +835,12 @@ impl CommandValue {
     /// Whether `self` and `other` are the same command **ignoring the `S/E`
     /// bit**, the one field that must differ between a select and its execute.
     ///
-    /// TS 60870-5-604 Table 19: *"If the EXECUTE message from the Controlling
-    /// does not contain exactly the same information as the SELECT message"*.
+    /// TS 60870-5-604 Table 19 refuses an EXECUTE whose information differs in
+    /// any way from its SELECT's.
     #[must_use]
     pub fn state_eq(&self, other: &Self) -> bool {
         // The short floating point value is compared by its bits, because Table
-        // 19 asks for "exactly the same information" and `f32 ==` is not that
+        // 19 asks for identical information and `f32 ==` is not that
         // comparison: it answers `false` for the *same* NaN encoding and `true`
         // for `-0.0` against `+0.0`, which are two different octet strings
         // (5-101 cl.7.2.6.8's IEEE 754 form).
@@ -872,8 +854,8 @@ impl CommandValue {
 
     /// Whether the command state is one the family's clause defines: false for
     /// `DCS`/`RCS` values 0 and 3, which 5-101 clause 7.2.6.16/.17 mark *not
-    /// permitted* and TS 60870-5-604 Table 19 calls *"a not allowed command
-    /// (e.g. DCO=0 or 3; RCO=0 or 3)"*. Every other family's element is defined
+    /// permitted* and TS 60870-5-604 Table 19 gives as its examples of a
+    /// not-allowed command (`DCO`/`RCO` 0 or 3). Every other family's element is defined
     /// for all its bit patterns.
     #[must_use]
     pub const fn is_command_state(&self) -> bool {
@@ -1324,7 +1306,7 @@ fn first<A: AsduLayout>(
 /// list for the type cannot be built from this API. A command state the clause
 /// marks *not permitted* (`DCS`/`RCS` 0 or 3) is refused with
 /// [`CtError::NotACommandState`] rather than put on the wire (TS 60870-5-604
-/// Table 19: *"a not allowed command (e.g. DCO=0 or 3; RCO=0 or 3)"*); the
+/// Table 19's not-allowed command, for example `DCO`/`RCO` 0 or 3); the
 /// **mirror** of such a command is [`confirmation`], which does build it, because
 /// that refusal is exactly what the controlled station has to send.
 ///
@@ -1373,9 +1355,9 @@ pub fn activation_with(
 
 /// Builds the deactivation: the command ASDU with cause 8 (`deact`).
 ///
-/// 5-101 clause 7.4.7: *"DEACT, DEACTCON is only used in case of a select and
-/// execute function."* and *"S/E of the qualifier of command QOC is irrelevant
-/// in ASDUs with causes of transmission DEACT and DEACTCON."* The `S/E` the
+/// 5-101 clause 7.4.7 allows `DEACT`/`DEACTCON` only with the select and
+/// execute function, and makes the `S/E` bit of `QOC` meaningless on `DEACT`
+/// and `DEACTCON`. The `S/E` the
 /// command carries is therefore written as given and never policed. The
 /// conformance test 5.4.19.10 sends its `DEACT` with `S/E = 1` (TS 60870-5-604
 /// PDF page index 72).
@@ -1440,8 +1422,8 @@ pub fn deactivation_with(
 /// required answer, not a frame to refuse (TS 60870-5-604 5.4.19.30).
 ///
 /// `test` is the answered frame's test bit (`T`), which goes back unchanged, as
-/// does the originator address the caller passes (cl.7.2.3's *"the controlled
-/// station should echo this originator address in the response"*). Both are the
+/// does the originator address the caller passes (cl.7.2.3: the controlled
+/// station *should* return the request's originator address). Both are the
 /// caller's to hand over, because the caller holds the received header.
 ///
 /// # Errors
@@ -1492,11 +1474,10 @@ pub fn confirmation_with(
 /// Builds the cause 44 to 47 mirror of a received command: the command ASDU
 /// again with `P/N = 1` and the cause of the field the station does not know.
 ///
-/// 5-101 clause 7.2.3's table (PDF page index 42): *"ASDUs in the control
-/// direction with undefined values in the data unit identifier (except the
-/// variable structure qualifier) and the information object address are mirrored
-/// by the controlled station with bit \"P/N := <1> negative confirm\" and the
-/// following causes of transmission"*: 44 unknown type identification, 45
+/// 5-101 clause 7.2.3's table (PDF page index 42): the controlled station
+/// mirrors a control-direction ASDU with an undefined data unit identifier value
+/// (the variable structure qualifier excepted) or information object address,
+/// with `P/N = 1` and the cause naming the field: 44 unknown type identification, 45
 /// unknown cause of transmission, 46 unknown common address of ASDU, 47 unknown
 /// information object address. [`CommandTransmission::on_request`] sends the
 /// same reply by itself for what the caller's [`Known`] does not know, and
@@ -1607,8 +1588,8 @@ pub fn deactivation_confirmation_with(
 /// Builds the termination: the command ASDU with cause 10 (`actterm`) and `P/N`
 /// as given.
 ///
-/// This is TS 60870-5-604 Table 19's *"mirrors the previous Command message
-/// with COT=10, `C_SC/DC/SE/RC_ACTTERM`"*, and for 5.4.19.40/.50 the **negative**
+/// This is TS 60870-5-604 Table 19's termination, the command mirrored once
+/// more with COT = 10 (`C_SC/DC/SE/RC_ACTTERM`), and for 5.4.19.40/.50 the **negative**
 /// termination of a command that was accepted and then failed.
 ///
 /// # Errors
@@ -1667,11 +1648,11 @@ pub fn termination_with(
 /// [`CtError::NotReturnType`], because 104 clause 7.7 lists three families and
 /// this crate will not silently send a fourth. The frame's test bit is 0.
 ///
-/// Nothing schedules it: clause 7.4.7's *"`RETURN_INF` for control operation
-/// complete is used (if available)"* puts both the availability and the moment
-/// in the application's hands, and TS 60870-5-604 Table 19 permits the frame
-/// before or after the `ACTTERM` (*"The controlled station may send the
-/// `RETURN_INF` with COT=3, 11, or 12 after the ACTTERM"*).
+/// Nothing schedules it: clause 7.4.7 sends a completion `RETURN_INF` only if
+/// one is available, which puts both the availability and the moment in the
+/// application's hands, and TS 60870-5-604 Table 19 permits the frame before or
+/// after the `ACTTERM` (the controlled station *may* send it, with COT = 3, 11
+/// or 12, after the `ACTTERM`).
 ///
 /// # Errors
 ///
@@ -1755,8 +1736,8 @@ pub enum Reaction {
         /// `P/N = 1`: a negative confirmation.
         negative: bool,
         /// `T = 1`: the confirmed frame was sent under test conditions. 5-101
-        /// cl.7.2.3: *"It is used for example to test transmission and
-        /// equipment without controlling the process"*, so a controlled
+        /// cl.7.2.3 gives testing transmission and equipment without acting on
+        /// the process as an example of its use, so a controlled
         /// station does not operate a `test` execute.
         test: bool,
     },
@@ -1765,11 +1746,11 @@ pub enum Reaction {
         /// The information object address that ended.
         ioa: u32,
         /// `P/N = 1`: the negative termination of TS 60870-5-604 5.4.19.40/.50,
-        /// *"first accept the command with a Positive ACTCON and then send a
-        /// Negative Termination by mirroring the previous Command message with
-        /// COT=10 … and P/N=1"*. The controlling station has to tell the two
-        /// apart, since on the negative one it *"stops the Command function with
-        /// an indication at user level"*, so the flag is part of the reaction.
+        /// where the controlled station confirms the command positively and
+        /// then ends it negatively, mirroring it with COT = 10 and `P/N = 1`.
+        /// The controlling station has to tell the two apart, since on the
+        /// negative one it ends the command function and reports that to the
+        /// user, so the flag is part of the reaction.
         negative: bool,
     },
     /// The controlled station refused the received frame with clause 7.2.3's
@@ -1792,10 +1773,9 @@ pub enum Reaction {
         cause: Cause,
     },
     /// A **positive select confirmation that does not repeat the select this
-    /// station sent**: TS 60870-5-604 5.4.19.1's *"If the SELECT message from
-    /// the Controlling station is not correctly mirrored by the Controlled
-    /// station, then the Controlling station does not proceed with sending the
-    /// EXECUTE message"*. The select is dropped exactly as a negative
+    /// station sent**: under TS 60870-5-604 5.4.19.1, a controlling station
+    /// whose SELECT comes back incorrectly mirrored does not go on to send the
+    /// EXECUTE. The select is dropped exactly as a negative
     /// confirmation drops it, and this variant is how the caller is told that
     /// the drop was a broken mirror and not a refusal: `Confirmed` with
     /// `negative: false` would read as success until `execute` failed.
@@ -1893,9 +1873,9 @@ pub enum CtError {
         ioa: u32,
     },
     /// An execute whose command is not the message the confirmed select
-    /// carried. TS 60870-5-604 Table 19: *"If the EXECUTE message from the
-    /// Controlling does not contain exactly the same information as the SELECT
-    /// message"*, the controlled station refuses it; the select stays in place.
+    /// carried. TS 60870-5-604 Table 19: when the EXECUTE's information differs
+    /// in any way from the SELECT's, the controlled station refuses it; the
+    /// select stays in place.
     ExecuteMismatch {
         /// The information object address.
         ioa: u32,
@@ -1907,8 +1887,8 @@ pub enum CtError {
         ioa: u32,
     },
     /// A deactivation whose command is not the message the select carried.
-    /// TS 60870-5-604 5.4.19.10: *"The Controlling station sends the same Command
-    /// message with COT=8 … and S/E=1 (SELECT)"*.
+    /// TS 60870-5-604 5.4.19.10: the controlling station's deactivation repeats
+    /// the selected command with COT = 8 and `S/E = 1`.
     DeactivationMismatch {
         /// The information object address.
         ioa: u32,
@@ -1927,9 +1907,8 @@ pub enum CtError {
         ioa: u32,
     },
     /// A select by or to a station whose [`CommandMode`] is
-    /// [`CommandMode::Direct`], which has no select procedure (5-101 cl.7.4.7's
-    /// *"The select procedure is only used in case of a select and execute
-    /// function."*). Also returned by `deactivate` on such a station.
+    /// [`CommandMode::Direct`], which has no select procedure (5-101 cl.7.4.7
+    /// allows it only with the select and execute function). Also returned by `deactivate` on such a station.
     SelectNotAllowed {
         /// The mode that refuses it.
         mode: CommandMode,
@@ -1941,8 +1920,8 @@ pub enum CtError {
         ioa: u32,
     },
     /// The command's type identification is not in the station's
-    /// [`CommandSet`] (5-104 clause 9's *"Either the ASDUs of the set `<45>` –
-    /// `<51>` or of the set `<58>` – `<64>` are used."*).
+    /// [`CommandSet`] (5-104 clause 9: a station uses `<45>` – `<51>` or
+    /// `<58>` – `<64>`, not both).
     WrongCommandSet {
         /// The type identification that does not belong to the station's set.
         type_id: TypeId,
@@ -2007,10 +1986,9 @@ pub struct CommandTransmission {
     org: u8,
     sizes: AddressSizes,
     /// The controlling station: the selects it has **sent** whose mirror has not
-    /// arrived yet. Nothing here is executable (TS 60870-5-604 5.4.19.1: *"If
-    /// the SELECT message from the Controlling station is not correctly mirrored
-    /// by the Controlled station, then the Controlling station does not proceed
-    /// with sending the EXECUTE message"*), so a select moves to `selected` only
+    /// arrived yet. Nothing here is executable (TS 60870-5-604 5.4.19.1: a
+    /// SELECT that does not come back correctly mirrored is never followed by
+    /// its EXECUTE), so a select moves to `selected` only
     /// when the controlled station's positive `ACTCON` arrives, and is dropped
     /// when the mirror is negative or is a 44–47 reply. The controlled station
     /// holds its own selects in `selected` directly: it is the one answering.
@@ -2256,9 +2234,9 @@ impl CommandTransmission {
     /// Both times are compared as standard time
     /// ([`Cp56Time2a::standard_millis_since_2000`]), so the `SU` bit of the tag
     /// and of the clock is taken into account: TS 60870-5-604 5.4.25.4 (PDF page
-    /// index 88), *"A command using summer time bit shall be used to either
-    /// accept or ignore the command based on its configured acceptable delay for
-    /// command transmission"*.
+    /// index 88): a command whose time tag has the summer-time bit set *shall*
+    /// still be accepted or ignored by the configured acceptable delay for
+    /// command transmission.
     fn too_late(&self, command: &Command) -> bool {
         let (Some(tag), Some(max), Some(now)) = (command.time, self.max_delay, self.wall_clock)
         else {
@@ -2388,7 +2366,7 @@ impl CommandTransmission {
     ///
     /// The `S/E` bit is written by this method, not read from `command`, so one
     /// [`Command`] value serves both calls: 5-101 clause 7.2.6.26's `S/E`
-    /// (*"<0> := execute"*, *"<1> := select"*) is the procedure's, not the
+    /// (0 for execute, 1 for select) is the procedure's, not the
     /// caller's. A station whose mode has no select procedure refuses it
     /// ([`CtError::SelectNotAllowed`]), a family without a qualifier refuses it
     /// ([`CtError::NotSelectable`]), and a second select for an address that is
@@ -2398,8 +2376,8 @@ impl CommandTransmission {
     /// when the controlled station's positive `ACTCON` arrives
     /// ([`CommandTransmission::on_response`]), and a negative one drops it.
     /// Until then [`CommandTransmission::execute`] refuses the execute
-    /// (TS 60870-5-604 5.4.19.1's *"does not proceed with sending the EXECUTE
-    /// message"*).
+    /// (TS 60870-5-604 5.4.19.1: without a correct select mirror, no EXECUTE
+    /// is sent).
     ///
     /// # Errors
     ///
@@ -2487,9 +2465,8 @@ impl CommandTransmission {
     /// The controlling station's deactivation of the select outstanding for
     /// `command`: the command ASDU with cause 8.
     ///
-    /// TS 60870-5-604 5.4.19.10: *"The Controlling station sends the same Command
-    /// message with COT=8, `C_SC/DC/SE/RC_DEACT`, and S/E=1 (SELECT) to the
-    /// Controlled station"*. The frame therefore repeats the **stored** select,
+    /// TS 60870-5-604 5.4.19.10: the controlling station sends the selected
+    /// command again with COT = 8 (`C_SC/DC/SE/RC_DEACT`) and `S/E = 1`. The frame therefore repeats the **stored** select,
     /// `S/E = 1` included, and not the caller's value; `command` must carry that
     /// select's element or the call is [`CtError::DeactivationMismatch`]. Only a
     /// *confirmed* select can be deactivated, and only by a station whose mode
@@ -2531,7 +2508,7 @@ impl CommandTransmission {
     /// Clause 7.2.3's discard rule runs first, as in [`crate::init::on_asdu`],
     /// with one addition: a **mirror** (the clause's 44–47 reply, `P/N = 1`)
     /// ends whatever this station had outstanding for its address, because a
-    /// refusal is a "stop the Command function" and not a frame to carry on
+    /// refusal ends the command function and is not a frame to carry on
     /// from (TS 60870-5-604 5.4.19.30). A command ASDU of the other
     /// [`CommandSet`] is [`CtError::WrongCommandSet`]. A command ASDU whose
     /// cause is not one of figure 64's monitor-direction responses is
@@ -2545,8 +2522,8 @@ impl CommandTransmission {
     /// execute confirmation drops the run, a `DEACTCON` clears the select, and
     /// an `ACTTERM` ends the run. A positive select confirmation that does
     /// **not** repeat what this station sent is [`Reaction::NotMirrored`]: the
-    /// select is dropped all the same (TS 60870-5-604 5.4.19.1's *"not correctly
-    /// mirrored"*), but the caller is told, because otherwise the drop is
+    /// select is dropped all the same (TS 60870-5-604 5.4.19.1's incorrect
+    /// mirror), but the caller is told, because otherwise the drop is
     /// invisible until `execute` fails. A confirmation that answers nothing this
     /// station sent changes no state and is still reported as
     /// [`Reaction::Confirmed`], so the caller can log it.
@@ -2710,8 +2687,7 @@ impl CommandTransmission {
     /// [`CommandTransmission::terminate`], so a station whose execution takes
     /// time answers the confirmation first rather than holding it. A
     /// deactivation it can perform is mirrored with cause 9 and **changes no
-    /// value** (Table 19: *"The value of the Object(s) does not change at all
-    /// during this command procedure"*).
+    /// value** (Table 19: no object's value changes during this procedure).
     ///
     /// **Every** refusal of TS 60870-5-604 Table 19 is an answer rather than an
     /// error or a silence:
@@ -2835,9 +2811,8 @@ impl CommandTransmission {
             return self.refuse_negative(&command, header);
         }
         if !command.is_command_state() {
-            // TS 60870-5-604 Table 19: "The controlled station does not
-            // accept and responds with a P/N=1 if a not allowed command
-            // (e.g. DCO=0 or 3; RCO=0 or 3) is received".
+            // TS 60870-5-604 Table 19: a not-allowed command (for example DCO
+            // or RCO 0 or 3) is rejected with P/N = 1.
             return self.refuse_negative(&command, header);
         }
         if select {
@@ -2951,8 +2926,8 @@ impl CommandTransmission {
     }
 
     /// The controlled station's refusal of a command whose object it will not
-    /// control: TS 60870-5-604 5.4.19.30/.50's *"not controllable or not
-    /// existing Information object"*. Nothing enters the state.
+    /// control: TS 60870-5-604 5.4.19.30/.50's information object that does
+    /// not exist or cannot be controlled. Nothing enters the state.
     ///
     /// The answer follows the **request's cause**: a cause-6 (`act`) frame is
     /// mirrored with cause 7 and `P/N = 1` (the `ACTCONneg`), while a cause-8
@@ -2999,9 +2974,8 @@ impl CommandTransmission {
     /// mirror echoes the originator address and test bit the execute arrived
     /// with.
     ///
-    /// The negative form is TS 60870-5-604 5.4.19.40/.50's alternative: *"first
-    /// accept the command with a Positive ACTCON and then send a Negative
-    /// Termination"*. [`CtError::TerminationNotUsed`] is the station's own
+    /// The negative form is TS 60870-5-604 5.4.19.40/.50's alternative: a
+    /// positive `ACTCON` for the command, followed by a negative termination. [`CtError::TerminationNotUsed`] is the station's own
     /// [`Termination`] choosing "not used" for a family whose `ACTTERM` is
     /// optional.
     ///
@@ -3033,9 +3007,9 @@ impl CommandTransmission {
     /// recorded together with the addressing the `ACTTERM` will have to echo.
     ///
     /// An execute for an object whose earlier execute still awaits its `ACTTERM`
-    /// is refused: TS 60870-5-604 5.4.19.20 owes each execute *"the previous
-    /// Command message with COT=10"*, and 5.4.19.50 answers a command the object
-    /// cannot take with *"COT=7, `C_SC/DC/SE/RC_ACTCONneg`"*.
+    /// is refused: TS 60870-5-604 5.4.19.20 owes each execute its own mirror
+    /// with COT = 10, and 5.4.19.50 answers a command the object cannot take
+    /// with a negative `ACTCON` (COT = 7, `C_SC/DC/SE/RC_ACTCONneg`).
     fn start(&mut self, command: Command, header: &Header) -> Result<Outcome, CtError> {
         if self.termination.uses(command.value.family()) {
             if self.is_running(command.ioa) {

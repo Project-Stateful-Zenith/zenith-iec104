@@ -38,20 +38,19 @@
 //! # 10.1 and 10.2: the model (PDF page index 116 to 118, printed page 115 to 117)
 //!
 //! 10.2 defines a logical connection as a unique combination of the two
-//! stations' IP-address/port-number pairs, and prints the fill-in box *"Number
-//! N of redundancy group connections used"*: that N is the member count. The
-//! seven general rules, verbatim with the clause's own numbering (rule 4's "is
-//! be in started state" is the standard's text):
+//! stations' IP-address/port-number pairs, and has a fill-in box for the number
+//! N of connections in a redundancy group: that N is the member count. Its
+//! seven general rules, paraphrased, with the clause's own numbering:
 //!
 //! | # | Rule |
 //! | --- | --- |
-//! | 1 | "The controlling and controlled station shall be able to handle multiple (N) logical connections." |
-//! | 2 | "The N logical connections represent one redundancy group." |
-//! | 3 | "Only one logical connection is in the started state and sending/receiving user data at a time for one redundancy group." |
-//! | 4 | "The controlling station decides which one of the N connections is be in started state." |
-//! | 5 | "All logical connections of a redundancy group shall be supervised by test frames as described in 5.2." |
-//! | 6 | "A redundancy group shall rely upon only one process image (database/event buffer)." |
-//! | 7 | "If more than one controlling station need to access the same controlled station simultaneously, each controlling station must be assigned to a different redundancy group (process image)." |
+//! | 1 | Both the controlling and the controlled station *shall* handle N logical connections. |
+//! | 2 | Those N connections form one redundancy group. |
+//! | 3 | In a redundancy group, one logical connection at a time is started and carries user data. |
+//! | 4 | The controlling station chooses which of the N connections is started. |
+//! | 5 | Every connection of the group *shall* be supervised with test frames (5.2). |
+//! | 6 | A redundancy group *shall* use a single process image (database and event buffer). |
+//! | 7 | Controlling stations that need the same controlled station at the same time *must* each be given their own redundancy group (process image). |
 //!
 //! **Rule 3** is the invariant [`RedundancyGroup::route`] and
 //! [`RedundancyGroup::send_user_data`] enforce and [`RedundancyGroup::start`]
@@ -60,33 +59,24 @@
 //! controlled station's positional half.
 //!
 //! The same page (index 118, printed 117) defines the started connection,
-//! which [`RedundancyGroup::started`] names:
-//!
-//! > The logical connection which is enabled for user data transfer (started)
-//! > at any time is defined to be the started connection, while the others are
-//! > stopped connections. Selection of started connection is performed by means
-//! > of the unnumbered control functions (U-frames) STARTDT/STOPDT as in 5.3 and
-//! > according to the State transition diagrams in Figure 36 and Figure 37.
+//! which [`RedundancyGroup::started`] names: the one connection enabled for
+//! user data at a given moment, every other one being a stopped connection.
+//! Which one is started is chosen with the STARTDT/STOPDT U-frames of 5.3,
+//! following the state transition diagrams of Figures 36 and 37.
 //!
 //! Clause 5.3 is the selection mechanism
 //! ([`Session::request_start`] and [`Session::request_stop`] send the acts),
 //! clause 5.2's TESTFR is the supervision rule 5 asks for, and rule 4's
-//! controlled-station half is positional rather than stateful:
+//! controlled-station half is positional rather than stateful: the controlled
+//! station (station B) treats the connection it last received a `STARTDT_ACT`
+//! on as the started one and confirms with a `STARTDT_CON`, and the activation
+//! is complete once that confirmation reaches the controlling station.
 //!
-//! > The controlled station (station B) always understands the connection on
-//! > which it last received a STARTDT_ACT as the started connection. It confirms
-//! > the activation request by issuing a STARTDT_CON. The whole activation
-//! > procedure is completed when the STARTDT_CON is received in the controlling
-//! > station.
-//!
-//! Two more sentences of 10.2 belong to the group's state:
-//!
-//! > As stated in rule 4 above, the selection and switchover of the started
-//! > connection is always initiated by the controlling station, and is managed by
-//! > the transport interface or higher layers.
-//!
-//! > Send and receive counters on each connection within a redundancy group
-//! > continue their functionality independently of the use of STARTDT/STOPDT.
+//! Two more points of 10.2 belong to the group's state. Per rule 4, the
+//! controlling station always initiates the choice of the started connection
+//! and every switchover, handled by the transport interface or the layers
+//! above it. And each connection's send and receive counters keep running on
+//! their own, unaffected by STARTDT/STOPDT.
 //!
 //! The counters live in [`crate::seq`], one per [`Session`], so the group does
 //! not merge them: a member's counters move only when that member is fed.
@@ -94,67 +84,56 @@
 //! # 10.3 Initialisation of the controlling station (index 120, printed 119;
 //! figure 32, index 122, printed 121)
 //!
-//! Verbatim:
+//! Paraphrased:
 //!
-//! > After connection establishment, the stopped state is always default, and
-//! > one of the connections (e.g. connection 1) is therefore changed from the
-//! > stopped into the started state to enable user data transfer on this
-//! > connection.
-//!
-//! > The ENDINIT.req (optional but recommended, Figures 32 and 33) may always
-//! > be useful to advise the other station that the sending station is now
-//! > ready to respond to an interrogation request. In case of initialisation of
-//! > the controlling station, it is only issued if data in the reverse
-//! > direction is defined.
-//!
-//! > The controlling station shall initiate a station interrogation procedure
-//! > as soon as possible after the completion of making one of the connections
-//! > in started state as shown in Figures 32 and 33.
+//! - Once established, every connection is stopped by default, so one of them
+//!   (connection 1, say) has to be moved to started before user data can flow.
+//! - The `ENDINIT.req` (Figures 32 and 33; optional, but recommended) tells the
+//!   other station that the sender can now answer an interrogation. When the
+//!   controlling station initialises, it sends one only if data is defined in
+//!   the reverse direction.
+//! - The controlling station *shall* start a station interrogation as soon as
+//!   it can after one of the connections has reached the started state
+//!   (Figures 32 and 33).
 //!
 //! Figure 32 draws the TCP establishment, `U (STARTDT act)` / `U (STARTDT con)`
 //! and the box `STARTED`, marks `A_ENDINIT.req`, `A_ENDINIT.ind` and
-//! `<SEND=M_EI>` as `(optional)`, and ends in the box *"Following function:
-//! Station interrogation"*. Its NOTE, verbatim:
-//!
-//! > The sequential interrelationship between the procedures on the connections
-//! > is not fixed. For example, establishment of the connections may be started
-//! > and go on in parallel.
+//! `<SEND=M_EI>` as `(optional)`, and ends with the station interrogation as
+//! the following function. Its NOTE leaves the order of the per-connection
+//! procedures open: the connections may, for example, be established in
+//! parallel.
 //!
 //! Three methods are that sequence, one call each:
 //!
-//! - [`RedundancyGroup::start`]: *"one of the connections … is therefore
-//!   changed from the stopped into the started state"*, the STARTDT act of
+//! - [`RedundancyGroup::start`]: moving one connection from stopped to
+//!   started, the STARTDT act of
 //!   clause 5.3 (figure 37's `Start connection[]/Send STARTDT act`) through the
 //!   member's own [`Session::request_start`]. Stopped is what
 //!   [`Session::on_connection_established`] leaves behind, and establishment
 //!   itself stays the caller's (clause 7.1, index 54). No order is imposed on
 //!   the caller (the NOTE), so the connection that is up first may start first.
 //! - [`RedundancyGroup::endinit`]: 10.3's `ENDINIT.req` as the caller's typed
-//!   parameter [`EndInit`], issued only *"if data in the reverse direction is
-//!   defined"*. The frame is [`end_of_initialisation`], this crate's one
+//!   parameter [`EndInit`], issued only when data is defined in the reverse
+//!   direction. The frame is [`end_of_initialisation`], this crate's one
 //!   `M_EI_NA_1`.
-//! - [`RedundancyGroup::follow_up`]: the station interrogation *"as soon as
-//!   possible after the completion of making one of the connections in started
-//!   state"*, as [`FollowUp::StationInterrogation`] once the started connection
-//!   has reached [`State::Started`]. The caller performs the request it names
-//!   with [`crate::gi::request`].
+//! - [`RedundancyGroup::follow_up`]: the station interrogation that follows
+//!   the first started connection, as [`FollowUp::StationInterrogation`] once
+//!   the started connection has reached [`State::Started`]. The caller
+//!   performs the request it names with [`crate::gi::request`].
 //!
 //! # 10.4 Initialisation of the controlled station (index 124, printed 123;
 //! figure 33, index 126, printed 125)
 //!
-//! Verbatim:
-//!
-//! > The sequential procedure for initialisation of the controlled station with
-//! > N redundant connections within a single redundancy group is shown in
-//! > Figure 33. After restart of the controlled station, the connections are
-//! > established according to 7.1, but no user data is transmitted from the
-//! > controlled station until started state on one connection is established.
+//! Paraphrased: Figure 33 shows how a controlled station with N redundant
+//! connections in one group initialises. After a restart the connections are
+//! established as in 7.1, but the controlled station sends no user data until
+//! one connection has been started.
 //!
 //! Figure 33 draws `active open` and `Timeout t0` per connection, then
 //! `receive STARTDT` / `U (STARTDT act)` on the connection the controlling
 //! station chose and the answer `U (STARTDT con)`, with the optional
 //! `A_ENDINIT.req` / `<SEND=M_EI>` on the controlled side. Its NOTE is figure
-//! 32's. 10.4 is the *passive* half of 10.3, and 10.2's positional sentence
+//! 32's. 10.4 is the *passive* half of 10.3, and 10.2's positional rule
 //! above is its whole content, so the group gains one method for the frame the
 //! caller received and nothing for the controlled station to decide:
 //!
@@ -167,11 +146,11 @@
 //! **No user data leaves before such an act.** Before the peer's first
 //! `STARTDT_ACT` the group names no started connection, and
 //! [`RedundancyGroup::route`] and [`RedundancyGroup::send_user_data`] refuse
-//! with [`GroupError::NoStartedConnection`]: that is 10.4's second sentence.
+//! with [`GroupError::NoStartedConnection`]: that is 10.4's second point.
 //! Monitoring data handed over once a connection is named, but before it may
 //! carry data, waits in **that** connection's own clause 5.3 queue
-//! ([`Session::queue_i_frame`]; index 38, printed 37: *"Any pending user data in
-//! the controlled station is sent only after the STARTDT con."*), never in a
+//! ([`Session::queue_i_frame`]; index 38, printed 37: the controlled station
+//! holds pending user data until the STARTDT con), never in a
 //! second member. Between a failure and the next naming the group holds it
 //! itself ([`RedundancyGroup::held_user_data`]).
 //!
@@ -179,8 +158,8 @@
 //! [`RedundancyGroup::start`], [`RedundancyGroup::endinit`] and
 //! [`RedundancyGroup::follow_up`] refuse a controlled group with
 //! [`GroupError::CannotSelect`], as [`RedundancyGroup::select`] does. 10.3's
-//! ENDINIT condition is stated for the initialisation *"of the controlling
-//! station"*, so the group issues no `ENDINIT.req` on a controlled station's
+//! ENDINIT condition is stated for the initialisation of the controlling
+//! station, so the group issues no `ENDINIT.req` on a controlled station's
 //! behalf: a caller that must announce a controlled station's restart builds
 //! the frame itself ([`end_of_initialisation`]) and hands it over through
 //! [`RedundancyGroup::send_user_data`] like every other ASDU of the group.
@@ -188,37 +167,27 @@
 //! # 10.5 User data from the controlling station (index 128, printed 127;
 //! figure 34, index 130, printed 129)
 //!
-//! Verbatim:
+//! Paraphrased:
 //!
-//! > If communication fails on the currently started connection (e.g.
-//! > connection m) when the controlling station attempts to transmit user data
-//! > (e.g. a command ASDU), a connection switchover will be performed
-//! > (preferably automatic). The sequential procedure in this case is shown in
-//! > Figure 34. It is up to the controlling station to select a new started
-//! > connection. When transmission timeout (t1) has elapsed, one of the stopped
-//! > connections (connection n) is started using the STARTDT function, The
-//! > command is then directed to the new started connection, either by
-//! > re-transmitting the ASDU on this connection or by terminating the ongoing
-//! > application function and reinitiating it towards the new connection (it is
-//! > left to the application if the ESDU is retransmitted). The failed
-//! > connection is eventually closed by both sides, and reopening is regularly
-//! > retried by the controlling station until the error has been corrected and
-//! > the connection is re-established.
-//!
-//! > Any subsequent user data (e.g. events) are now transmitted on the new
-//! > started connection.
-//!
-//! > A connection switchover will also be performed whenever a TESTFR_ACT on
-//! > the started connection fails and hence reports a communication error on
-//! > this connection.
-//!
-//! > Care shall be taken that data are not lost during a connection switchover,
-//! > for example by doing a station interrogation procedure after a switchover
-//! > has been performed.
-//!
-//! > The controlled station shall only acknowledge user data received on the
-//! > connection on which it last received a STARTDT_ACT (the started
-//! > connection).
+//! - When the started connection (say m) fails while the controlling station
+//!   is sending user data (a command ASDU, for example), the connection is
+//!   switched over, preferably automatically (Figure 34). The controlling
+//!   station picks the new started connection: once t1 has run out, it starts
+//!   one of the stopped connections (say n) with STARTDT. The command then goes
+//!   to the new started connection, either retransmitted there or by ending the
+//!   application function in progress and running it again on the new
+//!   connection; whether the ASDU is retransmitted is the application's choice.
+//!   Both sides end up closing the failed connection, and the controlling
+//!   station keeps trying to reopen it until the fault is cleared and it is
+//!   back.
+//! - Later user data, events for example, goes over the new started
+//!   connection.
+//! - A failed `TESTFR_ACT` on the started connection signals a communication
+//!   error there and also triggers a switchover.
+//! - Care *shall* be taken not to lose data in a switchover, for example by
+//!   running a station interrogation after it.
+//! - The controlled station *shall* acknowledge user data only on the
+//!   connection it last received a `STARTDT_ACT` on (the started connection).
 //!
 //! Figure 34 draws `COMMAND (example)` / `Timeout t1` / `U (STARTDT act)` /
 //! `U (STARTDT con)` / `COMMAND (repeated)`, the close as `active close`, and
@@ -227,32 +196,31 @@
 //! Three methods are that subsection:
 //!
 //! - [`RedundancyGroup::on_timeout`] is the group's **switchover event**. A
-//!   `Timer::T1` expiry on the started connection is *"when transmission
-//!   timeout (t1) has elapsed"* (t1 being the timeout of a sent U-frame or
+//!   `Timer::T1` expiry on the started connection is the elapsed t1 that
+//!   triggers it (t1 being the timeout of a sent U-frame or
 //!   I-frame, figures 17/18 NOTE 2), and a `TESTFR_ACT` that failed on that
 //!   connection is the same expiry ([`Session::test_pending`]). The group
-//!   starts *"one of the stopped connections"* with the STARTDT act of clause
+//!   starts one of the stopped connections with the STARTDT act of clause
 //!   5.3 (through that member's own [`Session::request_start`]), names it the
 //!   started connection, and reports [`Switchover::Automatic`]. The failed
 //!   connection is closed by its own t1 reaction (figures 17/18's `Timeout
-//!   t1[]/Active close`, returned in the same call). *"reopening is regularly
-//!   retried by the controlling station"* is the caller's step, since the crate
+//!   t1[]/Active close`, returned in the same call). Retrying the reopening is
+//!   the caller's step, since the crate
 //!   holds no socket; [`RedundancyGroup::tick`] asks for it.
-//! - [`RedundancyGroup::retransmit_unconfirmed`] is *"it is left to the
-//!   application if the ESDU is retransmitted"*. What a connection leaves
+//! - [`RedundancyGroup::retransmit_unconfirmed`] is the application's choice
+//!   whether to retransmit. What a connection leaves
 //!   behind is captured once, when it fails (an active close or a reported
 //!   loss): the frames of its send buffer ([`Session::outstanding_frames`])
 //!   followed by the group's mirror of its clause 5.3 queue
 //!   ([`Member::queued_user_data`]). It is kept in [`Member::left_behind`],
 //!   whatever happens to the member afterwards, until the application states
 //!   its decision ([`Replay`]): replay it on the group's started connection,
-//!   re-stamped with that connection's own `N(S)` (*"Each TCP connection …
-//!   maintains its send- and receive counter"*, TS 60870-5-604 `5.4.13.10`,
+//!   re-stamped with that connection's own `N(S)` (every TCP connection keeps
+//!   its own send and receive counters, TS 60870-5-604 `5.4.13.10`,
 //!   index 58, printed 57), or discard it. **Each captured ASDU is replayed at
 //!   most once** ([`GroupError::AlreadyRetransmitted`]).
-//! - [`RedundancyGroup::on_frame`]: *"The controlled station shall only
-//!   acknowledge user data received on the connection on which it last received
-//!   a `STARTDT_ACT` (the started connection)."* An I- or S-frame on any other
+//! - [`RedundancyGroup::on_frame`]: the controlled station acknowledges user
+//!   data only on the started connection. An I- or S-frame on any other
 //!   connection is refused with [`GroupError::NotStartedConnection`] and is not
 //!   fed to that connection's session, so nothing is acknowledged on it and its
 //!   receive counter stays where it was. U-frames stay the connection's own on
@@ -261,28 +229,22 @@
 //! # 10.6 User data from the controlled station (index 132, printed 131;
 //! figure 35, index 134, printed 133)
 //!
-//! Verbatim:
+//! Paraphrased:
 //!
-//! > If communication fails on the started connection when the controlled
-//! > station attempts to transmit user data (e.g. an event ASDU), the
-//! > controlling station shall detect the failure and perform a connection
-//! > switchover before the ASDU can be retransmitted on one of the previously
-//! > stopped connections. A sequential procedure to illustrate this case is
-//! > shown in Figure 35, with the use of asymmetric timeouts as explained in
-//! > 10.7.
-//!
-//! > A STARTDT_ACT will eventually be received on one of the stopped connections
-//! > (connection m) as a result of a timeout (t1) in the controlling station to
-//! > a TESTFR frame on the currently started but failed connection. The selected
-//! > stopped connection now becomes the new started connection, and the pending
-//! > event is retransmitted on this connection.
-//!
-//! > In general, any unconfirmed user data will be retransmitted on the new
-//! > started connection after a connection switchover has been performed,
-//! > including potential unconfirmed ACTCONs or ACTTERMs.
-//!
-//! > The controlling station shall not acknowledge user data received on a
-//! > connection which is not started.
+//! - When the started connection fails while the controlled station is sending
+//!   user data (an event ASDU, for example), the controlling station *shall*
+//!   detect it and switch over before the ASDU can be sent again on one of the
+//!   formerly stopped connections. Figure 35 shows the sequence, with the
+//!   asymmetric timeouts of 10.7.
+//! - The controlled station eventually gets a `STARTDT_ACT` on a stopped
+//!   connection (say m), once the controlling station's t1 has run out on a
+//!   TESTFR sent over the failed started connection. That connection becomes
+//!   the new started one, and the pending event is sent again on it.
+//! - As a rule, after a switchover all unconfirmed user data, unconfirmed
+//!   `ACTCON`s and `ACTTERM`s included, is sent again on the new started
+//!   connection.
+//! - The controlling station *shall not* acknowledge user data received on a
+//!   connection that is not started.
 //!
 //! Figure 35 draws `Timeout t1 cancelled`, `Connection switchover`, `EVENT
 //! (retransmitted)`, `Timeout t0`, `active close` and `Timeout t3`.
@@ -293,38 +255,34 @@
 //! peer's, so [`RedundancyGroup::on_timeout`] reports
 //! [`Switchover::LeftToTheControllingStation`] and sends no STARTDT act. The
 //! naming moves when the peer's act arrives on a stopped connection
-//! ([`RedundancyGroup::on_startdt_act`]), and *"the pending event is
-//! retransmitted on this connection"* is the same
-//! [`RedundancyGroup::retransmit_unconfirmed`]. *"The controlling station shall
-//! not acknowledge user data received on a connection which is not started"* is
+//! ([`RedundancyGroup::on_startdt_act`]), and resending the pending event there
+//! is the same [`RedundancyGroup::retransmit_unconfirmed`]. The controlling
+//! station's refusal to acknowledge on a connection that is not started is
 //! [`RedundancyGroup::on_frame`]'s refusal: 10.5 states the rule for the
 //! controlled station and 10.6 for the controlling one.
 //!
 //! # 10.7 State transition diagrams (index 136, printed 135; figure 36, index
 //! 138, printed 137; figure 37, index 140, printed 139)
 //!
-//! Verbatim:
+//! Paraphrased:
 //!
-//! > A timeout t1 in the controlling station on the started connection may
-//! > automatically trigger the user application to issue a connection change
-//! > request, and hence cause the start of a new (redundant) connection and an
-//! > automatic connection switchover. Manual switchover is initiated by the user
-//! > application either by a Stop on the started connection followed by a Start
-//! > on another connection, or simply by issuing a connection change request.
+//! - In the controlling station, a t1 timeout on the started connection *may*
+//!   make the user application request a connection change automatically,
+//!   which starts a new (redundant) connection and switches over to it. The
+//!   user application switches over manually either with a Stop on the started
+//!   connection and then a Start on another one, or with a connection change
+//!   request alone.
+//! - A Start on a new connection immediately closes every connection that is
+//!   not STOPPED.
+//! - So t1 (and t2 with it) may differ between the stations: a shorter t1 in
+//!   the controlling station than in the controlled one shortens the
+//!   switchover.
+//! - The timers t0 to t3 *should* be settable per connection of a redundancy
+//!   group.
 //!
-//! > Any connection that is not in the STOPPED state is immediately closed at
-//! > the event of a Start on a new connection.
-//!
-//! > This means that asymmetric timeouts t1 can also be used (and t2
-//! > correspondingly), i.e. shorter t1 in the controlling station than in the
-//! > controlled station to reduce switchover time.
-//!
-//! > It should be possible to set the values of the timers t0 to t3 individually
-//! > for each connection within a redundancy group.
-//!
-//! Both figures' NOTE 1 is *"Connection terminated means that there is no longer
-//! any data exchange between TCP and the application protocol (CS104)."* and
-//! their NOTE 2 *"t1 is the time out of a sent U-frame or I-frame."*
+//! In both figures, NOTE 1 says a terminated connection no longer exchanges
+//! data between TCP and the application protocol (CS104), and NOTE 2 makes t1
+//! the timeout of a sent U-frame or I-frame.
 //!
 //! **The boxes are the connection states, and they are [`State`]'s values, box
 //! for box.** Figure 36 (controlled station, index 138) prints `STOPPED
@@ -346,8 +304,8 @@
 //!
 //! - **The close rule.** Figure 36's `STARTDT act[]/Close other not stopped
 //!   connection(s)/Send STARTDT con` and figure 37's `Start connection[]/Send
-//!   STARTDT act`: *"Any connection that is not in the STOPPED state is
-//!   immediately closed at the event of a Start on a new connection."*
+//!   STARTDT act`: a Start on a new connection immediately closes every
+//!   connection that is not STOPPED.
 //!   [`RedundancyGroup::start`], [`RedundancyGroup::on_startdt_act`] and the
 //!   automatic switchover of [`RedundancyGroup::on_timeout`] therefore return
 //!   the close actions of every other member that is neither
@@ -366,7 +324,7 @@
 //!   connection change[]/Active close` (the one transition only clause 10
 //!   draws) and figure 36's incoming `Close initiated by another connection[]/`:
 //!   [`RedundancyGroup::close`] is the active close of one connection, on either
-//!   role (TS 60870-5-604 `5.4.13.20`, index 59, has *"either"* station close an
+//!   role (TS 60870-5-604 `5.4.13.20`, index 59, lets either station close an
 //!   inoperable member).
 //! - **The close's reason.** The close rule and a connection change close
 //!   through [`Session::close`], so the [`Action::ActiveClose`] they return
@@ -382,11 +340,10 @@
 //!   into `Pending STOPPED connection` is clause 5.3's acknowledgement
 //!   ([`Session::on_frame`] with an S-frame, or the N(R) of an I-frame).
 //!
-//! **Manual switchover is the two requests it is.** 10.2 (index 118): *"Manual
-//! connection switchover can be performed by first issuing a `STOPDT_ACT` on the
-//! currently started connection and then a `STARTDT_ACT` on the selected new
-//! started connection. This will gracefully terminate data transfer on the first
-//! connection before it is resumed on the new connection."* So it is
+//! **Manual switchover is the two requests it is.** 10.2 (index 118) describes
+//! a manual switchover as a `STOPDT_ACT` on the started connection followed by
+//! a `STARTDT_ACT` on the chosen new one, so that data transfer ends cleanly on
+//! the first connection before it resumes on the second. So it is
 //! [`RedundancyGroup::stop`] on the started connection, the peer's `STOPDT con`
 //! fed to that member, and then [`RedundancyGroup::start`] on the connection
 //! that is to take over, not one `switch()` that hides the STOPDT. TS
@@ -394,8 +351,8 @@
 //! step.
 //!
 //! **Asymmetric `t1` needs no code of its own.** Each member carries its own
-//! [`Timers`] built from its own [`LinkParams`], so *"shorter t1 in the
-//! controlling station than in the controlled station"* is a controlling group
+//! [`Timers`] built from its own [`LinkParams`], so 10.7's shorter t1 in the
+//! controlling station than in the controlled one is a controlling group
 //! configured with a shorter `t1` than the controlled one it talks to. The
 //! switchover rides on whichever station's `t1` expires first, and a
 //! controlled station does not switch over at all (rule 4), so the shorter
@@ -415,17 +372,17 @@
 //!   a controlled station get two groups (and two process images); the common
 //!   address of the ASDU is the caller's.
 //! - **No socket, no thread, no clock.** How the N connections are established
-//!   and closed is clause 7.1's business (*"Connection establishment is
-//!   performed by the controlling station in case of a controlled station as a
-//!   partner"*, index 54, printed 53) and the caller's. [`RedundancyGroup::tick`]
+//!   and closed is clause 7.1's business (with a controlled station as the
+//!   partner, the controlling station establishes the connection, index 54,
+//!   printed 53) and the caller's. [`RedundancyGroup::tick`]
 //!   says which members to dial; every time-out is an `Instant` the caller
 //!   injects.
 //! - **Queues: the connections', a mirror per member, and a gap buffer.** A
 //!   member's [`Session`] owns clause 5.3's pending user-data queue, so data
 //!   that cannot go out now is held by the connection that will carry it. That
 //!   queue is *cleared with the connection* (clause 5.1), which is exactly the
-//!   moment 10.5's *"Care shall be taken that data are not lost during a
-//!   connection switchover"* applies to, so the group mirrors the ASDUs it
+//!   moment 10.5's requirement not to lose data in a switchover applies to,
+//!   so the group mirrors the ASDUs it
 //!   handed to each connection's queue ([`Member::queued_user_data`]) and
 //!   captures the mirror with the connection's unconfirmed frames when it
 //!   fails. The mirror is filled only by the group's own queueing, drops an
@@ -442,11 +399,11 @@
 //! # What stays the caller's
 //!
 //! - **How the N connections are established and closed, and how reopening is
-//!   retried** (clause 7.1; 10.5's *"reopening is regularly retried by the
-//!   controlling station until the error has been corrected and the connection
-//!   is re-established"*): the crate holds no socket.
-//! - **Which data is retransmitted on switchover** (10.5's *"it is left to the
-//!   application if the ESDU is retransmitted"*): [`Replay`], answered with
+//!   retried** (clause 7.1; in 10.5 the controlling station keeps retrying
+//!   until the fault is cleared and the connection is back): the crate holds no
+//!   socket.
+//! - **Which data is retransmitted on switchover** (10.5 leaves it to the
+//!   application): [`Replay`], answered with
 //!   [`ReplayOutcome`].
 //! - **Where the process image lives** (rule 6), and the common address every
 //!   routed ASDU carries (rule 7: one group per controlling station).
@@ -465,8 +422,8 @@
 //!   [`Timers`] run while the member is stopped.
 //! - **`5.4.13.10`** *"Re-establishing a lost Started connection … (automatic
 //!   switch-over)"*: t1 expiry, a new started connection over a still-stopped
-//!   one, an active close on the old one, and *"The send- and receive counters
-//!   are not reset to "0" as long as the TCP connection is established."*
+//!   one, an active close on the old one, and send and receive counters that
+//!   are not reset to 0 while their TCP connection stays up.
 //! - **`5.4.13.20`** *"Re-establishing a lost redundant connection"*: either
 //!   role actively closes an inoperable member and the controlling station
 //!   retries a new stopped connection at regular intervals.
@@ -474,14 +431,12 @@
 //!   redundant Stopped connection: (manual switch-over)"*: STOPDT on the
 //!   current started connection, then STARTDT on the selected one.
 //!
-//! Its NOTE and Remark are the boundary of all four: *"The tests in this Table
-//! are only required for systems supporting Redundant connections. If 'M' is
-//! mentioned, the test case is mandatory for systems with the relevant Redundant
-//! connections options marked in the PICS: – PICS, 9.6, "Redundant connections""*
-//! and *"these test cases are describing the redundancy mechanism (with multiple
-//! connections to a single Controlled station, of which exactly one is the
-//! Started connection and the other connections are Stopped connections), but
-//! not how this mechanism will be used in operational redundant systems."*
+//! Its NOTE and Remark bound all four: the tests apply only to systems that
+//! support redundant connections, and an `M` case is mandatory only where the
+//! PICS marks the relevant option (PICS 9.6, "Redundant connections"). The
+//! cases test the mechanism itself (several connections to one controlled
+//! station, exactly one started and the rest stopped), not how an operational
+//! redundant system puts it to use.
 //! Whether a station runs the function at all is therefore a PICS decision the
 //! caller makes: the crate offers the type and refuses nothing for being unused.
 
@@ -518,8 +473,7 @@ pub struct Member {
     /// wire, oldest first. The session owns the queue; this is the group's
     /// mirror of it, kept so that a *lost* connection's queued data is not lost
     /// with the session's queue, which clause 5.1 clears (10.5, index 128:
-    /// *"Care shall be taken that data are not lost during a connection
-    /// switchover"*).
+    /// data must not be lost in a switchover).
     queued: Vec<Vec<u8>>,
     /// True once the application has decided on what this member's failed
     /// connection left behind ([`Replay::Retransmit`] or [`Replay::Discard`]),
@@ -541,9 +495,9 @@ pub struct Member {
     /// fresh session of a re-established connection starts with nothing
     /// (clause 5.1), and kept, whatever happens to the member afterwards,
     /// until the application decides:
-    /// [`Replay::Retransmit`] or [`Replay::Discard`] (10.5: *"it is left to the
-    /// application if the ESDU is retransmitted"*). Several unhandled failures
-    /// accumulate here.
+    /// [`Replay::Retransmit`] or [`Replay::Discard`] (10.5: the application
+    /// decides whether to retransmit). Several unhandled failures accumulate
+    /// here.
     left: Vec<Vec<u8>>,
     /// True from the capture of a failure until the member has a live
     /// connection again, so one failure is captured once.
@@ -687,9 +641,8 @@ impl Member {
     /// re-establishment. Clause 5.3 (index 38) answers a repeated `STARTDT_ACT`
     /// on the already started connection with a `STARTDT_CON` and leaves its
     /// queue intact, so the group's copy of the data that connection still
-    /// holds must stay (10.5's *"Care shall be taken that data are not lost
-    /// during a connection switchover"*). Only the newest
-    /// [`Session::pending_user_data`] entries of the mirror are kept, because
+    /// holds must stay (10.5: data must not be lost in a switchover). Only the
+    /// newest [`Session::pending_user_data`] entries of the mirror are kept, because
     /// those are the ones the connection's own queue still accounts for.
     fn reestablish(&mut self) {
         self.replayed = false;
@@ -768,8 +721,8 @@ pub struct RedundancyGroup {
     started: Option<usize>,
     /// User data handed over while no connection was started (between a
     /// failure and the next naming), or moved off a stopped connection the
-    /// naming left, held until a connection is named (10.5: *"Care shall be
-    /// taken that data are not lost during a connection switchover"*).
+    /// naming left, held until a connection is named (10.5: data must not be
+    /// lost in a switchover).
     held: Vec<Vec<u8>>,
     /// True from the failure of the started connection until the next one is
     /// named: the gap in which the group holds user data. Before the first
@@ -944,8 +897,8 @@ impl RedundancyGroup {
     ///   ([`Session::user_data_allowed`]); a controlled station only once it is
     ///   `Started`. The group keeps a mirror of the queued ASDU
     ///   ([`Member::queued_user_data`]), because that queue is cleared with the
-    ///   connection (clause 5.1) and 10.5 requires *"that data are not lost
-    ///   during a connection switchover"*;
+    ///   connection (clause 5.1) and 10.5 requires that no data is lost in a
+    ///   switchover;
     /// - in the group ([`RedundancyGroup::held_user_data`]), when the started
     ///   connection failed and no other has been named yet, or the group
     ///   already holds data. The data goes into the queue of the next
@@ -961,8 +914,8 @@ impl RedundancyGroup {
     /// rather than piled up or dropped.
     ///
     /// For a controlled station this is 10.4's monitor direction (index 124,
-    /// printed 123): *"no user data is transmitted from the controlled station
-    /// until started state on one connection is established"*. Before the
+    /// printed 123): the controlled station sends no user data until one
+    /// connection is started. Before the
     /// peer's first `STARTDT_ACT` the group names no started connection and this
     /// refuses with [`GroupError::NoStartedConnection`]; once the act has named
     /// one, clause 5.3's queue holds the data until the `STARTDT con`
@@ -1048,10 +1001,10 @@ impl RedundancyGroup {
     /// data still waiting on another established, stopped connection moves into
     /// the group's held data, which the next [`RedundancyGroup::start`] queues
     /// on the named connection. A controlled station has no such decision to
-    /// make and is refused with [`GroupError::CannotSelect`] (rule 4 and 10.2's
-    /// *"the selection and switchover of the started connection is always
-    /// initiated by the controlling station"*). Naming the connection that is
-    /// already the group's is [`GroupError::AlreadyInState`].
+    /// make and is refused with [`GroupError::CannotSelect`] (rule 4 and 10.2:
+    /// the controlling station always initiates the choice of the started
+    /// connection and every switchover). Naming the connection that is already
+    /// the group's is [`GroupError::AlreadyInState`].
     ///
     /// # Errors
     ///
@@ -1074,9 +1027,9 @@ impl RedundancyGroup {
     /// Rule 4's controlled-station half: the connection on which this station
     /// last received a `STARTDT_ACT` is the started connection.
     ///
-    /// Verbatim (index 118): *"The controlled station (station B) always
-    /// understands the connection on which it last received a `STARTDT_ACT` as the
-    /// started connection."* A repeated act on the same connection names the
+    /// 10.2 (index 118): the controlled station (station B) always treats the
+    /// connection it last received a `STARTDT_ACT` on as the started one. A
+    /// repeated act on the same connection names the
     /// same connection again and is not a refusal: clause 5.3 answers every
     /// STARTDT act with a STARTDT con, retransmissions included.
     ///
@@ -1131,8 +1084,8 @@ impl RedundancyGroup {
     ///
     /// Not while any member still has data left behind that the application
     /// has not decided on: that data is older than what the group holds, and
-    /// 10.6's *"any unconfirmed user data will be retransmitted on the new
-    /// started connection"* puts it on the wire first. The decision
+    /// 10.6, which resends all unconfirmed user data on the new started
+    /// connection, puts it on the wire first. The decision
     /// ([`RedundancyGroup::retransmit_unconfirmed`]) releases the held data
     /// behind it.
     fn release_held(&mut self) {
@@ -1162,8 +1115,7 @@ impl RedundancyGroup {
     /// connection was still stopping, or `select` onto a connection that was
     /// down. That data never went out, and it goes into the next started
     /// connection's queue instead of staying on a connection that no longer
-    /// carries user data (10.5: *"Care shall be taken that data are not lost
-    /// during a connection switchover"*).
+    /// carries user data (10.5: data must not be lost in a switchover).
     ///
     /// Only stopped connections: nothing of theirs is unconfirmed, so nothing
     /// older can arrive later. A connection that is not stopped is closed by
@@ -1205,12 +1157,11 @@ impl RedundancyGroup {
     /// The frame is fed to the named member's own [`Session::on_frame`], which
     /// answers clause 5.3's `STARTDT_CON` and moves that connection to
     /// [`State::Started`], and the member is named the group's started
-    /// connection through [`RedundancyGroup::observe_startdt_act`] (10.2's
-    /// *"the connection on which it last received a `STARTDT_ACT`"*). The
-    /// session's actions are returned unchanged: the `STARTDT_CON`, followed by
-    /// any monitoring data the connection held, because clause 5.3 (index 38,
-    /// printed 37) says *"Any pending user data in the controlled station is
-    /// sent only after the STARTDT con."*
+    /// connection through [`RedundancyGroup::observe_startdt_act`] (10.2: the
+    /// connection the last `STARTDT_ACT` arrived on). The session's actions are
+    /// returned unchanged: the `STARTDT_CON`, followed by any monitoring data the
+    /// connection held, because clause 5.3 (index 38, printed 37) holds a
+    /// controlled station's pending user data until the STARTDT con.
     ///
     /// Refusals: [`GroupError::CannotSelect`] for a controlling group, which
     /// takes its naming from its own decision ([`RedundancyGroup::select`]);
@@ -1222,16 +1173,14 @@ impl RedundancyGroup {
     /// A repeated act on the connection that already is the group's names it
     /// again and closes nothing (clause 5.3 answers every STARTDT act with a
     /// STARTDT con). An act on another member moves the naming, and 10.7's close
-    /// rule (index 136, *"Any connection that is not in the STOPPED state is
-    /// immediately closed at the event of a Start on a new connection."*)
-    /// closes every other member that is not stopped. Figure 36's label
+    /// rule (index 136: a Start on a new connection immediately closes every
+    /// connection that is not STOPPED) closes every other member that is not stopped. Figure 36's label
     /// `STARTDT act[]/Close other not stopped connection(s)/Send STARTDT con`
     /// puts the close first, so the close actions come first, in member order,
     /// then the connection's own answer. What waits in a closed connection's
     /// clause 5.3 queue is captured for the replay ([`Member::left_behind`]);
     /// what waits on a stopped one moves to the new connection's queue (10.5:
-    /// *"Care shall be taken that data are not lost during a connection
-    /// switchover"*).
+    /// data must not be lost in a switchover).
     ///
     /// # Errors
     ///
@@ -1268,12 +1217,11 @@ impl RedundancyGroup {
     /// may handle. Two sentences of clause 10 are that decision, and both are
     /// about acknowledging:
     ///
-    /// > The controlled station shall only acknowledge user data received on the
-    /// > connection on which it last received a STARTDT_ACT (the started
-    /// > connection).  (10.5, index 128, printed 127)
-    ///
-    /// > The controlling station shall not acknowledge user data received on a
-    /// > connection which is not started.  (10.6, index 132, printed 131)
+    /// The controlled station *shall* acknowledge user data only on the
+    /// connection it last received a `STARTDT_ACT` on, the started connection
+    /// (10.5, index 128, printed 127), and the controlling station *shall not*
+    /// acknowledge user data received on a connection that is not started
+    /// (10.6, index 132, printed 131).
     ///
     /// So an I-frame or an S-frame arriving on a connection that is not the
     /// group's started connection is refused with
@@ -1331,9 +1279,8 @@ impl RedundancyGroup {
         }
     }
 
-    /// 10.7's close rule (index 136), verbatim: *"Any connection that is not in
-    /// the STOPPED state is immediately closed at the event of a Start on a new
-    /// connection."*
+    /// 10.7's close rule (index 136): a Start on a new connection immediately
+    /// closes every connection that is not STOPPED.
     ///
     /// Every member but `keep` whose session is neither [`State::Stopped`] (the
     /// rule's own exception) nor [`State::Terminated`] (closed already) is
@@ -1400,11 +1347,10 @@ impl RedundancyGroup {
     /// [`TimeoutOutcome::actions`], first on the wire.
     ///
     /// A `t1` on the group's **started** connection is also 10.5's switchover
-    /// trigger (index 128, printed 127): *"When transmission timeout (t1) has
-    /// elapsed, one of the stopped connections (connection n) is started using
-    /// the STARTDT function"*. The same expiry covers *"A connection switchover
-    /// will also be performed whenever a `TESTFR_ACT` on the started connection
-    /// fails"*, because that failure is the t1 supervising the act
+    /// trigger (index 128, printed 127): once t1 has run out, one of the
+    /// stopped connections (connection n) is started with STARTDT. The same
+    /// expiry covers 10.5's switchover on a failed `TESTFR_ACT` on the started
+    /// connection, because that failure is the t1 supervising the act
     /// ([`Session::test_pending`]; figure 14's `Time-out t1` → `Active close`).
     /// A controlling group then starts the first other member that is
     /// established and [`State::Stopped`], names it the started connection and
@@ -1432,9 +1378,8 @@ impl RedundancyGroup {
     ///
     /// Reopening the failed connection is the caller's next step: the crate
     /// holds no socket (clause 7.1, index 54). What must not be lost is what the
-    /// failed connection still held (10.5's *"Care shall be taken that data are
-    /// not lost during a connection switchover, for example by doing a station
-    /// interrogation procedure after a switchover has been performed."*). The
+    /// failed connection still held (10.5: data must not be lost in a
+    /// switchover, for example by running a station interrogation after it). The
     /// close captures it, and [`Switchover`]'s `unconfirmed` counts what the
     /// member now holds for [`RedundancyGroup::retransmit_unconfirmed`]: the
     /// I-frames still in the connection's send buffer **plus** the ASDUs of the
@@ -1505,16 +1450,15 @@ impl RedundancyGroup {
         })
     }
 
-    /// 10.5's retransmission decision: *"it is left to the application if the
-    /// ESDU is retransmitted"* (index 128, printed 127).
+    /// 10.5's retransmission decision: the application decides whether to
+    /// retransmit (index 128, printed 127).
     ///
-    /// 10.5 directs the command to the new started connection *"either by
-    /// re-transmitting the ASDU on this connection or by terminating the ongoing
-    /// application function and reinitiating it towards the new connection"*,
-    /// and 10.6 (index 132, printed 131) adds: *"In general, any unconfirmed user
-    /// data will be retransmitted on the new started connection after a
-    /// connection switchover has been performed, including potential unconfirmed
-    /// ACTCONs or ACTTERMs."*
+    /// 10.5 sends the command on the new started connection either by
+    /// retransmitting the ASDU there or by ending the application function in
+    /// progress and running it again on the new connection, and 10.6 (index
+    /// 132, printed 131) adds that, as a rule, all unconfirmed user data,
+    /// unconfirmed `ACTCON`s and `ACTTERM`s included, is resent on the new
+    /// started connection after a switchover.
     ///
     /// `failed` names the member whose connection failed. What that connection
     /// left behind was captured once, when it failed (the frames its send
@@ -1526,8 +1470,8 @@ impl RedundancyGroup {
     /// the group, is captured here first.
     ///
     /// [`Replay::Leave`] only counts it. [`Replay::Discard`] drops it: the
-    /// caller's own *"terminating the ongoing application function and
-    /// reinitiating it towards the new connection"*. [`Replay::Retransmit`]
+    /// caller then ends the application function in progress and runs it again
+    /// on the new connection itself. [`Replay::Retransmit`]
     /// hands every held ASDU to the group's started connection, oldest first,
     /// through [`RedundancyGroup::send_user_data`]. That is rule 3's routing:
     /// the data leaves on the one started connection (which may be `failed`
@@ -1554,11 +1498,10 @@ impl RedundancyGroup {
     /// duplicate data. The next failure of the member is a new decision.
     ///
     /// The replay is the ASDU and not the frame: the failed connection's `N(S)`
-    /// belongs to the failed connection, and *"The send- and receive counters are
-    /// not reset to \"0\" as long as the TCP connection is established. Each TCP
-    /// connection, not affected by STARTDT and STOPDT procedures or switch-over
-    /// procedures, maintains its send- and receive counter."* (TS 60870-5-604
-    /// `5.4.13.10`, index 58, printed 57). The new connection stamps its own,
+    /// belongs to the failed connection, and a connection's send and receive
+    /// counters are not reset to 0 while its TCP connection is up: every TCP
+    /// connection keeps its own, whatever STARTDT, STOPDT or switchover does
+    /// (TS 60870-5-604 `5.4.13.10`, index 58, printed 57). The new connection stamps its own,
     /// through [`Session::send_i_frame`]. [`Session::retransmit`] is the
     /// same-connection replay, for a caller that wants that connection's own
     /// buffer back as it was stamped.
@@ -1659,8 +1602,8 @@ impl RedundancyGroup {
     /// 10.3's start procedure: figure 32's (index 122, printed 121) and figure
     /// 37's (index 140) `Start connection[]/Send STARTDT act`.
     ///
-    /// This is 10.3's *"one of the connections (e.g. connection 1) is therefore
-    /// changed from the stopped into the started state"* for one connection:
+    /// This is 10.3's move of one connection (connection 1, say) from stopped
+    /// to started:
     /// the STARTDT act of clause 5.3 goes out through the member's own
     /// [`Session::request_start`], whose actions are returned to the caller, and
     /// the group names that connection as its started one (rule 3's one started
@@ -1695,9 +1638,8 @@ impl RedundancyGroup {
     ///
     /// # 10.7's close rule
     ///
-    /// Verbatim (index 136, printed 135): *"Any connection that is not in the
-    /// STOPPED state is immediately closed at the event of a Start on a new
-    /// connection."* The event of a Start is this call, so before the new
+    /// 10.7 (index 136, printed 135): a Start on a new connection immediately
+    /// closes every connection that is not STOPPED. The event of a Start is this call, so before the new
     /// connection's own act goes out the group actively closes **every other
     /// member that is not [`State::Stopped`]** (a member already
     /// [`State::Terminated`] is left alone) and returns those close actions
@@ -1706,9 +1648,8 @@ impl RedundancyGroup {
     /// confirmation. Each close is that connection's own [`Session::close`], so
     /// figures 10/11's NOTE (the S-frame before the active close) comes from the
     /// link layer. Without the rule the group would end up with two live
-    /// connections, which rule 3 (index 118) forbids: *"Only one logical
-    /// connection is in the started state and sending/receiving user data at a
-    /// time for one redundancy group."*
+    /// connections, which rule 3 (index 118) forbids: a redundancy group has
+    /// one started connection carrying user data at a time.
     ///
     /// # Errors
     ///
@@ -1728,8 +1669,8 @@ impl RedundancyGroup {
         if !member.session().is_connected() {
             return Err(GroupError::NotConnected { index });
         }
-        // 10.7: "Any connection that is not in the STOPPED state is immediately
-        // closed at the event of a Start on a new connection." (index 136)
+        // 10.7 (index 136): a Start on a new connection immediately closes every
+        // connection that is not STOPPED.
         let mut actions = self.close_others(index);
         self.name(index);
         let started = self.member_mut(index)?.session_mut().request_start();
@@ -1743,11 +1684,10 @@ impl RedundancyGroup {
     /// `Stop connection[no unconfirmed I-frames]/Send STOPDT act` and `Stop
     /// connection[unconfirmed I-frames]/Send STOPDT act`.
     ///
-    /// 10.2 (index 118, printed 117), verbatim: *"Manual connection switchover
-    /// can be performed by first issuing a `STOPDT_ACT` on the currently started
-    /// connection and then a `STARTDT_ACT` on the selected new started connection.
-    /// This will gracefully terminate data transfer on the first connection
-    /// before it is resumed on the new connection."* This method is the first of
+    /// 10.2 (index 118, printed 117): a manual switchover is a `STOPDT_ACT` on
+    /// the started connection followed by a `STARTDT_ACT` on the chosen new
+    /// one, so that data transfer ends cleanly on the first connection before
+    /// it resumes on the second. This method is the first of
     /// those two requests and [`RedundancyGroup::start`] the second, so the
     /// `STOPDT_ACT` is never hidden inside one call. TS 60870-5-604 `5.4.13.30`
     /// (indices 59–60, printed 58–59) is the case step by step; the steps
@@ -1768,8 +1708,7 @@ impl RedundancyGroup {
     /// so it is [`GroupError::CannotSelect`]; a name that is no member of the
     /// group is [`GroupError::MemberIndexOutOfRange`]; a name that is not the
     /// group's started connection is [`GroupError::NotStartedConnection`],
-    /// because the `STOPDT_ACT` is issued *"on the currently started
-    /// connection"*; and a started connection whose session is not
+    /// because the `STOPDT_ACT` goes on the started connection; and a started connection whose session is not
     /// [`State::Started`] (a stop already in flight) is
     /// [`GroupError::AlreadyInState`] with the member's own state.
     ///
@@ -1801,10 +1740,9 @@ impl RedundancyGroup {
     /// Active close` (the one transition only clause 10 draws) and figure 36's
     /// (index 138) incoming `Close initiated by another connection[]/`.
     ///
-    /// Verbatim (index 136, printed 135): *"Manual switchover is initiated by
-    /// the user application either by a Stop on the started connection followed
-    /// by a Start on another connection, or simply by issuing a connection change
-    /// request."* A connection change request is the second of those two forms:
+    /// 10.7 (index 136, printed 135): the user application switches over
+    /// manually either with a Stop on the started connection and then a Start
+    /// on another one, or with a connection change request alone. A connection change request is the second of those two forms:
     /// the caller asks for the connection to be closed, and the group performs
     /// the connection's own active close ([`Session::close`]; the pending
     /// acknowledgement goes first). The returned [`Action::ActiveClose`] carries
@@ -1812,9 +1750,9 @@ impl RedundancyGroup {
     /// captured for the replay ([`Member::left_behind`]).
     ///
     /// Either role may close a connection: TS 60870-5-604 `5.4.13.20` (index 59,
-    /// printed 58) says of the *"Controlling station"* and of the *"Controlled
-    /// station"* that it *"initiates a TCP active close on the inoperable
-    /// connection (which may never arrive)"*, started or stopped, so there is no
+    /// printed 58) has the controlling station and the controlled station
+    /// alike actively close an inoperable TCP connection (whose close may never
+    /// arrive), started or stopped, so there is no
     /// role guard here.
     ///
     /// Closing the group's started connection drops the naming: a terminated
@@ -1841,12 +1779,10 @@ impl RedundancyGroup {
 
     /// 10.3's `ENDINIT.req`, as the caller's typed parameter.
     ///
-    /// Verbatim (index 120, printed 119): *"The ENDINIT.req (optional but
-    /// recommended, Figures 32 and 33) may always be useful to advise the other
-    /// station that the sending station is now ready to respond to an
-    /// interrogation request. In case of initialisation of the controlling
-    /// station, it is only issued if data in the reverse direction is
-    /// defined."* Figure 32 (index 122) prints the primitive as `A_ENDINIT.req`
+    /// 10.3 (index 120, printed 119): the `ENDINIT.req` (Figures 32 and 33;
+    /// optional, but recommended) tells the other station that the sender can
+    /// now answer an interrogation, and a controlling station that initialises
+    /// sends it only if data is defined in the reverse direction. Figure 32 (index 122) prints the primitive as `A_ENDINIT.req`
     /// and `A_ENDINIT.ind` with `<SEND=M_EI>`, marked `(optional)`.
     ///
     /// Neither the decision nor the frame is the group's invention: the
@@ -1890,21 +1826,20 @@ impl RedundancyGroup {
     /// 10.3's station interrogation, as the [`FollowUp`] value of
     /// [`crate::init`].
     ///
-    /// Verbatim (index 120, printed 119): *"The controlling station shall
-    /// initiate a station interrogation procedure as soon as possible after the
-    /// completion of making one of the connections in started state as shown in
-    /// Figures 32 and 33."* Figure 32 (index 122) prints it as the box
-    /// *"Following function: Station interrogation"*.
+    /// 10.3 (index 120, printed 119): the controlling station *shall* start a
+    /// station interrogation as soon as it can after one of the connections has
+    /// reached the started state (Figures 32 and 33). Figure 32 (index 122)
+    /// draws it as the function that follows.
     ///
     /// `Some(FollowUp::StationInterrogation)` when `index` is the group's started
     /// connection and that connection has completed its start ([`State::Started`],
-    /// i.e. the `STARTDT con` of clause 5.3 has arrived). *"One of the
-    /// connections"* is the group's started one, so every other member of the
+    /// i.e. the `STARTDT con` of clause 5.3 has arrived). The connection 10.3
+    /// means is the group's started one, so every other member of the
     /// group is `Ok(None)`, and so is the started connection while it is still
     /// `PendingStarted`: the interrogation follows the *completion* of the start.
     /// The caller performs the request the value names
-    /// ([`crate::gi::request`]); the group keeps no latch, so *"as soon as
-    /// possible after the completion"* stays the caller's timing and the value
+    /// ([`crate::gi::request`]); the group keeps no latch, so "as soon as it
+    /// can" stays the caller's timing and the value
     /// counts nothing.
     ///
     /// A controlled station runs no station interrogation of its own (its
@@ -1933,18 +1868,17 @@ impl RedundancyGroup {
 /// 10.3's `ENDINIT.req` as the caller's typed parameter (figure 32, index 122,
 /// printed 121, prints `A_ENDINIT.req`, `A_ENDINIT.ind` and `<SEND=M_EI>`).
 ///
-/// Verbatim (index 120, printed 119): *"The ENDINIT.req (optional but
-/// recommended, Figures 32 and 33) may always be useful to advise the other
-/// station that the sending station is now ready to respond to an interrogation
-/// request. In case of initialisation of the controlling station, it is only
-/// issued if data in the reverse direction is defined."*
+/// 10.3 (index 120, printed 119): the `ENDINIT.req` (Figures 32 and 33;
+/// optional, but recommended) tells the other station that the sender can now
+/// answer an interrogation, and a controlling station that initialises sends it
+/// only if data is defined in the reverse direction.
 ///
 /// The optionality is the caller's: [`RedundancyGroup::endinit`] is called when
 /// the station wants it, and the group issues nothing when
 /// [`reverse_direction_data`](EndInit::reverse_direction_data) is false. It is
 /// the *controlling* station's parameter: a controlled group refuses the call
 /// with [`GroupError::CannotSelect`] (10.3, index 120, printed 119, conditions
-/// the frame on the initialisation *"of the controlling station"*). The
+/// the frame on the initialisation of the controlling station). The
 /// frame's own fields are the caller's too: the `COI` of 5-101 clause 7.2.6.21,
 /// the ASDU's common address and the originator address, exactly as rule 6's
 /// process image and rule 7's addressing are the caller's for
@@ -1985,13 +1919,13 @@ pub struct TimeoutOutcome {
 }
 
 /// A connection switchover as the value the group reports for it: 10.5's
-/// *"a connection switchover will be performed (preferably automatic)"* (index
-/// 128, printed 127) and 10.6's (index 132, printed 131).
+/// switchover, preferably automatic (index 128, printed 127), and 10.6's (index
+/// 132, printed 131).
 ///
-/// The group starts *"one of the stopped connections … using the STARTDT
-/// function"* itself, so this is a report and not a request. Rule 4's choice
-/// (*"The controlling station decides which one of the N connections is be in
-/// started state."*, index 118, printed 117) stays the caller's: a caller that
+/// The group starts one of the stopped connections with STARTDT itself, so
+/// this is a report and not a request. Rule 4's choice (the controlling
+/// station decides which connection is started, index 118, printed 117) stays
+/// the caller's: a caller that
 /// wants a particular connection performs the switchover through
 /// [`RedundancyGroup::select`] and [`RedundancyGroup::start`] (10.2's manual
 /// switchover) or stops the current one first.
@@ -2016,12 +1950,11 @@ pub enum Switchover {
     /// The started connection failed but no other connection was both
     /// established and stopped, so none could be started: the group names no new
     /// connection, and holds the user data it is handed until one is named.
-    /// 10.5 (index 128): *"reopening is regularly retried by the
-    /// controlling station until the error has been corrected and the connection
-    /// is re-established"*, and TS 60870-5-604 `5.4.13.20` (index 59, printed
-    /// 58): *"The Controlling station tries at regular intervals to create a new
-    /// Stopped connection for the now closed inoperable connection to the
-    /// Controlled station."* Both are the caller's steps.
+    /// In 10.5 (index 128) the controlling station keeps retrying until the
+    /// fault is cleared and the connection is back, and in TS 60870-5-604
+    /// `5.4.13.20` (index 59, printed 58) it periodically tries to open a new
+    /// stopped connection to the controlled station in place of the closed
+    /// inoperable one. Both are the caller's steps.
     NoStoppedConnection {
         /// The connection the failure was detected on.
         failed: usize,
@@ -2033,12 +1966,12 @@ pub enum Switchover {
         unconfirmed: usize,
     },
     /// A controlled station detects the same failure and performs no switchover
-    /// of its own (rule 4, index 118: *"the selection and switchover of the
-    /// started connection is always initiated by the controlling station"*). The
+    /// of its own (rule 4, index 118: the controlling station always initiates
+    /// the choice of the started connection and every switchover). The
     /// group names no started connection and holds the user data it is handed
     /// until the naming moves, when the peer's `STARTDT_ACT` arrives on a stopped
     /// connection ([`RedundancyGroup::on_startdt_act`], 10.4, index 124), and
-    /// 10.6's *"the pending event is retransmitted on this connection"* is
+    /// 10.6's resending of the pending event on that connection is
     /// [`RedundancyGroup::retransmit_unconfirmed`].
     LeftToTheControllingStation {
         /// The connection the failure was detected on.
@@ -2053,8 +1986,8 @@ pub enum Switchover {
 }
 
 /// The application's decision on the data a failed connection had not
-/// confirmed: 10.5 (index 128, printed 127), *"it is left to the application if
-/// the ESDU is retransmitted"*.
+/// confirmed: 10.5 (index 128, printed 127) leaves it to the application
+/// whether to retransmit.
 ///
 /// The data the decision is about is everything the failed connection still
 /// held: the frames in its send buffer and the group's mirror of its clause 5.3
@@ -2064,18 +1997,16 @@ pub enum Switchover {
 pub enum Replay {
     /// Re-transmit the unconfirmed ASDUs on the group's started connection.
     ///
-    /// *"In general, any unconfirmed user data will be retransmitted on the new
-    /// started connection after a connection switchover has been performed"*
-    /// (10.6, index 132, printed 131). One `Retransmit` per failure: a second
+    /// As a rule, all unconfirmed user data is resent on the new started
+    /// connection after a switchover (10.6, index 132, printed 131). One `Retransmit` per failure: a second
     /// call for the same member, with no new failure since, is
     /// [`GroupError::AlreadyRetransmitted`].
     Retransmit,
     /// Only count them: the call decides nothing, and the ASDUs stay kept for
     /// a later `Retransmit` or `Discard`, so it may be repeated.
     Leave,
-    /// Drop them: *"terminating the ongoing application function and
-    /// reinitiating it towards the new connection"* (10.5) is the caller's own
-    /// step, and the group forgets the failed connection's data so that no
+    /// Drop them: ending the application function in progress and running it
+    /// again on the new connection (10.5) is the caller's own step, and the group forgets the failed connection's data so that no
     /// later replay sends it after all.
     Discard,
 }
@@ -2141,8 +2072,8 @@ pub enum GroupError {
     /// Rule 4 and the 10.3/10.4 role split: a controlled station selects no
     /// connection, starts or stops none, issues no `ENDINIT.req` and runs no
     /// station interrogation of its own, and a controlling station does not take
-    /// its naming from a received `STARTDT_ACT`. *"the selection and switchover of
-    /// the started connection is always initiated by the controlling station"*
+    /// its naming from a received `STARTDT_ACT`. The controlling station always
+    /// initiates the choice of the started connection and every switchover
     /// (index 118).
     CannotSelect,
     /// The member's state does not allow the request: it is already in the
@@ -2224,8 +2155,8 @@ pub struct TickOutcome {
     /// The switchovers a failed started connection caused (10.5).
     pub switchovers: Vec<Switchover>,
     /// Controlling group: the members to dial now (never connected, or lost),
-    /// with no attempt in flight or its t0 expired (clause 10.5's *"reopening
-    /// is regularly retried"*; clause 10.7's t0 per connection). Report the
+    /// with no attempt in flight or its t0 expired (clause 10.5's periodic
+    /// reopening; clause 10.7's t0 per connection). Report the
     /// outcome with [`RedundancyGroup::on_connection_established`] or, for a
     /// refused dial, [`RedundancyGroup::on_connection_lost`].
     pub connect: Vec<usize>,

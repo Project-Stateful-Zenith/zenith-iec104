@@ -9,7 +9,7 @@
 //!
 //! | Step | Clause | Index (printed) | What the clause gives |
 //! | --- | --- | --- | --- |
-//! | TCP connect | 104 cl.7.1 | 54 (53) | *"Connection establishment is performed by the controlling station in case of a controlled station as a partner"*: this side opens the socket |
+//! | TCP connect | 104 cl.7.1 | 54 (53) | with a controlled station as the partner, the controlling station sets up the connection: this side opens the socket |
 //! | no user data before STARTDT | 104 cl.5.3 | 38 (37) | the STARTDT/STOPDT U-procedure, figures 17/18: a fresh connection is `STOPPED` and carries no user data |
 //! | STARTDT | 104 cl.5.3 | 38 (37) | `STARTDT act` → `STARTDT con`; the controlling station may send commands even before the con, the controlled station nothing |
 //! | GI | 104 cl.7.5 | 64 (63) | the general-interrogation service table; the responses are the monitor ASDUs of cl.7.3.1 and the cycle closes with the termination of 5-101 cl.7.4.5 |
@@ -230,7 +230,7 @@ impl Station {
         for action in actions {
             match action {
                 // A confirmation or an S-frame supervises nothing (clause 9's
-                // t1 is "the timeout of send or test APDUs"), so it is written
+                // t1 is the time-out for sent or test APDUs), so it is written
                 // without arming t1.
                 Action::Send(Apci::S { .. }) => {
                     let mut out = Vec::new();
@@ -319,8 +319,7 @@ impl Station {
 
     /// Feeds one decoded frame to the session and answers it.
     fn take(&mut self, apci: Apci, _asdu: Vec<u8>) -> Result<(), String> {
-        // Clause 5.2: "The reception of every frame – I frame, S frame or U
-        // frame – retriggers timer t3."
+        // Clause 5.2: any received frame, whether I, S or U, restarts t3.
         self.timers.frame_received(self.now);
         if apci.is_i_format() {
             // Clause 5.2's acknowledgement time-out starts at the first
@@ -1045,8 +1044,8 @@ fn send_i_frame(station: &mut Station, asdu: &[u8]) -> Result<(), String> {
 #[derive(Debug, Default, Clone)]
 pub struct MockReport {
     /// I-frames this station sent before the mock reached `Started`: cl.5.3's
-    /// *"any pending user data in the controlled station is sent only after the
-    /// STARTDT con"* read from the other side. Must be zero.
+    /// rule that the controlled station holds back pending user data until
+    /// after the STARTDT con, read from the other side. Must be zero.
     pub peer_i_frames_before_start: usize,
     /// Frames the mock put on the wire, in order.
     pub sent: Vec<Vec<u8>>,

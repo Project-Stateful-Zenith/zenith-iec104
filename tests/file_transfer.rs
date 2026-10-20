@@ -4,7 +4,7 @@
 //! through the clause 7.11 procedure of `src/ft.rs`.
 //!
 //! Every number asserted below is read from a figure, and the tables name the
-//! index. The definition lines, verbatim:
+//! index. The definition lines, in the figures' structure notation:
 //!
 //! ```text
 //! fig  idx  type  ASDU        definition line                                            element
@@ -28,10 +28,10 @@
 //! `CP{Data unit identifier,Information object address,Name of file,Name of
 //! section,Length of section,SRQ}`. Two plus one plus three plus one is seven.
 //!
-//! The APDU ceiling the figures live under is 5-104 index 26 (printed page 25),
-//! verbatim: *"The maximum length of the ASDU is limited to 249 because the
-//! maximum value of the field length of APDU is 253 (`APDUmax` = 255 minus start
-//! and length octet)."* It bounds a segment at 236 octets and a directory at 18
+//! The APDU ceiling the figures live under is 5-104 index 26 (printed page 25):
+//! the ASDU can be at most 249 octets, since the APDU length field tops out at
+//! 253 (`APDUmax` = 255 less the start and length octets). It bounds a segment
+//! at 236 octets and a directory at 18
 //! files, and both are asserted below on the build path and on the decode path.
 
 // Test code may panic, index and compute freely, as clippy.toml allows inside #[test] functions.
@@ -350,7 +350,7 @@ fn the_segment_element_length_is_not_a_constant() {
 }
 
 /// `F_DR_TA_1` is the family's only sequence form (figure 89's heading is
-/// *"Sequence of information elements in a single information object (SQ = 1)"*),
+/// the SQ = 1 form, a sequence of elements in one information object),
 /// and that is its only form at all; the other seven are single-object.
 #[test]
 fn the_directory_is_the_familys_only_sequence_form() {
@@ -430,8 +430,8 @@ fn a_directory_without_the_sequence_bit_is_refused() {
     assert!(decode_frame(&sequenced).is_ok());
 }
 
-/// More than one information object where the figure says *"Single information
-/// object (SQ = 0)"*.
+/// More than one information object where the figure has the single-object
+/// (SQ = 0) form.
 #[test]
 fn two_objects_are_refused_for_a_single_object_type() {
     let mut asdu = file_ready(12, 0, 5, nof(1), Lof { value: 2 }, Frq::default()).unwrap();
@@ -486,8 +486,8 @@ fn every_asdu_is_the_figures_octet_count() {
     }
 }
 
-/// Figure 89: *"Belongs to information object address A"* for file 1 and
-/// `A + j − 1` for file `j`: the SQ = 1 arithmetic, spelled out.
+/// Figure 89: file 1 sits at information object address `A`, and file `j` at
+/// `A + j − 1`: the SQ = 1 arithmetic, spelled out.
 #[test]
 fn the_directory_puts_file_i_at_a_plus_i_minus_one() {
     let asdu = directory(
@@ -1044,8 +1044,8 @@ fn a_directory_beyond_the_apdu_ceiling_is_refused_on_build_and_on_decode() {
     );
 }
 
-/// A directory with `N = 0` is clause 7.2.2's *"ASDU contains no INFORMATION
-/// OBJECT"*: there is no file to index and nothing is invented. Trailing octets
+/// A directory with `N = 0` is clause 7.2.2's ASDU without any information
+/// object: there is no file to index and nothing is invented. Trailing octets
 /// under `N = 0` are the codec's own `ObjectsNotExhausted`.
 #[test]
 fn a_directory_with_no_information_object_is_not_a_directory() {
@@ -1068,7 +1068,7 @@ fn a_directory_with_no_information_object_is_not_a_directory() {
     }
 }
 
-/// `LOS` is *"the number of octets of the segment"* (7.2.6.36), so a stated
+/// `LOS` counts the segment's octets (7.2.6.36), so a stated
 /// length that disagrees with the octets present is an error on **every**
 /// prefix length.
 #[test]
@@ -1090,7 +1090,7 @@ fn a_segment_whose_los_disagrees_with_its_octets_is_a_finding() {
     }
 }
 
-/// `LOS` = 0 is *"<0> := not used"* (7.2.6.36, index 58): a segment with no
+/// `LOS` = 0 is reserved as unused (7.2.6.36, index 58): a segment with no
 /// octets is refused on both paths, and the element writer refuses the two
 /// lengths `LOS` cannot state rather than clamping one.
 #[test]
@@ -1177,8 +1177,8 @@ fn every_prefix_of_every_frame_is_a_typed_error() {
 
 // ------------------------------------------------------------------ the CHS
 
-/// 5-101 clause 7.2.6.37, verbatim: *"arithmetic sum disregarding overflows (sum
-/// modulo 256) over all octets of a section … or of a complete file"*.
+/// 5-101 clause 7.2.6.37: the checksum adds every octet of a section, or of a
+/// whole file, and ignores overflow, so it is the sum modulo 256.
 #[test]
 fn the_checksum_is_the_sum_modulo_two_hundred_and_fifty_six() {
     assert_eq!(checksum(&[]).value, 0);
@@ -1242,9 +1242,9 @@ fn the_broadcast_address_is_refused_by_every_builder() {
 }
 
 /// A file-transfer frame that *arrives* at `FF`/`FFFF` is refused with the
-/// class-46 mirror, by TS 60870-5-604 5.4.10.10 (index 54): *"The Controlled
-/// station rejects all other ASDU Types with a Broadcast CASDU value by
-/// mirroring the ASDU with P/N = 1 negative (and with COT = 46, if supported)"*.
+/// class-46 mirror, by TS 60870-5-604 5.4.10.10 (index 54): the controlled
+/// station refuses any other type carrying the broadcast CASDU by mirroring it
+/// with P/N = 1, negative (and with COT = 46 where supported).
 #[test]
 fn a_broadcast_file_frame_is_refused_with_the_class_forty_six_mirror() {
     let station = FileTransferProcedure::controlled(Selection::MONITOR, 12, 0);
@@ -1518,8 +1518,8 @@ fn the_direction_is_decided_by_who_sends_the_frame() {
     ));
 }
 
-/// A station that has marked neither box (5-104 clause 9.6's *"if function is
-/// used"*) builds nothing and answers nothing.
+/// A station that has marked neither box (5-104 clause 9.6's boxes for a
+/// function in use) builds nothing and answers nothing.
 #[test]
 fn a_station_with_no_direction_selected_refuses_the_function() {
     let station = FileTransferProcedure::controlling(Selection::NONE, 12, 0);
@@ -1999,11 +1999,11 @@ fn a_monitor_direction_frame_is_discarded_not_mirrored() {
 }
 
 /// Clause 7.2.3's mirror follows the direction the **frame** travelled, not the
-/// file. *"ASDUs in the control direction with undefined values in the data
-/// unit identifier (except the variable structure qualifier) and the
-/// information object address are mirrored by the controlled station"*, and TS
-/// 60870-5-604 §5.1 (index 10): COT 44-47 *"are only defined in Monitor
-/// direction (only a controlled station is allowed to send these COT)"*.
+/// file. The controlled station mirrors a control-direction ASDU whose data
+/// unit identifier (the variable structure qualifier aside) or information
+/// object address holds an undefined value, and TS 60870-5-604 §5.1 (index
+/// 10) defines COT 44-47 for the monitor direction only, so only a controlled
+/// station may send them.
 ///
 /// A call file (`F_SC_NA_1`) at an unknown address is mirrored with cause 47
 /// by a controlled station serving the monitor direction, and discarded, with

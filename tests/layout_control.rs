@@ -647,9 +647,8 @@ fn the_layout_table_names_all_27_control_types_with_their_figure_geometry() {
 }
 
 /// `C_RD_NA_1` (7.3.4.3) is the one layout with no element: its whole payload
-/// is its information object address (clause 7.2.5: "its information object
-/// address serves to address available information objects which are returned
-/// in the monitor direction"). A
+/// is its information object address (clause 7.2.5: the address names an
+/// available information object, which comes back in the monitor direction). A
 /// 0-octet element is the case `BodyReader::next_object(0)` exists for, and this
 /// is the only type in the crate that produces it.
 #[test]
@@ -730,7 +729,7 @@ fn two_objects_are_refused_for_a_control_type() {
     assert_eq!(decoded[0].ioa, 3);
     assert_eq!(decoded[0].value, value);
 
-    // N = 0 is clause 7.2.2's "<0> := ASDU contains no INFORMATION OBJECT":
+    // N = 0 is clause 7.2.2's ASDU without any information object:
     // a received one decodes to nothing, but the writer does not produce one.
     assert!(encode_asdu::<CCsNa1>(&header(TypeId::CCsNa1, false, 0), &[]).is_err());
     let mut none = Vec::new();
@@ -795,9 +794,9 @@ fn a_whole_command_asdu_round_trips_through_the_header() {
 }
 
 /// 5-104 clause 8.8's time-tagged test command: the counter is the caller's and
-/// the ASDU is `TSC(2) + CP56Time2a(7)` = 9 octets. The clause says "The
-/// requesting station may choose any value of TSC. The TSC in the response
-/// shall match the request". That is why the counter is a field rather than a
+/// the ASDU is `TSC(2) + CP56Time2a(7)` = 9 octets. The clause leaves the TSC
+/// value to the requesting station and requires the response to carry the
+/// same TSC. That is why the counter is a field rather than a
 /// constant, unlike `C_TS_NA_1`'s fixed pattern.
 #[test]
 fn the_time_tagged_test_command_carries_a_chosen_counter() {

@@ -12,8 +12,7 @@
 //! as a single information object (SQ = 0) whose figure prints
 //! `INFORMATION OBJECT ADDRESS = 0`, with one cause of transmission:
 //!
-//! > CAUSES OF TRANSMISSION used with TYPE IDENT 70 := M_EI_NA_1
-//! > CAUSE OF TRANSMISSION <4> := initialized
+//! `<4>` (initialized), the only cause type 70 `M_EI_NA_1` carries.
 //!
 //! Its `COI` is clause **7.2.6.21** (page index 53): `CP8{UI7[1..7],BS1[8]}`.
 //! The seven-bit cause is `<0>` local power switch on, `<1>` local manual reset,
@@ -23,9 +22,9 @@
 //!
 //! # The behaviour
 //!
-//! 5-101 clause **7.4** (page index 121): *"After successful station
-//! initialization, all application functions must be available to run
-//! simultaneously."* The same clause's **Table 16, Respond priorities of the
+//! 5-101 clause **7.4** (page index 121): once a station has initialised
+//! successfully, every application function must be able to run at the same
+//! time. The same clause's **Table 16, Respond priorities of the
 //! controlled station**, puts type 70 End of initialization in its first row,
 //! ahead of every other ASDU. So the end of initialisation is the first thing
 //! the controlled station sends, and it is the controlling station's cue to
@@ -43,9 +42,9 @@
 //! * **Not the link layer.** The end of initialisation is data in the monitor
 //!   direction, so the controlled station hands its octets to
 //!   [`Session::queue_i_frame`](crate::link::Session::queue_i_frame). Clause
-//!   5.3: *"This implies that after station initialization (see 7.1) STARTDT
-//!   must always be sent before any user data transfer from the controlled
-//!   station (for example, general interrogated information) is initiated."*
+//!   5.3: after a station initialisation (see 7.1), a STARTDT must always come
+//!   before the controlled station starts sending any user data (general
+//!   interrogation data, for example).
 //!   The end of initialisation therefore waits for the STARTDT con like any
 //!   other queued I-frame.
 //! * **Not general interrogation.** The controlling station's next step is

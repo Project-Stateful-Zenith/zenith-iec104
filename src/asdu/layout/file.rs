@@ -6,7 +6,7 @@
 //! 51) is the family's own selection table and prints the range
 //! `UI8[1..8]<120..127>` with the eighth row 101 does not define:
 //!
-//! | § | Type | Figure | Index | Definition line (verbatim) | Element octets |
+//! | § | Type | Figure | Index | Definition line | Element octets |
 //! | --- | --- | --- | --- | --- | --- |
 //! | 7.3.6.1 | `<120>` `F_FR_NA_1` | 83 | 114 | `F_FR_NA_1 := CP{Data unit identifier,Information object address,Name of file, Length of file, FRQ}` | `NOF` 2 + `LOF` 3 + `FRQ` 1 = 6 |
 //! | 7.3.6.2 | `<121>` `F_SR_NA_1` | 84 | 115 | `F_SR_NA_1 := CP{Data unit identifier,Information object address,Name of file, Name of section,Length of section,SRQ}` | `NOF` 2 + `NOS` 1 + `LOF` 3 + `SRQ` 1 = 7 |
@@ -43,8 +43,8 @@
 //!   [`Layout::element_len`], where a caller would trust it.
 //! * **`<126>` `F_DR_TA_1` is the family's only sequence form.** Its heading is
 //!   *"Sequence of information elements in a single information object
-//!   (SQ = 1)"*, its definition line's `j` is *"number of set of elements defined
-//!   in the variable structure qualifier"*, and figure 89 prints `File 1` …
+//!   (SQ = 1)"*, its definition line's `j` is the number of element sets,
+//!   given by the variable structure qualifier, and figure 89 prints `File 1` …
 //!   `File j`, each of `Name of file or subdirectory` (`NOF`, 2) + `Length of
 //!   file` (`LOF`, 3) + `SOF = Status of file` (7.2.6.38, 1) + `CP56Time2a`
 //!   (7.2.6.18, 7) = **13 octets**, with file *i* belonging to information object
@@ -55,10 +55,9 @@
 //!   the `A + i − 1` addresses.
 //!
 //! **The 249-octet ceiling is 5-104's and not clause 7.3.6's.** 104 index 26
-//! (printed page 25), verbatim: *"The maximum length of the ASDU is limited to
-//! 249 because the maximum value of the field length of APDU is 253 (`APDUmax` =
-//! 255 minus start and length octet) and the length of the control field is 4
-//! octets."* The header is 6 octets and the object area's address another 3, so
+//! (printed page 25): an ASDU is at most 249 octets, since the APDU length
+//! field is at most 253 (`APDUmax` = 255 less the start and length octets) and
+//! the control field takes 4. The header is 6 octets and the object area's address another 3, so
 //! one `<125>` object's segment can carry at most
 //! **236** octets (`249 − 6 − 3 − NOF 2 − NOS 1 − LOS 1`) and one `<126>` ASDU at
 //! most **18** files (`249 = 6 + 3 + 13 j` gives `j ≤ 18.46`). `src/ft.rs`
@@ -69,7 +68,7 @@
 //! **The causes are the figures'.** Six of the eight print
 //! `<13> := file transfer` plus figure 76's four `<44>`–`<47>`;
 //! `F_SC_NA_1` prints `<5> := request (only for Call Directory)` beside `<13> :=
-//! file transfer (all except for Call Directory)` (index 116, verbatim);
+//! file transfer (all except for Call Directory)` (index 116);
 //! `F_DR_TA_1` prints `<3> := spontaneous <5> := requested` and **no `<13>`**
 //! (index 120); and 104's `<127>` prints `<13> := file transfer` with
 //! `<44> := unknown type **of file**` (index 92), the *file* class of 104
@@ -279,7 +278,7 @@ impl AsduLayout for FSrNa1 {
 /// requests through `SCQ`'s action field (`<0>` default = call directory, `<1>`
 /// select file, `<2>` request file, `<3>` deactivate file, `<4>` delete file,
 /// `<5>` select section, `<6>` request section, `<7>` deactivate section). Its
-/// cause list is the family's only split one, verbatim at index 116:
+/// cause list is the family's only split one, as index 116 prints it:
 /// `<5> := request (only for Call Directory)` and `<13> := file transfer (all
 /// except for Call Directory)`, plus the four `<44>`–`<47>`. `src/ft.rs` enforces
 /// that split.
@@ -322,9 +321,8 @@ impl AsduLayout for FScNa1 {
 ///
 /// *"Single information object (SQ = 0)"*. `LSQ`'s values `<1>`/`<2>` say a
 /// *file* transfer ends with or without deactivation and `<3>`/`<4>` a *section*
-/// transfer; `CHS` is clause 7.2.6.37's *"arithmetic sum disregarding overflows
-/// (sum modulo 256) over all octets of a section … or of a complete file"*,
-/// whose computation and check are `src/ft.rs`'s. Cause `<13> := file transfer`,
+/// transfer; `CHS` is clause 7.2.6.37's sum modulo 256 over every octet of a
+/// section or of the whole file, whose computation and check are `src/ft.rs`'s. Cause `<13> := file transfer`,
 /// plus the four `<44>`–`<47>`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FLsNa1 {
@@ -501,9 +499,9 @@ impl AsduLayout for FScNb1 {
 /// and an `element_len` of 0, and the type has no [`AsduLayout`] `LEN`: this
 /// struct plus [`decode_segment`] / [`encode_segment`] are its entry point.
 ///
-/// `LOS`'s own clause gives its range as *"between 234 (maximum length of link
-/// field, DATA UNIT IDENTIFIER AND INFORMATION OBJECT ADDRESSes) and 240 (minimum
-/// length …)"* (7.2.6.36, index 58), i.e. up to `249 − 6 − 3` = 240 octets of
+/// `LOS`'s own clause bounds it between 234 and 240 octets, depending on how
+/// long the link field, data unit identifier and information object addresses
+/// are (7.2.6.36, index 58), i.e. up to `249 − 6 − 3` = 240 octets of
 /// segment when nothing else is in the element, which is the element layer's
 /// `Los::MAX`. [`MAX_SEGMENT`] is the same budget with the element's own
 /// `NOF`/`NOS`/`LOS` octets also taken off: 236.

@@ -1,44 +1,35 @@
 //! Unknown ASDUs and the 44–47 replies: the two rules of IEC 60870-5-101:2003
 //! clause **7.2.3** (PDF page index 42, printed page 41).
 //!
-//! The clause's first rule:
+//! The clause's first rule, paraphrased: a controlled station that receives a
+//! control-direction ASDU with an undefined value in its data unit identifier
+//! (the variable structure qualifier excepted) or in an information object
+//! address sends the ASDU back with P/N = 1 (negative confirm), carrying the
+//! cause of transmission that names the unknown field:
 //!
-//! > ASDUs in the control direction with undefined values in the data unit
-//! > identifier (except the variable structure qualifier) and the information
-//! > object address are mirrored by the controlled station with bit "P/N := <1>
-//! > negative confirm" and the following causes of transmission:
-//! >
-//! > | Unknown | Cause of transmission |
-//! > | --- | --- |
-//! > | type identification | 44 |
-//! > | cause of transmission | 45 |
-//! > | common address of ASDU | 46 |
-//! > | information object address | 47 |
+//! | Unknown field | Cause |
+//! | --- | --- |
+//! | type identification | 44 |
+//! | cause of transmission | 45 |
+//! | common address of ASDU | 46 |
+//! | information object address | 47 |
 //!
-//! and its second, for the monitor direction:
-//!
-//! > A controlling station may monitor for and maintain a communications error
-//! > log reporting each time that the following ASDUs are received:
-//! > • ASDUs in the monitor direction with undefined values in the data unit
-//! > identifier (except the variable structure qualifier);
-//! > • ASDUs in the monitor direction with undefined values of information
-//! > object address;
-//! > • mirrored ASDUs due to unknown numbers in the control direction (type
-//! > identifications 45 to 51).
-//! >
-//! > Receipt of one of these ASDUs does not affect the processing of subsequent
-//! > messages.
+//! Its second rule covers the monitor direction: a controlling station *may*
+//! keep a communications error log with an entry for every monitor-direction
+//! ASDU that has an undefined data unit identifier value (again apart from the
+//! variable structure qualifier) or an undefined information object address,
+//! and for every mirrored ASDU that reports an unknown number in the control
+//! direction (type identifications 45 to 51). Such an ASDU has no effect on how
+//! later messages are processed.
 //!
 //! An ASDU whose type identification is itself undefined has no type to tell
 //! its direction, so the station's role decides: 5-101 clause 7.3 (page index
-//! 59, printed page 58) says that, if only the standardized range is defined,
-//! type identification numbers above 127 "are discarded by controlling
-//! stations (monitor direction) or mirrored with CAUSE OF TRANSMISSION = 44 by
-//! controlled stations (control direction)". A controlling station also
-//! discards, rather than mirrors, an ASDU whose cause is undefined *for its
-//! type identification*: "ASDUs with undefined values of CAUSE OF TRANSMISSION
-//! for a given type identification are discarded by controlling stations"
-//! (clause 7.2.3, page index 38). This module therefore has one entry point
+//! 59, printed page 58) has a controlling station (monitor direction) discard
+//! type identifications above 127 when only the standardized range is
+//! defined, and a controlled station (control direction) mirror them with
+//! cause 44. A controlling station also discards, rather than mirrors, an ASDU
+//! whose cause is undefined *for its type identification* (clause 7.2.3, page
+//! index 38). This module therefore has one entry point
 //! per direction ([`mirror_reply`] for the control direction,
 //! [`discard_reason`] for the monitor direction) instead of one function that
 //! would have to guess the direction of a type it does not know.
@@ -46,7 +37,7 @@
 //! # What "undefined" means here
 //!
 //! It is a property of the **receiving station**, not of the octet: clause
-//! 7.3's own words are "if the standardized range only is defined", and a
+//! 7.3 conditions the rule on only the standardized range being defined, and a
 //! station implements a subset of the standard. The crate cannot know a
 //! project's profile, so [`Known`] carries the caller's four answers: which
 //! type identifications it implements, which causes of transmission it accepts,
@@ -54,8 +45,8 @@
 //! object address in the ASDU is one it has data for. [`type_is_defined`] and
 //! [`cause_is_defined`] are the *standard's* answers for the first two, and
 //! [`Known::standard`] uses them; neither is a substitute for the caller's own
-//! profile, because the private range 128–255 is defined "by agreement between
-//! the system user and the vendor" (clause 7.3).
+//! profile, because clause 7.3 leaves the private range 128–255 to agreement
+//! between the system user and the vendor.
 //!
 //! # The decisions this module makes, and why
 //!
@@ -489,8 +480,8 @@ pub enum Discard {
 /// The monitor direction's half of clause 7.2.3: why this ASDU is discarded and
 /// may be logged, or `None` when it is to be processed normally.
 ///
-/// "Receipt of one of these ASDUs does not affect the processing of subsequent
-/// messages" is a statement about state, and this function is where the crate
+/// The clause's rule that such an ASDU leaves the processing of later
+/// messages unaffected is a statement about state, and this function is where the crate
 /// makes it true: the decision is a pure function of one header and one
 /// [`Known`], so nothing of a discarded ASDU can reach the next one.
 pub fn discard_reason(header: &Header, known: &Known) -> Option<Discard> {

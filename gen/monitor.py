@@ -23,6 +23,7 @@ rather than on a compile error.
 """
 import re
 import sys
+import textwrap
 
 SIQ = ("siq", "Siq")
 DIQ = ("diq", "Diq")
@@ -63,9 +64,8 @@ FIELD_DOC = {
 }
 
 NO_SEQUENCE = (
-    "No sequence form, in the clause's words: *\"Since each "
-    "{what}\n/// has its individual time tag, this type of ASDU does not exist as a "
-    "sequence of\n/// information elements\"* (7.3.1.{sub})."
+    "No sequence form: each {what} carries a time tag of its own, so the clause "
+    "defines no sequence of information elements for this type (7.3.1.{sub})."
 )
 SINGLE_OBJECT = (
     "The figure is headed *\"Single information object (SQ = 0)\"*, prints no\n"
@@ -153,13 +153,13 @@ HEADER = '''//! The 32 monitor-direction ASDU types of IEC 60870-5-101:2003 clau
 //! clause 7.2.6 `LEN` constants, `parse` reads one information object's element
 //! octets and `encode` appends them.
 //!
-//! The definition line in each doc comment is the clause's own, copied from the
-//! PDF page index named beside it, with the `i(...)`/`j(...)` part being the
+//! The definition line in each doc comment is the clause's type definition,
+//! from the PDF page index named beside it, with the `i(...)`/`j(...)` part being the
 //! struct's fields in order. The addressing of the objects is
 //! [`BodyReader`](super::super::BodyReader)'s, and what an element *is* belongs
 //! to clause 7.2.6 and [`super::super::elements`].
 //!
-//! Clause 7.3.1's two addressing rules are quoted on the types and enforced
+//! Clause 7.3.1's two addressing rules are restated on the types and enforced
 //! through the rows of [`MONITOR_LAYOUTS`](super::MONITOR_LAYOUTS): the ten
 //! untagged types have a `j(...)` form and may be sent as a sequence, every
 //! time-tagged type states that it cannot, and four types (18, 19, 39, 40) are
@@ -187,7 +187,16 @@ def emit(sub, variant, struct, asdu, title, fields, definition, page, kind, what
     L.append("/// ```")
     if kind == "seq":
         L.append("///")
-        L.append("/// " + NO_SEQUENCE.format(what=what, sub=sub))
+        L.append(
+            "\n".join(
+                textwrap.wrap(
+                    NO_SEQUENCE.format(what=what, sub=sub),
+                    width=80,
+                    initial_indent="/// ",
+                    subsequent_indent="/// ",
+                )
+            )
+        )
     if kind == "single":
         L.append("///")
         L.append("/// " + SINGLE_OBJECT)

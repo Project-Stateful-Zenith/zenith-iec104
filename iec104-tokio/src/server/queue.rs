@@ -174,11 +174,10 @@ impl Queue {
     /// The head of the highest row that has one.
     ///
     /// An event takes the events right behind it in its row along into one
-    /// ASDU while [`append_objects`] allows it: TS 60870-5-604 5.4.16.1,
-    /// *"The Controlled station transmits events of the same Type, COT and
-    /// priority but with gaps in their addresses as a Set of Information
-    /// elements (SQ:=0) in one single ASDU, filled until the maximum
-    /// configured ASDU or ADPU length as in the PICS"*. Only consecutive
+    /// ASDU while [`append_objects`] allows it: TS 60870-5-604 5.4.16.1 has
+    /// the controlled station pack events that share type, COT and priority,
+    /// even with non-contiguous addresses, into a single SQ = 0 ASDU, up to
+    /// the maximum ASDU or APDU length configured in the PICS. Only consecutive
     /// events are joined, so the order on the wire is the order reported
     /// (5-101 cl.7.2.2.2), and the row is the same, so Table 16's order is
     /// untouched. Events that found the window open went out alone; it is the

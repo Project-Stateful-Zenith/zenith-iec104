@@ -7,13 +7,13 @@
 //! clause 7.2.6 `LEN` constants, `parse` reads one information object's element
 //! octets and `encode` appends them.
 //!
-//! The definition line in each doc comment is the clause's own, copied from the
-//! PDF page index named beside it, with the `i(...)`/`j(...)` part being the
+//! The definition line in each doc comment is the clause's type definition,
+//! from the PDF page index named beside it, with the `i(...)`/`j(...)` part being the
 //! struct's fields in order. The addressing of the objects is
 //! [`BodyReader`](super::super::BodyReader)'s, and what an element *is* belongs
 //! to clause 7.2.6 and [`super::super::elements`].
 //!
-//! Clause 7.3.1's two addressing rules are quoted on the types and enforced
+//! Clause 7.3.1's two addressing rules are restated on the types and enforced
 //! through the rows of [`MONITOR_LAYOUTS`](super::MONITOR_LAYOUTS): the ten
 //! untagged types have a `j(...)` form and may be sent as a sequence, every
 //! time-tagged type states that it cannot, and four types (18, 19, 39, 40) are
@@ -62,9 +62,9 @@ impl AsduLayout for MSpNa1 {
 /// M_SP_TA_1 := CP{Data unit identifier,i(Information object address,SIQ,CP24Time2a)}
 /// ```
 ///
-/// No sequence form, in the clause's words: *"Since each single-point information
-/// has its individual time tag, this type of ASDU does not exist as a sequence of
-/// information elements"* (7.3.1.2).
+/// No sequence form: each single-point information carries a time tag of its
+/// own, so the clause defines no sequence of information elements for this type
+/// (7.3.1.2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MSpTa1 {
     /// Single-point information with quality descriptor (`SIQ`, 7.2.6.1).
@@ -126,9 +126,9 @@ impl AsduLayout for MDpNa1 {
 /// M_DP_TA_1 := CP{Data unit identifier,i(Information object address,DIQ,CP24Time2a)}
 /// ```
 ///
-/// No sequence form, in the clause's words: *"Since each double-point information
-/// has its individual time tag, this type of ASDU does not exist as a sequence of
-/// information elements"* (7.3.1.4).
+/// No sequence form: each double-point information carries a time tag of its
+/// own, so the clause defines no sequence of information elements for this type
+/// (7.3.1.4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MDpTa1 {
     /// Double-point information with quality descriptor (`DIQ`, 7.2.6.2).
@@ -194,9 +194,9 @@ impl AsduLayout for MStNa1 {
 /// M_ST_TA_1 := CP{Data unit identifier,i(Information object address,VTI,QDS,CP24Time2a)}
 /// ```
 ///
-/// No sequence form, in the clause's words: *"Since each step position information
-/// has its individual time tag, this type of ASDU does not exist as a sequence of
-/// information elements"* (7.3.1.6).
+/// No sequence form: each step position information carries a time tag of its
+/// own, so the clause defines no sequence of information elements for this type
+/// (7.3.1.6).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MStTa1 {
     /// Value with transient state indication (`VTI`, 7.2.6.5).
@@ -266,9 +266,8 @@ impl AsduLayout for MBoNa1 {
 /// M_BO_TA_1 := CP{Data unit identifier,i(Information object address,BSI,QDS,CP24Time2a)}
 /// ```
 ///
-/// No sequence form, in the clause's words: *"Since each bitstring
-/// has its individual time tag, this type of ASDU does not exist as a sequence of
-/// information elements"* (7.3.1.8).
+/// No sequence form: each bitstring carries a time tag of its own, so the
+/// clause defines no sequence of information elements for this type (7.3.1.8).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MBoTa1 {
     /// Binary state information, 32 bit (`BSI`, 7.2.6.13).
@@ -338,9 +337,8 @@ impl AsduLayout for MMeNa1 {
 /// M_ME_TA_1 := CP{Data unit identifier,i(Information object address,NVA,QDS,CP24Time2a)}
 /// ```
 ///
-/// No sequence form, in the clause's words: *"Since each measured value
-/// has its individual time tag, this type of ASDU does not exist as a sequence of
-/// information elements"* (7.3.1.10).
+/// No sequence form: each measured value carries a time tag of its own, so the
+/// clause defines no sequence of information elements for this type (7.3.1.10).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MMeTa1 {
     /// Normalized value (`NVA`, 7.2.6.6).
@@ -410,9 +408,8 @@ impl AsduLayout for MMeNb1 {
 /// M_ME_TB_1 := CP{Data unit identifier,i(Information object address,SVA,QDS,CP24Time2a)}
 /// ```
 ///
-/// No sequence form, in the clause's words: *"Since each measured value
-/// has its individual time tag, this type of ASDU does not exist as a sequence of
-/// information elements"* (7.3.1.12).
+/// No sequence form: each measured value carries a time tag of its own, so the
+/// clause defines no sequence of information elements for this type (7.3.1.12).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MMeTb1 {
     /// Scaled value (`SVA`, 7.2.6.7).
@@ -482,9 +479,8 @@ impl AsduLayout for MMeNc1 {
 /// M_ME_TC_1 := CP{Data unit identifier,i(Information object address,IEEE STD 754,QDS,CP24Time2a)}
 /// ```
 ///
-/// No sequence form, in the clause's words: *"Since each measured value
-/// has its individual time tag, this type of ASDU does not exist as a sequence of
-/// information elements"* (7.3.1.14).
+/// No sequence form: each measured value carries a time tag of its own, so the
+/// clause defines no sequence of information elements for this type (7.3.1.14).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MMeTc1 {
     /// Short floating point number, IEEE STD 754 (`R32`, 7.2.6.8).
@@ -550,9 +546,9 @@ impl AsduLayout for MItNa1 {
 /// M_IT_TA_1 := CP{Data unit identifier,i(Information object address,BCR,CP24Time2a)}
 /// ```
 ///
-/// No sequence form, in the clause's words: *"Since each integrated total
-/// has its individual time tag, this type of ASDU does not exist as a sequence of
-/// information elements"* (7.3.1.16).
+/// No sequence form: each integrated total carries a time tag of its own, so
+/// the clause defines no sequence of information elements for this type
+/// (7.3.1.16).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MItTa1 {
     /// Binary counter reading (`BCR`, 7.2.6.9).
@@ -586,9 +582,9 @@ impl AsduLayout for MItTa1 {
 /// M_EP_TA_1 := CP{Data unit identifier,i(Information object address,SEP,CP16Time2a,CP24Time2a)}
 /// ```
 ///
-/// No sequence form, in the clause's words: *"Since each event of protection equipment
-/// has its individual time tag, this type of ASDU does not exist as a sequence of
-/// information elements"* (7.3.1.17).
+/// No sequence form: each event of protection equipment carries a time tag of
+/// its own, so the clause defines no sequence of information elements for this
+/// type (7.3.1.17).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MEpTa1 {
     /// Single event of protection equipment (`SEP`, 7.2.6.10).
@@ -776,9 +772,9 @@ impl AsduLayout for MMeNd1 {
 /// M_SP_TB_1 := CP{Data unit identifier,i(Information object address,SIQ,CP56Time2a)}
 /// ```
 ///
-/// No sequence form, in the clause's words: *"Since each single-point information
-/// has its individual time tag, this type of ASDU does not exist as a sequence of
-/// information elements"* (7.3.1.22).
+/// No sequence form: each single-point information carries a time tag of its
+/// own, so the clause defines no sequence of information elements for this type
+/// (7.3.1.22).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MSpTb1 {
     /// Single-point information with quality descriptor (`SIQ`, 7.2.6.1).
@@ -812,9 +808,9 @@ impl AsduLayout for MSpTb1 {
 /// M_DP_TB_1 := CP{Data unit identifier,i(Information object address,DIQ,CP56Time2a)}
 /// ```
 ///
-/// No sequence form, in the clause's words: *"Since each double-point information
-/// has its individual time tag, this type of ASDU does not exist as a sequence of
-/// information elements"* (7.3.1.23).
+/// No sequence form: each double-point information carries a time tag of its
+/// own, so the clause defines no sequence of information elements for this type
+/// (7.3.1.23).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MDpTb1 {
     /// Double-point information with quality descriptor (`DIQ`, 7.2.6.2).
@@ -848,9 +844,9 @@ impl AsduLayout for MDpTb1 {
 /// M_ST_TB_1 := CP{Data unit identifier,i(Information object address,VTI,QDS,CP56Time2a)}
 /// ```
 ///
-/// No sequence form, in the clause's words: *"Since each step position information
-/// has its individual time tag, this type of ASDU does not exist as a sequence of
-/// information elements"* (7.3.1.24).
+/// No sequence form: each step position information carries a time tag of its
+/// own, so the clause defines no sequence of information elements for this type
+/// (7.3.1.24).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MStTb1 {
     /// Value with transient state indication (`VTI`, 7.2.6.5).
@@ -888,9 +884,8 @@ impl AsduLayout for MStTb1 {
 /// M_BO_TB_1 := CP{Data unit identifier,i(Information object address,BSI,QDS,CP56Time2a)}
 /// ```
 ///
-/// No sequence form, in the clause's words: *"Since each bitstring
-/// has its individual time tag, this type of ASDU does not exist as a sequence of
-/// information elements"* (7.3.1.25).
+/// No sequence form: each bitstring carries a time tag of its own, so the
+/// clause defines no sequence of information elements for this type (7.3.1.25).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MBoTb1 {
     /// Binary state information, 32 bit (`BSI`, 7.2.6.13).
@@ -928,9 +923,8 @@ impl AsduLayout for MBoTb1 {
 /// M_ME_TD_1 := CP{Data unit identifier,i(Information object address,NVA,QDS,CP56Time2a)}
 /// ```
 ///
-/// No sequence form, in the clause's words: *"Since each measured value
-/// has its individual time tag, this type of ASDU does not exist as a sequence of
-/// information elements"* (7.3.1.26).
+/// No sequence form: each measured value carries a time tag of its own, so the
+/// clause defines no sequence of information elements for this type (7.3.1.26).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MMeTd1 {
     /// Normalized value (`NVA`, 7.2.6.6).
@@ -968,9 +962,8 @@ impl AsduLayout for MMeTd1 {
 /// M_ME_TE_1 := CP{Data unit identifier,i(Information object address,SVA,QDS,CP56Time2a)}
 /// ```
 ///
-/// No sequence form, in the clause's words: *"Since each measured value
-/// has its individual time tag, this type of ASDU does not exist as a sequence of
-/// information elements"* (7.3.1.27).
+/// No sequence form: each measured value carries a time tag of its own, so the
+/// clause defines no sequence of information elements for this type (7.3.1.27).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MMeTe1 {
     /// Scaled value (`SVA`, 7.2.6.7).
@@ -1008,9 +1001,8 @@ impl AsduLayout for MMeTe1 {
 /// M_ME_TF_1 := CP{Data unit identifier,i(Information object address,IEEE STD 754,QDS,CP56Time2a)}
 /// ```
 ///
-/// No sequence form, in the clause's words: *"Since each measured value
-/// has its individual time tag, this type of ASDU does not exist as a sequence of
-/// information elements"* (7.3.1.28).
+/// No sequence form: each measured value carries a time tag of its own, so the
+/// clause defines no sequence of information elements for this type (7.3.1.28).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MMeTf1 {
     /// Short floating point number, IEEE STD 754 (`R32`, 7.2.6.8).
@@ -1048,9 +1040,9 @@ impl AsduLayout for MMeTf1 {
 /// M_IT_TB_1 := CP{Data unit identifier,i(Information object address,BCR,CP56Time2a)}
 /// ```
 ///
-/// No sequence form, in the clause's words: *"Since each integrated total
-/// has its individual time tag, this type of ASDU does not exist as a sequence of
-/// information elements"* (7.3.1.29).
+/// No sequence form: each integrated total carries a time tag of its own, so
+/// the clause defines no sequence of information elements for this type
+/// (7.3.1.29).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MItTb1 {
     /// Binary counter reading (`BCR`, 7.2.6.9).
@@ -1084,9 +1076,9 @@ impl AsduLayout for MItTb1 {
 /// M_EP_TD_1 := CP{Data unit identifier,i(Information object address,SEP,CP16Time2a,CP56Time2a)}
 /// ```
 ///
-/// No sequence form, in the clause's words: *"Since each event of protection equipment
-/// has its individual time tag, this type of ASDU does not exist as a sequence of
-/// information elements"* (7.3.1.30).
+/// No sequence form: each event of protection equipment carries a time tag of
+/// its own, so the clause defines no sequence of information elements for this
+/// type (7.3.1.30).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MEpTd1 {
     /// Single event of protection equipment (`SEP`, 7.2.6.10).

@@ -1,19 +1,19 @@
 //! 604 Table 13, *"Redundant link conformance test procedures"*, PDF page
 //! indices 58–60 (printed 57–59), procedures `5.4.13.1`, `5.4.13.10`,
 //! `5.4.13.20` and `5.4.13.30`. Every row is `Required` `M` and references
-//! `IEC 60870-5-104:2006, 10` (three rows add `5.3`); the rows are quoted
-//! verbatim on the tests.
+//! `IEC 60870-5-104:2006, 10` (three rows add `5.3`); the rows are paraphrased
+//! on the tests.
 //!
-//! The table's NOTE bounds all four: *"The tests in this Table are only required
-//! for systems supporting Redundant connections."* The crate supports them
+//! The table's NOTE bounds all four: the tests are required only of systems
+//! that support redundant connections. The crate supports them
 //! through `iec104::redundancy::RedundancyGroup`, so every row applies.
 //!
 //! # The harness: a redundancy group on several sockets
 //!
 //! The shared [`ControlledStation`](crate::conformance604::ControlledStation)
-//! serves one connection. Table 13's Remark is about *"multiple connections to
-//! a single Controlled station, of which exactly one is the Started connection
-//! and the other connections are Stopped connections"*, so this module has its
+//! serves one connection. Table 13's Remark is about several connections to one
+//! controlled station, exactly one of them Started and the rest Stopped, so
+//! this module has its
 //! own station under test, [`GroupUnderTest`]: one `RedundancyGroup` served over
 //! N loopback sockets by one thread, in either role.
 //!
@@ -21,8 +21,8 @@
 //!   accepted connection the lowest free member index (so the order the mock
 //!   peers connect in is the member order).
 //! - As the **controlling** station it dials one address per member whenever
-//!   `RedundancyGroup::tick` asks for it (clause 7.1: *"Connection establishment
-//!   is performed by the controlling station"*), and the mock controlled
+//!   `RedundancyGroup::tick` asks for it (clause 7.1: the controlling station is
+//!   the one that establishes connections), and the mock controlled
 //!   stations are listeners the test accepts on.
 //!
 //! The protocol behaviour is the library's and nothing else: every received
@@ -35,10 +35,10 @@
 //!
 //! - `replay`: once the group's started connection is `Started`, what a failed
 //!   connection left behind is handed back with
-//!   `RedundancyGroup::retransmit_unconfirmed(.., Replay::Retransmit)`, 10.5's
-//!   *"it is left to the application if the ESDU is retransmitted"* and
-//!   5.4.13.10's *"application messages that have not yet been acknowledged (if
-//!   supported and if available)"*;
+//!   `RedundancyGroup::retransmit_unconfirmed(.., Replay::Retransmit)`: 10.5
+//!   leaves the retransmission of the ASDU to the application, and 5.4.13.10
+//!   resumes with the still unacknowledged application messages where that is
+//!   supported and they are present;
 //! - `interrogate`: a controlling station sends `gi::request` once per naming
 //!   when `RedundancyGroup::follow_up` asks for the station interrogation
 //!   (10.3).
@@ -51,8 +51,8 @@
 //! they send is spelled out in the test.
 //!
 //! "Inoperable" is simulated the only way loopback allows: the mock peer stops
-//! answering. A connection that is physically cut (the rows' *"(which may never
-//! arrive)"*) cannot be produced on loopback; the station's side of it is the
+//! answering. A connection that is physically cut (the rows allow that the
+//! close may never arrive) cannot be produced on loopback; the station's side of it is the
 //! same t1 expiry and the same active close, which is what the cases observe.
 //!
 //! # Direction (604 §5.1)
@@ -65,7 +65,7 @@
 //! | --- | --- | --- |
 //! | `5.4.13.1` t3 on the Started connection | yes | yes |
 //! | `5.4.13.1` t3 on all Stopped connections | yes | yes |
-//! | `5.4.13.10` active close after t1 (*"whether Controlling or Controlled"*) | yes | yes |
+//! | `5.4.13.10` active close after t1 (by either station as primary) | yes | yes |
 //! | `5.4.13.10` `STARTDT_ACT` over a Stopped connection | yes | not applicable |
 //! | `5.4.13.10` `STARTDT_CON` there, active close of the old one | not applicable | yes |
 //! | `5.4.13.10` no `M_EI`, unacknowledged data, General Interrogation | yes | yes |
@@ -77,34 +77,32 @@
 //! The "not applicable" cells are not reversible, by 104 itself:
 //!
 //! - only the controlling station sends `STARTDT_ACT` and `STOPDT_ACT` and only the
-//!   controlled station answers them: clause 10.2 rule 4, *"The controlling
-//!   station decides which one of the N connections is be in started state."*,
-//!   and clause 5.3. `RedundancyGroup::start`, `stop` and `select` refuse a
+//!   controlled station answers them: clause 10.2 rule 4 has the controlling
+//!   station choose which of the N connections is Started, and clause 5.3. `RedundancyGroup::start`, `stop` and `select` refuse a
 //!   controlled group with `GroupError::CannotSelect`;
 //! - only the controlling station establishes connections (clause 7.1 and
-//!   10.2, see the quote on the `5.4.13.20` case), so only it retries one.
+//!   10.2, see the reference on the `5.4.13.20` case), so only it retries one.
 //!
 //! §5.1's COT44-47 exception does not apply: no case here sends those causes.
 //!
 //! # Not automated
 //!
-//! - *"(which may be configured as a fixed selection in case of two equivalent
-//!   Controlling stations)"*: two equivalent controlling stations need two
+//! - The rows' option of a fixed configured choice between two equivalent
+//!   controlling stations: two equivalent controlling stations need two
 //!   stations of the same rank and a configured selection between them; 104
 //!   clause 10.2 rule 7 gives each controlling station its own redundancy
 //!   group, so there is one controlling station per group here and the fixed
 //!   selection is configuration, not a behaviour of the group under test.
-//! - The Remark's *"how this mechanism will be used in operational redundant
-//!   systems. The diversity of operational systems requires additional
-//!   testing."* is outside what a loopback harness can represent (separate
+//! - The Remark's point that how operational redundant systems use the
+//!   mechanism varies, and needs further testing of its own, is outside what a loopback harness can represent (separate
 //!   networks, routers, physical link loss).
 //!
 //! # Timing
 //!
 //! Every case uses short time-outs from `LinkParams` (t1 of 0.6 s to 5 s, t3 of
 //! 0.3 s to 30 s, per member where a case needs members to differ, as 10.7
-//! allows: *"It should be possible to set the values of the timers t0 to t3
-//! individually for each connection within a redundancy group."*). Lower
+//! allows: it recommends that t0 to t3 be settable separately for each
+//! connection of a redundancy group). Lower
 //! bounds on elapsed time are asserted exactly, measured from an instant the
 //! test knows to precede the station's own; upper bounds are only the bounded
 //! read deadlines.
@@ -802,20 +800,17 @@ fn t3_rounds(peers: &mut [Peer], mut last_heard: Vec<Instant>, t3: Duration) {
 /// **`5.4.13.1`**, *"Periodic check of ALL redundant connections"*, both rows,
 /// `Reference` `IEC 60870-5-104:2006, 10`, `Required` `M`:
 ///
-/// > Both Controlling and Controlled station guard the configured inactivity
-/// > time period t3 on the Started connection and start a TESTFR procedure when
-/// > t3 expires. All time out interval rules apply
-///
-/// > The Controlling and Controlled station guards the configured inactivity
-/// > time period t3 on all the Stopped connections and starts a TESTFR procedure
-/// > when t3 expires. All time out interval rules apply
+/// 1. Each of the controlling and the controlled station watches the Started
+///    connection for the configured idle time t3 and begins a TESTFR procedure
+///    when t3 runs out; every time-out rule applies.
+/// 2. Each of them does the same on every Stopped connection.
 ///
 /// DUT: the **controlled** station, three connections, the first started by the
 /// mock controlling station and two stopped. Expected values: 104 clause 10.2
-/// rule 5, *"All logical connections of a redundancy group shall be supervised
-/// by test frames as described in 5.2."*, and clause 5.2's timer: the TESTFR act
-/// comes no earlier than t3 after the last received frame (*"The reception of
-/// every frame – I frame, S frame or U frame – retriggers timer t3"*), on every
+/// rule 5 (every logical connection of a redundancy group shall be supervised
+/// with test frames as 5.2 describes), and clause 5.2's timer: the TESTFR act
+/// comes no earlier than t3 after the last received frame (any received I, S or
+/// U frame restarts t3), on every
 /// connection, and again t3 after the confirmation.
 #[test]
 fn clause_5_4_13_1_the_controlled_station_tests_every_connection_after_t3() {
@@ -862,7 +857,7 @@ fn clause_5_4_13_1_the_controlled_station_tests_every_connection_after_t3() {
 /// 604 Table 13 (1 of 3), PDF page index 58 (printed 57), procedure
 /// **`5.4.13.1`**, the same two rows as
 /// [`clause_5_4_13_1_the_controlled_station_tests_every_connection_after_t3`],
-/// which name *"Both Controlling and Controlled station"*.
+/// which apply to the controlling and the controlled station alike.
 ///
 /// DUT: the **controlling** station, three connections to three mock
 /// controlled stations, the first started by the station itself
@@ -913,15 +908,13 @@ fn clause_5_4_13_1_the_controlling_station_tests_every_connection_after_t3() {
 // ------------------------------------------------------------ 5.4.13.10
 
 /// 604 Table 13 (1 of 3), PDF page index 58 (printed 57), procedure
-/// **`5.4.13.10`**, *"Re-establishing a lost Started connection between the
-/// Controlling and the Controlled station when redundant connections are
-/// available: (automatic switch-over)"*, `Reference`
-/// `IEC 60870-5-104:2006, 10`, `Required` `M`, first row:
+/// **`5.4.13.10`** (re-establishing a lost Started connection when redundant
+/// connections are available, the automatic switch-over), `Reference`
+/// `IEC 60870-5-104:2006, 10`, `Required` `M`, first row.
 ///
-/// > After the Started connection is inoperable for a longer period than
-/// > time-out (t1) allows, the Primary station (whether Controlling or
-/// > Controlled) initiates a TCP active close on the Started connection (which
-/// > may never arrive)
+/// Requirement: once the Started connection has been inoperable for longer
+/// than t1 permits, the primary station, controlling or controlled, starts a
+/// TCP active close on it (the close may never reach the peer).
 ///
 /// DUT: the **controlled** station as the primary station: it sends an event on
 /// the started connection and the peer never acknowledges it. Expected values:
@@ -1048,24 +1041,21 @@ fn controlling_switchover(policy: Policy) -> (GroupUnderTest, Vec<Peer>, Instant
 /// **`5.4.13.10`**, first and second rows, `Reference`
 /// `IEC 60870-5-104:2006, 10`, `Required` `M`:
 ///
-/// > After the Started connection is inoperable for a longer period than
-/// > time-out (t1) allows, the Primary station (whether Controlling or
-/// > Controlled) initiates a TCP active close on the Started connection (which
-/// > may never arrive)
-///
-/// > After detection that the Started connection is no longer present, the
-/// > Controlling station (which may be configured as a fixed selection in case
-/// > of two equivalent Controlling stations) initiates the creation of a new
-/// > Started connection by sending a STARTDT_ACT over one of the redundant,
-/// > until now still Stopped connections to the same Controlled station
+/// 1. Once the Started connection has been inoperable for longer than t1
+///    permits, the primary station, controlling or controlled, starts a TCP
+///    active close on it (the close may never reach the peer).
+/// 2. Once it sees the Started connection is gone, the controlling station
+///    (where two are equivalent, it may be a fixed configured choice) makes a
+///    new Started connection by sending a STARTDT act over one of the
+///    redundant connections to the same controlled station that are still
+///    Stopped.
 ///
 /// DUT: the **controlling** station as the primary station: its command on the
 /// started connection is never acknowledged. Expected values: figure 18's
 /// `Timeout t1[]/Active close` no earlier than t1 after the command, and 104
-/// clause 10.5 (index 128): *"When transmission timeout (t1) has elapsed, one of
-/// the stopped connections (connection n) is started using the STARTDT
-/// function"*, i.e. a `STARTDT act` on connection 1, sent no earlier than the
-/// close.
+/// clause 10.5 (index 128): when t1 has run out, one of the Stopped connections
+/// is started with the STARTDT function, i.e. a `STARTDT act` on connection 1,
+/// sent no earlier than the close.
 #[test]
 fn clause_5_4_13_10_the_controlling_station_closes_after_t1_and_starts_a_stopped_connection() {
     let t1 = Duration::from_millis(600);
@@ -1125,33 +1115,30 @@ fn clause_5_4_13_10_the_controlling_station_closes_after_t1_and_starts_a_stopped
 /// **`5.4.13.10`**, fourth and fifth rows, `Reference`
 /// `IEC 60870-5-104:2006, 10` and `5.3`, `Required` `M`:
 ///
-/// > After re-establishment of the Started connection between Controlling and
-/// > Controlled station, no M_EI (End of initialisation) is sent (nor needed)
-/// > to the Controlling station. Normal operation continues with the
-/// > application messages that have not yet been acknowledged (if supported and
-/// > if available) and begins the General Interrogation procedure
-///
-/// > The send- and receive counters are not reset to “0” as long as the TCP
-/// > connection is established. Each TCP connection, not affected by STARTDT
-/// > and STOPDT procedures or switch-over procedures, maintains its send- and
-/// > receive counter
+/// 1. After the Started connection is re-established, no `M_EI` (end of
+///    initialisation) goes to the controlling station, and none is needed.
+///    Normal operation resumes with the application messages still
+///    unacknowledged (where supported and present), and the general
+///    interrogation begins.
+/// 2. The send and receive counters are not reset to 0 while the TCP
+///    connection stays up: every TCP connection keeps its own counters,
+///    whatever STARTDT, STOPDT or switch-over happens.
 ///
 /// DUT: the **controlling** station, with the replay and the interrogation of
-/// [`Policy`] switched on (the row's *"if supported"*). Expected values:
+/// [`Policy`] switched on (the row's "where supported"). Expected values:
 ///
 /// - the mock controlled station sends no `M_EI`, and the station carries on
 ///   without one: the unacknowledged command goes out again on connection 1
-///   (10.5: *"The command is then directed to the new started connection, either
-///   by re-transmitting the ASDU on this connection"*), and the station
-///   interrogation follows (10.3: *"The controlling station shall initiate a
-///   station interrogation procedure as soon as possible after the completion
-///   of making one of the connections in started state"*; 10.5: *"for example by
-///   doing a station interrogation procedure after a switchover has been
-///   performed"*): `C_IC_NA_1`, cause `<6>`, `QOI` 20 (5-101 clause 7.3.4.1);
+///   (10.5: the command moves to the new Started connection, for instance by
+///   retransmitting the ASDU there), and the station interrogation follows
+///   (10.3: the controlling station shall start a station interrogation as soon
+///   as possible once one connection is Started; 10.5 gives a station
+///   interrogation after a switch-over as an example): `C_IC_NA_1`, cause
+///   `<6>`, `QOI` 20 (5-101 clause 7.3.4.1);
 /// - both carry connection 1's own counters: `N(S)` 0 then 1 and `N(R)` 0,
-///   not connection 0's `N(S)` 2 / `N(R)` 1 (10.2, index 118: *"Send and
-///   receive counters on each connection within a redundancy group continue
-///   their functionality independently of the use of STARTDT/STOPDT."*);
+///   not connection 0's `N(S)` 2 / `N(R)` 1 (10.2, index 118: the counters of
+///   each connection of a redundancy group run independently of STARTDT and
+///   STOPDT);
 /// - the peer's first I-frame on connection 1 carries `N(S)` 0 and is
 ///   accepted and acknowledged with `N(R)` 1 (clause 5.1).
 #[test]
@@ -1231,20 +1218,18 @@ fn clause_5_4_13_10_the_controlling_station_resumes_with_its_own_counters_and_in
 /// **`5.4.13.10`**, third row, `Reference` `IEC 60870-5-104:2006, 10`,
 /// `Required` `M`:
 ///
-/// > The Controlled station finishes the creation of the new Started connection
-/// > by sending a STARTDT_CON over that same connection over which the
-/// > STARTDT_ACT was received to the Controlling station. The Controlled
-/// > station sends an active close on the old Started connection.
+/// Requirement: the controlled station completes the new Started connection by
+/// answering with a STARTDT con on the connection the STARTDT act arrived on,
+/// and sends an active close on the old Started connection.
 ///
 /// DUT: the **controlled** station. Its started connection is inoperable from
 /// the controlling side (the peer has gone silent) but not yet timed out at the
 /// station (t1 is 5 s, no data is outstanding), when the peer sends STARTDT act
-/// on the stopped connection. Expected values: 104 clause 10.2 (index 118),
-/// *"The controlled station (station B) always understands the connection on
-/// which it last received a `STARTDT_ACT` as the started connection. It confirms
-/// the activation request by issuing a `STARTDT_CON`."*, and 10.7 (index 136),
-/// *"Any connection that is not in the STOPPED state is immediately closed at
-/// the event of a Start on a new connection."*: the con on connection 1, the
+/// on the stopped connection. Expected values: 104 clause 10.2 (index 118):
+/// station B takes the connection its latest `STARTDT_ACT` arrived on as the
+/// Started one, and confirms with a `STARTDT_CON`; and 10.7 (index 136): a start
+/// on a new connection closes at once every connection not in the STOPPED
+/// state. Hence the con on connection 1, the
 /// close of connection 0 without waiting for any time-out, and the next event
 /// on connection 1.
 #[test]
@@ -1300,12 +1285,12 @@ fn clause_5_4_13_10_the_controlled_station_confirms_on_the_new_connection_and_cl
 }
 
 /// 604 Table 13 (1 of 3), PDF page index 58 (printed 57), procedure
-/// **`5.4.13.10`**, fourth and fifth rows (quoted on
+/// **`5.4.13.10`**, fourth and fifth rows (paraphrased on
 /// [`clause_5_4_13_10_the_controlling_station_resumes_with_its_own_counters_and_interrogates`]),
 /// `Required` `M`.
 ///
 /// DUT: the **controlled** station, with the replay of [`Policy`] switched on
-/// (the row's *"if supported"*). Connection 1 carries traffic first, so its
+/// (the row's "where supported"). Connection 1 carries traffic first, so its
 /// counters are not 0 when it is started again: the peer starts it, the
 /// station sends event 1 (`N(S)` 0) and the peer command 1 (`N(S)` 0); a manual
 /// switch-over (STOPDT on 1, STARTDT on 0) follows; event 2 on connection 0 is
@@ -1314,13 +1299,12 @@ fn clause_5_4_13_10_the_controlled_station_confirms_on_the_new_connection_and_cl
 ///
 /// - no `M_EI` on connection 1 (the row), only its STARTDT con and then data;
 /// - event 2, which was never acknowledged, is sent again (10.6, index 132:
-///   *"any unconfirmed user data will be retransmitted on the new started
-///   connection after a connection switchover has been performed"*);
+///   after a switch-over, user data still unconfirmed is retransmitted on the
+///   new Started connection);
 /// - with connection 1's own counters as they were: `N(S)` 1 (after event 1)
 ///   and `N(R)` 1 (after command 1), not reset to 0 and not connection 0's (the
-///   fifth row; 10.2, index 118, *"Send and receive counters on each connection
-///   within a redundancy group continue their functionality independently of
-///   the use of STARTDT/STOPDT."*);
+///   fifth row; 10.2, index 118: the counters of each connection of a
+///   redundancy group run independently of STARTDT and STOPDT);
 /// - the peer's command 2 with `N(S)` 1 is accepted and acknowledged with
 ///   `N(R)` 2 (clause 5.1).
 #[test]
@@ -1414,13 +1398,12 @@ fn clause_5_4_13_10_the_controlled_station_resumes_with_the_counters_of_the_conn
 // ------------------------------------------------------------ 5.4.13.20
 
 /// 604 Table 13 (2 of 3), PDF page index 59 (printed 58), procedure
-/// **`5.4.13.20`**, *"Re-establishing a lost redundant connection between the
-/// Controlling and the Controlled station"*, second row, `Reference`
-/// `IEC 60870-5-104:2006, 10`, `Required` `M`:
+/// **`5.4.13.20`** (re-establishing a lost redundant connection), second row,
+/// `Reference` `IEC 60870-5-104:2006, 10`, `Required` `M`.
 ///
-/// > After detecting that one of the redundant (Started or Stopped) connections
-/// > is inoperable and not yet closed, the Controlled station initiates a TCP
-/// > active close on the inoperable connection (which may never arrive)
+/// Requirement: when the controlled station finds one of the redundant
+/// connections, Started or Stopped, inoperable but still open, it starts a TCP
+/// active close on that connection (the close may never reach the peer).
 ///
 /// DUT: the **controlled** station. The inoperable connection is a stopped one
 /// (the started case is `5.4.13.10`'s first row, above): its peer does not
@@ -1486,29 +1469,25 @@ fn clause_5_4_13_20_the_controlled_station_closes_an_inoperable_stopped_connecti
 /// **`5.4.13.20`**, first and third rows, `Reference`
 /// `IEC 60870-5-104:2006, 10`, `Required` `M`:
 ///
-/// > After detecting that one of the redundant (Started or Stopped) connections
-/// > is inoperable and not yet closed, the Controlling station (which may be
-/// > configured as a fixed selection in case of two equivalent Controlling
-/// > stations) initiates a TCP active close on the inoperable connection (which
-/// > may never arrive)
-///
-/// > The Controlling station tries at regular intervals to create a new Stopped
-/// > connection for the now closed inoperable connection to the Controlled
-/// > station
+/// 1. When the controlling station (where two are equivalent, it may be a fixed
+///    configured choice) finds one of the redundant connections, Started or
+///    Stopped, inoperable but still open, it starts a TCP active close on that
+///    connection (the close may never reach the peer).
+/// 2. It then attempts, at regular intervals, a new Stopped connection to the
+///    controlled station in place of the one it closed.
 ///
 /// DUT: the **controlling** station. The inoperable connection is a stopped
 /// one whose peer does not answer the TESTFR act; its listener is gone, so the
 /// station's dials are refused until it comes back. Expected values:
 ///
 /// - figure 18's `Timeout t1[]/Active close`, no earlier than t1 after the act;
-/// - 10.5 (index 128): *"reopening is regularly retried by the controlling
-///   station until the error has been corrected and the connection is
-///   re-established"*, with t0 as the interval (clause 9, *"Time-out of
-///   connection establishment"*; 10.7 sets it per connection): at least two
-///   refused dials, each no earlier than t0 after the one before, and a new
-///   connection once the listener is back;
-/// - the new connection is a Stopped one (10.3: *"After connection
-///   establishment, the stopped state is always default"*): no STARTDT act on
+/// - 10.5 (index 128): the controlling station keeps retrying the reopen until
+///   the fault is cleared and the connection is back, with t0 as the interval
+///   (clause 9, *"Time-out of connection establishment"*; 10.7 sets it per
+///   connection): at least two refused dials, each no earlier than t0 after
+///   the one before, and a new connection once the listener is back;
+/// - the new connection is a Stopped one (10.3: a newly established connection
+///   always starts in the stopped state): no STARTDT act on
 ///   it, it answers TESTFR, and connection 0 stays the started one.
 #[test]
 fn clause_5_4_13_20_the_controlling_station_closes_and_reopens_an_inoperable_connection() {
@@ -1623,48 +1602,38 @@ fn clause_5_4_13_20_the_controlling_station_closes_and_reopens_an_inoperable_con
 // ------------------------------------------------------------ 5.4.13.30
 
 /// 604 Table 13 (2 of 3 and 3 of 3), PDF page indices 59–60 (printed 58–59),
-/// procedure **`5.4.13.30`**, *"Manual switching over the Started connection to
-/// another redundant Stopped connection: (manual switch-over)"*, the rows
+/// procedure **`5.4.13.30`** (manually switching the Started connection over
+/// to another redundant Stopped connection, the manual switch-over), the rows
 /// about the **controlling** station, `Reference` `IEC 60870-5-104:2006, 10`,
 /// `Required` `M`:
 ///
-/// > The Controlling station (which may be configured as a fixed selection in
-/// > case of two equivalent Controlling stations) issues a STOPDT_ACT on the
-/// > current Started connection to the Controlled station
-///
-/// > After sending the STOPDT_ACT, the Controlling station (optionally, but
-/// > recommended) stops the transfer of I-frames on the Started connection that
-/// > is then in pending STOPDT state
-///
-/// > The Controlling station also acknowledges all yet unacknowledged I-frames
-/// > from the Controlled station with one or more S-frames within or according
-/// > to time out t2
-///
-/// > The Controlling station initiates the creation of a new Started connection
-/// > by sending a STARTDT_ACT over the selected Stopped connection to the same
-/// > Controlled station
-///
-/// > After establishing a new Started connection between Controlling and
-/// > Controlled station, no M_EI (End of initialisation) is sent (nor needed) to
-/// > the Controlling station. Normal operation continues
-///
-/// > The send- and receive counters are not reset to “0” as long as the TCP
-/// > connection is established. Each TCP connection, not affected by STARTDT
-/// > and STOPDT procedures or switch-over procedures, maintains its send- and
-/// > receive counter
+/// 1. The controlling station (where two are equivalent, it may be a fixed
+///    configured choice) sends a STOPDT act to the controlled station on the
+///    current Started connection.
+/// 2. Having sent it, the controlling station stops sending I-frames on that
+///    connection, now pending STOPDT; this is optional but recommended.
+/// 3. It also acknowledges, with one or more S-frames, every I-frame from the
+///    controlled station still unacknowledged, within or as t2 requires.
+/// 4. It makes a new Started connection by sending a STARTDT act over the
+///    chosen Stopped connection to the same controlled station.
+/// 5. Once the new Started connection exists, no `M_EI` (end of
+///    initialisation) goes to the controlling station, and none is needed;
+///    normal operation resumes.
+/// 6. The send and receive counters are not reset to 0 while the TCP
+///    connection stays up: every TCP connection keeps its own counters,
+///    whatever STARTDT, STOPDT or switch-over happens.
 ///
 /// DUT: the **controlling** station; the application's steps are
-/// `RedundancyGroup::stop` then `RedundancyGroup::start` (10.2, index 118:
-/// *"Manual connection switchover can be performed by first issuing a
-/// `STOPDT_ACT` on the currently started connection and then a `STARTDT_ACT` on the
-/// selected new started connection."*). Expected values:
+/// `RedundancyGroup::stop` then `RedundancyGroup::start` (10.2, index 118: a
+/// manual switch-over is a `STOPDT_ACT` on the current Started connection
+/// followed by a `STARTDT_ACT` on the newly chosen one). Expected values:
 ///
 /// - the peer's event on connection 0 is acknowledged before the STOPDT act
-///   (clause 5.3: *"The controlling station should, however, confirm all
-///   received messages before sending STOPDT act"*);
+///   (clause 5.3: the controlling station should confirm everything it has
+///   received before it sends the STOPDT act);
 /// - a command handed over while the stop is pending does not go out on
-///   connection 0 (clause 5.3: *"STOPDT act stops the transmission of I-frames
-///   immediately."*);
+///   connection 0 (clause 5.3: the STOPDT act halts I-frame transmission at
+///   once);
 /// - an event still in flight from the peer (the row's NOTE) is acknowledged
 ///   at once, within t2 (clause 5.3, figure 18's pending stop);
 /// - after the peer's STOPDT con, STARTDT act on connection 1, with the held
@@ -1809,22 +1778,18 @@ fn back_to_connection_zero(dut: &GroupUnderTest, peers: &mut [Peer]) {
 /// procedure **`5.4.13.30`**, the rows about the **controlled** station,
 /// `Reference` `IEC 60870-5-104:2006, 10` (and `5.3`), `Required` `M`:
 ///
-/// > The Controlled station also stops the transfer of I-frames on the Started
-/// > connection after receipt of the STOPDT_ACT, which then is in pending STOPDT
-/// > state, even before the STOPDT_CON is sent.
+/// 1. On receiving the STOPDT act, the controlled station too stops sending
+///    I-frames on the Started connection, now pending STOPDT, before it has
+///    sent the STOPDT con.
+/// 2. It acknowledges, with one or more S-frames, every I-frame from the
+///    controlling station still unacknowledged.
+/// 3. It ends the pending STOPDT state by sending the controlling station a
+///    STOPDT con, which turns the formerly Started connection into a Stopped
+///    one.
+/// 4. It completes the new Started connection by answering with a STARTDT con
+///    on the connection the STARTDT act arrived on.
 ///
-/// > The Controlled station acknowledges all yet unacknowledged I-frames from
-/// > the Controlling station with one or more S-frames
-///
-/// > The Controlled station finishes the pending STOPDT state for the Started
-/// > connection by sending a STOPDT_CON to the Controlling station which
-/// > transforms the previously Started connection to a Stopped connection
-///
-/// > The Controlled station finishes the creation of the new Started connection
-/// > by sending a STARTDT_CON over that same connection over which the
-/// > STARTDT_ACT was received to the Controlling station
-///
-/// and the rows on no `M_EI` and the counters (quoted on
+/// Also the rows on no `M_EI` and on the counters (paraphrased on
 /// [`clause_5_4_13_30_the_controlling_station_switches_over_by_hand`]).
 ///
 /// DUT: the **controlled** station. When the STOPDT act arrives the station has
@@ -1834,11 +1799,10 @@ fn back_to_connection_zero(dut: &GroupUnderTest, peers: &mut [Peer]) {
 ///
 /// - figure 17's `STOPDT act[unconfirmed I-frames]` into `Pending UNCONFIRMED
 ///   STOPPED connection`: no STOPDT con yet, and an event handed over now is
-///   not sent (clause 5.3: *"STOPDT act stops the transmission of I-frames
-///   immediately."*);
+///   not sent (clause 5.3: the STOPDT act halts I-frame transmission at once);
 /// - once the peer acknowledges the event, the station's S-frame with `N(R)` 2
-///   and then the STOPDT con (clause 5.3: *"the controlled station should
-///   confirm all received messages before returning STOPDT con"*; figure 17,
+///   and then the STOPDT con (clause 5.3: the controlled station should confirm
+///   everything it has received before it returns the STOPDT con; figure 17,
 ///   `S-frame [no unconfirmed I-frames]/Send STOPDT con`);
 /// - STARTDT con on connection 1, then the held event with `N(S)` 0 `N(R)` 0,
 ///   and no `M_EI`;

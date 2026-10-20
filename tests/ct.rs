@@ -3,9 +3,9 @@
 //! select's deactivation, the termination and the return information.
 //!
 //! The clause citations are 5-104 cl.7.7 (the service table, PDF page index 68),
-//! cl.8.1–8.7 (the seven time-tagged layouts, page indices 76–88), cl.9 ("Either
-//! the ASDUs of the set `<45>` – `<51>` or of the set `<58>` – `<64>` are used.",
-//! page index 102) and Table 2 (the mirror NOTEs, page index 50); 5-101 cl.7.3.2
+//! cl.8.1–8.7 (the seven time-tagged layouts, page indices 76–88), cl.9 (one of
+//! the two sets is used, `<45>` – `<51>` or `<58>` – `<64>`, page index 102)
+//! and Table 2 (the mirror NOTEs, page index 50); 5-101 cl.7.3.2
 //! with figures 64–70 (the per-type cause lists, page indices 99–103), cl.7.4.7
 //! (which procedures are used, page index 126), cl.7.2.3 (line 30) and
 //! cl.7.2.6.26 (`QOC`, page index 55); and TS 60870-5-604 Table 19
@@ -559,9 +559,8 @@ fn every_return_layout_round_trips() {
 
 #[test]
 fn the_two_command_sets_are_not_mixed_toward_one_station() {
-    // 5-104 cl.9 and Table 2: "Either the ASDUs of the set <45>-<51> or of the
-    // set <58>-<64> are used ... must not be mixed when sending to a given
-    // station."
+    // 5-104 cl.9 and Table 2: a station is sent commands from one set only,
+    // <45>-<51> or <58>-<64>, never a mix of the two.
     let mut untagged = CommandTransmission::controlled(
         CommandMode::Direct,
         CommandSet::Untagged,
@@ -818,10 +817,10 @@ fn direct_execute_needs_no_select() {
 
 #[test]
 fn a_second_execute_while_the_first_runs_is_refused() {
-    // TS 604 5.4.19.20: the controlled station "mirrors the previous Command
-    // message with COT=10 ... ACTTERM", one termination per execute, and
-    // 5.4.19.50 answers a command the object cannot take with "COT=7,
-    // C_SC/DC/SE/RC_ACTCONneg". An object still operating cannot take a
+    // TS 604 5.4.19.20: the controlled station terminates by mirroring the
+    // earlier command with COT=10 (ACTTERM), one termination per execute, and
+    // 5.4.19.50 answers a command the object cannot take with a COT=7
+    // negative ACTCON. An object still operating cannot take a
     // second command whose ACTTERM it could never send.
     let mut controlled = CommandTransmission::controlled(
         CommandMode::Direct,
@@ -857,8 +856,8 @@ fn a_second_execute_while_the_first_runs_is_refused() {
 
 #[test]
 fn a_station_without_the_select_procedure_refuses_a_select() {
-    // 5-101 cl.7.4.7: "The select procedure is only used in case of a select
-    // and execute function."
+    // 5-101 cl.7.4.7: the select procedure belongs to the select-and-execute
+    // function alone.
     let mut controlling = CommandTransmission::controlling(
         CommandMode::Direct,
         CommandSet::Untagged,
@@ -889,8 +888,8 @@ fn a_station_without_the_select_procedure_refuses_a_select() {
     );
     let select = activation(&command.with_select(true), CA, ORG).unwrap();
     // TS 60870-5-604 5.4.19.30: a select the station will not serve is answered
-    // with "the same ASDU … with COT=7, C_SC/DC/SE/RC_ACTCONneg (Negative
-    // ACTCON)". That is an answer, not silence and not an Err.
+    // with the same ASDU sent back with COT=7 as a negative ACTCON. That is
+    // an answer, not silence and not an Err.
     let outcome = controlled.on_request(&select, &Known::EVERYTHING).unwrap();
     assert_eq!(
         outcome.reaction,
@@ -1248,9 +1247,9 @@ fn the_controlling_station_reset_drops_every_procedure() {
 
 #[test]
 fn the_execute_does_not_match_the_select() {
-    // TS 604 Table 19: "If the EXECUTE message from the Controlling does not
-    // contain exactly the same information as the SELECT message, then the
-    // Controlled mirrors the same ASDU with COT=7 ... (Negative ACTCON)".
+    // TS 604 Table 19: an EXECUTE whose content differs in any way from the
+    // SELECT's is mirrored by the controlled station with COT=7, a negative
+    // ACTCON.
     let mut controlled = CommandTransmission::controlled(
         CommandMode::SelectAndExecute,
         CommandSet::Untagged,
@@ -1344,8 +1343,8 @@ fn the_execute_does_not_match_a_select_with_another_test_bit() {
 
 #[test]
 fn the_controlling_station_refuses_an_execute_that_is_not_its_select() {
-    // TS 604 Table 19: the EXECUTE must "contain exactly the same information
-    // as the SELECT message". The controlling station does not send one that
+    // TS 604 Table 19: the EXECUTE must carry exactly what the SELECT
+    // carried. The controlling station does not send one that
     // does not, and the select survives the refusal.
     let mut controlled = controlled_sbo();
     let mut controlling = controlling_sbo();
@@ -1430,7 +1429,8 @@ fn an_execute_at_a_select_and_execute_station_with_no_select_is_negative() {
 
 #[test]
 fn a_not_allowed_double_command_is_refused_with_pn_1() {
-    // TS 604 5.4.19.30/.50: "a not allowed command (e.g. DCO=0 or 3; RCO=0 or 3)".
+    // TS 604 5.4.19.30/.50: a command with a value that is not allowed, such
+    // as DCO or RCO 0 or 3.
     for dcs in [
         DoubleCommandState::NotPermitted,
         DoubleCommandState::NotPermittedAlt,
@@ -1588,10 +1588,9 @@ fn a_controlling_station_does_not_build_a_not_allowed_command() {
 
 #[test]
 fn the_deactivation_stops_a_select_and_changes_no_value() {
-    // TS 604 5.4.19.10: "The value of the Object(s) does not change at all
-    // during this command procedure"; 5-101 cl.7.4.7: "S/E of the qualifier of
-    // command QOC is irrelevant in ASDUs with causes of transmission DEACT and
-    // DEACTCON."
+    // TS 604 5.4.19.10: the object's value stays exactly as it was throughout
+    // the procedure; 5-101 cl.7.4.7: the S/E bit of QOC has no meaning in
+    // ASDUs with cause DEACT or DEACTCON.
     let mut controlling = CommandTransmission::controlling(
         CommandMode::SelectAndExecute,
         CommandSet::Untagged,
@@ -1797,8 +1796,8 @@ fn a_bitstring_command_executes_at_the_controlled_station() {
 
 #[test]
 fn the_termination_policy_is_a_selection_not_a_branch() {
-    // 5-101 cl.7.4.7: "C_SC, C_DC, C_RC ACT, ACTCON and ACTTERM are used." /
-    // "C_SE ACTTERM may be used optionally."
+    // 5-101 cl.7.4.7: `C_SC`, `C_DC` and `C_RC` use ACT, ACTCON and ACTTERM,
+    // while ACTTERM is optional for `C_SE`.
     assert!(Termination::All.uses(Family::Single));
     assert!(Termination::All.uses(Family::SetPointNormalized));
     assert!(Termination::SetPointsNotTerminated.uses(Family::Single));
@@ -1878,8 +1877,8 @@ fn a_termination_the_station_does_not_use_is_refused() {
 
 #[test]
 fn a_negative_termination_is_the_accept_then_fail_alternative() {
-    // TS 604 5.4.19.40/.50: "first accept the command with a Positive ACTCON and
-    // then send a Negative Termination".
+    // TS 604 5.4.19.40/.50: the station may confirm the command positively
+    // and afterwards terminate it negatively.
     let mut controlled = CommandTransmission::controlled(
         CommandMode::Direct,
         CommandSet::Untagged,
@@ -1927,11 +1926,11 @@ fn an_actterm_for_something_that_is_not_running_is_other() {
 #[test]
 fn an_unknown_common_address_is_mirrored_with_cause_46() {
     // 5-101 cl.7.2.3's table (PDF page index 42): a **control-direction** ASDU
-    // whose common address the station does not know is "mirrored by the
-    // controlled station with bit \"P/N := <1> negative confirm\"" and cause 46.
-    // TS 60870-5-604 5.4.10.10: "If COT=46 is supported, any ASDU with undefined
-    // CASDU is mirrored by the controlled station with P/N = 1: negative
-    // confirmation of activation using COT = 46 (unknown CASDU)".
+    // whose common address the station does not know is mirrored by the
+    // controlled station with P/N = 1 (negative confirmation) and cause 46.
+    // TS 60870-5-604 5.4.10.10: a controlled station that supports COT=46
+    // mirrors any ASDU with an undefined CASDU with P/N = 1, a negative
+    // confirmation of activation with COT = 46 (unknown CASDU).
     let mut controlled = CommandTransmission::controlled(
         CommandMode::Direct,
         CommandSet::Untagged,
@@ -1974,9 +1973,9 @@ fn an_unknown_common_address_is_mirrored_with_cause_46() {
 
 #[test]
 fn an_unknown_type_identification_is_mirrored_with_cause_44() {
-    // 5-101 cl.7.3 (PDF page index 59): "TYPE IDENTIFICATION numbers > 127 are
-    // discarded by controlling stations (monitor direction) or mirrored with
-    // CAUSE OF TRANSMISSION = 44 by controlled stations (control direction)".
+    // 5-101 cl.7.3 (PDF page index 59): a type identification above 127 is
+    // discarded by a controlling station (monitor direction) and mirrored with
+    // cause 44 by a controlled station (control direction).
     // The type has no layout to rebuild from, so the ASDU is copied octet for
     // octet (the rule of `src/asdu/unknown.rs`). Only the header changes.
     let mut controlled = CommandTransmission::controlled(
@@ -2060,12 +2059,12 @@ fn a_frame_whose_type_the_profile_does_not_implement_is_mirrored_with_cause_44()
 
 #[test]
 fn a_command_to_the_broadcast_address_is_rejected_and_never_confirmed() {
-    // TS 60870-5-604 5.4.10.10 (PDF page index 54): "Broadcast CASDU value
-    // (0xFF<FF>) only used in control direction with ASDU Types 100
-    // (Interrogation), 101 (Counter interrogation), 103 (Clock Sync) or 105
-    // (Reset Process). The Controlled station rejects all other ASDU Types with
-    // a Broadcast CASDU value by mirroring the ASDU with P/N = 1 negative (and
-    // with COT = 46, if supported)." A command is not one of those four types.
+    // TS 60870-5-604 5.4.10.10 (PDF page index 54): the broadcast CASDU (`0xFF`
+    // or `0xFFFF`) is confined to the control direction and to types 100
+    // (interrogation), 101 (counter interrogation), 103 (clock synchronisation)
+    // and 105 (reset process); the controlled station refuses any other type
+    // carrying it by mirroring it with P/N = 1, negative (and with COT = 46
+    // where supported). A command is not one of those four types.
     let mut controlled = CommandTransmission::controlled(
         CommandMode::SelectAndExecute,
         CommandSet::Untagged,
@@ -2105,8 +2104,9 @@ fn a_command_to_the_broadcast_address_is_rejected_and_never_confirmed() {
 #[test]
 fn a_non_command_asdu_at_the_broadcast_address_falls_through_to_other() {
     // TS 60870-5-604 5.4.10.10 (PDF page index 54): the broadcast CASDU is
-    // "only used in control direction with ASDU Types 100 (Interrogation), 101
-    // (Counter interrogation), 103 (Clock Sync) or 105 (Reset Process)". Those
+    // confined to the control direction and to types 100 (interrogation), 101
+    // (counter interrogation), 103 (clock synchronisation) and 105 (reset
+    // process). Those
     // four are *permitted* to be broadcast, not refused: the rejection is scoped
     // to the fourteen command types. A non-command type at the broadcast address
     // (one of those four, or a monitor type) is therefore not this procedure's
@@ -2154,10 +2154,10 @@ fn a_non_command_asdu_at_the_broadcast_address_falls_through_to_other() {
 #[test]
 fn an_unknown_information_object_address_is_mirrored_with_cause_47() {
     // 5-101 cl.7.2.3's table (PDF page index 42): a **control-direction** ASDU
-    // whose information object address the station does not know is "mirrored by
-    // the controlled station with bit \"P/N := <1> negative confirm\"" and cause
-    // 47. This is 604 5.4.19.30/.50's "the controlled station could instead
-    // mirror the same ASDU with COT=47 (unknown Information Object Address)".
+    // whose information object address the station does not know is mirrored
+    // by the controlled station with P/N = 1 (negative confirmation) and cause
+    // 47. This is 604 5.4.19.30/.50's alternative of mirroring the same ASDU
+    // with COT=47 (unknown information object address).
     let mut controlled = CommandTransmission::controlled(
         CommandMode::Direct,
         CommandSet::Untagged,
@@ -2201,8 +2201,8 @@ fn an_asdu_that_is_not_this_procedure_is_other() {
         ORG,
     );
     // A command ASDU with a cause figure 64 does not list in the control
-    // direction: cause 3 is not one of <6>/<8>, so it is "unknown cause of
-    // transmission" and clause 7.2.3's cause-45 mirror is the answer.
+    // direction: cause 3 is not one of <6>/<8>, so it is an unknown cause of
+    // transmission and clause 7.2.3's cause-45 mirror is the answer.
     let header = Header {
         type_id: TypeId::CScNa1,
         sequence: false,
@@ -2529,10 +2529,9 @@ fn the_outcome_of_a_discard_carries_the_reason() {
 
 #[test]
 fn a_mirror_echoes_the_requests_originator_and_test_bit() {
-    // 5-101 cl.7.2.3 (PDF page index 38): "the information source should set the
-    // originator address of the ASDUs in the command direction, and the
-    // controlled station should echo this originator address in the response in
-    // the monitor direction."
+    // 5-101 cl.7.2.3 (PDF page index 38): the source of a command-direction ASDU
+    // should put its originator address in it, and the controlled station
+    // should return that address in its monitor-direction response.
     let mut controlling = CommandTransmission::controlling(
         CommandMode::SelectAndExecute,
         CommandSet::Untagged,
@@ -2607,9 +2606,8 @@ fn a_mirror_echoes_the_requests_originator_and_test_bit() {
 
 #[test]
 fn a_refused_select_is_no_select_at_all() {
-    // TS 60870-5-604 5.4.19.1: "If the SELECT message from the Controlling
-    // station is not correctly mirrored by the Controlled station, then the
-    // Controlling station does not proceed with sending the EXECUTE message."
+    // TS 60870-5-604 5.4.19.1: when the controlled station's mirror of the
+    // SELECT is not correct, the controlling station sends no EXECUTE.
     let mut controlling = CommandTransmission::controlling(
         CommandMode::SelectAndExecute,
         CommandSet::Untagged,
@@ -2646,8 +2644,8 @@ fn a_refused_select_is_no_select_at_all() {
 
 #[test]
 fn a_cause_47_mirror_of_a_select_drops_it() {
-    // 5.4.19.30: "the controlled station could instead mirror the same ASDU with
-    // COT=47 (unknown Information Object Address)". It is a refusal like any
+    // 5.4.19.30 lets the controlled station mirror the same ASDU with COT=47
+    // (unknown information object address) instead. It is a refusal like any
     // other.
     let mut controlling = CommandTransmission::controlling(
         CommandMode::SelectAndExecute,
@@ -2674,8 +2672,8 @@ fn a_cause_47_mirror_of_a_select_drops_it() {
 
 #[test]
 fn a_negative_execute_confirmation_ends_the_run() {
-    // 5.4.19.30 and .50: "The controlled station does not accept and responds
-    // with a P/N=1"; the controlling station "stops the Command function".
+    // 5.4.19.30 and .50: the controlled station refuses and answers with
+    // P/N=1, and the controlling station ends the command function.
     let mut controlling = CommandTransmission::controlling(
         CommandMode::Direct,
         CommandSet::Untagged,
@@ -2705,8 +2703,8 @@ fn a_negative_execute_confirmation_ends_the_run() {
 
 #[test]
 fn a_negative_termination_is_told_apart_from_a_positive_one() {
-    // TS 60870-5-604 5.4.19.40/.50: "first accept the command with a Positive
-    // ACTCON and then send a Negative Termination … and P/N=1".
+    // TS 60870-5-604 5.4.19.40/.50: the station may confirm the command
+    // positively and afterwards terminate it negatively, with P/N=1.
     let mut controlling = CommandTransmission::controlling(
         CommandMode::Direct,
         CommandSet::Untagged,
@@ -2780,8 +2778,8 @@ fn the_tagged_bitstring_has_no_deactivation() {
 
 #[test]
 fn a_deactivation_at_a_direct_station_is_refused_with_cause_45() {
-    // 5-101 cl.7.4.7: "DEACT, DEACTCON is only used in case of a select and
-    // execute function."
+    // 5-101 cl.7.4.7: DEACT and DEACTCON belong to the select-and-execute
+    // function alone.
     let mut controlled = CommandTransmission::controlled(
         CommandMode::Direct,
         CommandSet::Untagged,
@@ -2805,8 +2803,8 @@ fn a_deactivation_at_a_direct_station_is_refused_with_cause_45() {
 
 #[test]
 fn a_float_select_matches_its_execute_octet_for_octet() {
-    // TS 60870-5-604 Table 19: the execute must "contain exactly the same
-    // information as the SELECT message". For IEEE 754 that is the octets, not
+    // TS 60870-5-604 Table 19: the execute must carry exactly what the SELECT
+    // carried. For IEEE 754 that is the octets, not
     // `f32 ==`.
     let nan_bits = f32::from_bits(0x7FC0_0000);
     let select = CommandValue::SetPointFloat {
@@ -2884,8 +2882,8 @@ fn an_unsolicited_confirmation_records_nothing() {
 
 #[test]
 fn a_deactivation_must_repeat_the_select_it_stops() {
-    // TS 60870-5-604 5.4.19.10: "The Controlling station sends the same Command
-    // message with COT=8 … and S/E=1 (SELECT)".
+    // TS 60870-5-604 5.4.19.10: the controlling station repeats the same
+    // command with COT=8 and S/E=1 (SELECT).
     let mut controlling = CommandTransmission::controlling(
         CommandMode::SelectAndExecute,
         CommandSet::Untagged,
@@ -2922,10 +2920,10 @@ fn a_deactivation_must_repeat_the_select_it_stops() {
 
 #[test]
 fn the_controlled_station_answers_a_not_controllable_object() {
-    // TS 60870-5-604 5.4.19.30/.50: the select or execute "for a not controllable
-    // or not existing Information object" is answered with "the same ASDU with
-    // COT=7, C_SC/DC/SE/RC_ACTCONneg (Negative ACTCON)". The caller decides what
-    // "not controllable" means; `refuse` builds the answer.
+    // TS 60870-5-604 5.4.19.30/.50: a select or execute addressed to an
+    // information object that cannot be controlled, or does not exist, is
+    // answered with the same ASDU sent back with COT=7 as a negative ACTCON.
+    // The caller decides what "not controllable" means; `refuse` builds the answer.
     let controlled = CommandTransmission::controlled(
         CommandMode::SelectAndExecute,
         CommandSet::Untagged,
@@ -2984,9 +2982,9 @@ fn the_tagged_bitstring_has_no_deactivation_confirmation() {
 
 #[test]
 fn the_controlled_station_refuses_a_deactivation_that_is_not_the_select() {
-    // TS 60870-5-604 5.4.19.10 (PDF page index 72): "The Controlling station
-    // sends the same Command message with COT=8, C_SC/DC/SE/RC_DEACT, and
-    // S/E=1 (SELECT) to the Controlled station". A DEACT that is another
+    // TS 60870-5-604 5.4.19.10 (PDF page index 72): the controlling station
+    // sends the controlled station the same command again with COT=8 (DEACT)
+    // and S/E=1 (SELECT). A DEACT that is another
     // command is refused with the same cause-45 mirror as the other DEACT
     // refusals, and the select stays outstanding.
     let mut controlled = CommandTransmission::controlled(
@@ -3118,9 +3116,8 @@ fn a_refused_deactivation_is_not_answered_with_an_activation_confirmation() {
 
 #[test]
 fn a_select_mirror_that_differs_is_reported_not_confirmed() {
-    // TS 60870-5-604 5.4.19.1: "If the SELECT message from the Controlling
-    // station is not correctly mirrored by the Controlled station, then the
-    // Controlling station does not proceed with sending the EXECUTE message."
+    // TS 60870-5-604 5.4.19.1: when the controlled station's mirror of the
+    // SELECT is not correct, the controlling station sends no EXECUTE.
     // The drop is the same as after a negative confirmation, but the caller is
     // told which of the two it was.
     let mut controlling = CommandTransmission::controlling(

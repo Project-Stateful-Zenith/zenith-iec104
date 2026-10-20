@@ -240,9 +240,9 @@ fn return_frame(request: &[u8], cause: u8) -> Option<Vec<u8>> {
 }
 
 /// The cause and the order the peer's return information takes for one type:
-/// the row permits *"COT=3, 11, or 12"* and *"regardless of the order in which
-/// they occur"*, so the types rotate through the three causes and alternate
-/// the order.
+/// the row allows any of the causes 3, 11 and 12 and accepts the return
+/// information and the confirmations in either order, so the types rotate
+/// through the three causes and alternate the order.
 fn return_plan(type_id: u8) -> (u8, bool) {
     (
         [11, 12, 3][usize::from(type_id % 3)],
@@ -315,16 +315,12 @@ fn expect_completion(dut: &mut Dut, type_id: u8, ioa: u32, row: &str) {
 /// **`5.4.19.1`**, *"Select and Execute"*, `Reference` `IEC 60870-5-101:2003,
 /// 7.4.7`, the controlling station's steps (`M`):
 ///
-/// > The Controlling station sends a Single, Double, Regulating step or Setpoint
-/// > Command message … with COT = 6, C_SC/DC/SE/RC_ACT, and S/E=1 (SELECT) to the
-/// > Controlled station
-/// >
-/// > The Controlling station sends the same Command message with COT=6,
-/// > C_SC/DC/SE/RC_ACT, and S/E=0 (EXECUTE) to the Controlled station
-///
-/// and *"The Controlling station performs an overall check on the correct
-/// command procedure and corresponding status change, regardless of the order
-/// in which they occur"*, with the `RETURN_INF` sent *"with COT=3, 11, or 12"*.
+/// first a select (a single, double, regulating step or setpoint command, cause
+/// 6, `ACT`, `S/E` = 1) goes to the controlled station, then the identical
+/// command as the execute (cause 6, `ACT`, `S/E` = 0). The controlling station
+/// then checks the whole command procedure and the resulting status change,
+/// whichever order those arrive in; the `RETURN_INF` comes with cause 3, 11 or
+/// 12.
 ///
 /// DUT: the **controlling** station, both sets, the six selectable types. The
 /// select and the execute on the wire are [`command`]'s octets with `S/E` 1 and
@@ -341,7 +337,7 @@ fn clause_5_4_19_1_the_controlling_station_selects_and_executes() {
             assert_eq!(
                 select,
                 command(type_id, ioa, true),
-                "5.4.19.1 (type {type_id}): \"with COT = 6 … and S/E=1 (SELECT)\""
+                "5.4.19.1 (type {type_id}): the select, cause 6 with S/E = 1"
             );
             dut.send(&select);
             assert_eq!(
@@ -358,7 +354,7 @@ fn clause_5_4_19_1_the_controlling_station_selects_and_executes() {
             assert_eq!(
                 execute,
                 command(type_id, ioa, false),
-                "5.4.19.1 (type {type_id}): \"the same Command message with COT=6 … and S/E=0\""
+                "5.4.19.1 (type {type_id}): the execute, the same command with cause 6 and S/E = 0"
             );
             dut.send(&execute);
             assert_eq!(
@@ -381,9 +377,8 @@ fn clause_5_4_19_1_the_controlling_station_selects_and_executes() {
 /// `5.4.19.1`, `Reference` `IEC 60870-5-101:2003, 7.4.7` and `7.2.1`,
 /// `Required` `M`:
 ///
-/// > If the SELECT message from the Controlling station is not correctly
-/// > mirrored by the Controlled station, then the Controlling station does not
-/// > proceed with sending the EXECUTE message
+/// when the controlled station's mirror of the select is wrong, the controlling
+/// station must not go on to send the execute.
 ///
 /// DUT: the **controlling** station, both sets, the six selectable types. The
 /// peer confirms each select with another command value ([`altered`]); the
@@ -417,7 +412,7 @@ fn clause_5_4_19_1_a_select_not_correctly_mirrored_is_not_executed() {
             assert_eq!(
                 dut.ct.execute(&value(type_id, ioa)),
                 Err(CtError::ExecuteWithoutSelect { ioa }),
-                "5.4.19.1 (type {type_id}): \"does not proceed with sending the EXECUTE message\""
+                "5.4.19.1 (type {type_id}): no execute after a wrong mirror"
             );
         }
         let received = dut.close(peer);
@@ -439,11 +434,9 @@ fn clause_5_4_19_1_a_select_not_correctly_mirrored_is_not_executed() {
 /// **`5.4.19.10`**, *"Select and Deactivation"*, `Reference`
 /// `IEC 60870-5-101:2003, 7.4.7`, `Required` `M`:
 ///
-/// > The Controlling station sends the same Command message with COT=8,
-/// > C_SC/DC/SE/RC_DEACT, and S/E=1 (SELECT) to the Controlled station
-/// >
-/// > Both the Controlling and Controlled stations have deactivated the Command
-/// > transmission procedure
+/// after a select, the controlling station sends the identical command with
+/// cause 8 (`DEACT`) and `S/E` = 1, after which neither station has the command
+/// procedure active any more.
 ///
 /// DUT: the **controlling** station, both sets, the six selectable types. The
 /// deactivation on the wire is the select with only its cause changed to 8;
@@ -470,7 +463,7 @@ fn clause_5_4_19_10_the_controlling_station_deactivates_a_select() {
             assert_eq!(
                 deact,
                 mirrored(&command(type_id, ioa, true), 8, false),
-                "5.4.19.10 (type {type_id}): \"the same Command message with COT=8 … and S/E=1\""
+                "5.4.19.10 (type {type_id}): the deactivation, the same command with cause 8 and S/E = 1"
             );
             dut.send(&deact);
             assert_eq!(
@@ -483,7 +476,7 @@ fn clause_5_4_19_10_the_controlling_station_deactivates_a_select() {
             );
             assert!(
                 !dut.ct.is_selected(ioa),
-                "5.4.19.10 (type {type_id}): \"have deactivated the Command transmission procedure\""
+                "5.4.19.10 (type {type_id}): the procedure is deactivated"
             );
             assert_eq!(
                 dut.ct.execute(&value(type_id, ioa)),
@@ -501,9 +494,8 @@ fn clause_5_4_19_10_the_controlling_station_deactivates_a_select() {
 /// **`5.4.19.20`**, *"Direct Execute"*, `Reference` `IEC 60870-5-101:2003,
 /// 7.4.7`, `Required` `M`:
 ///
-/// > The Controlling station sends a Single, Double, Regulating step, Setpoint or
-/// > Bitstring Command message … with COT = 6, C_SC/DC/SE/RC_ACT and S/E=0
-/// > (EXECUTE) to the Controlled station
+/// a single, double, regulating step, setpoint or bitstring command goes to the
+/// controlled station directly as an execute: cause 6, `ACT`, `S/E` = 0.
 ///
 /// DUT: the **controlling** station of the direct-execute function, both sets,
 /// all seven types. The peer mirrors, terminates and returns as in
@@ -519,7 +511,7 @@ fn clause_5_4_19_20_the_controlling_station_executes_directly() {
             assert_eq!(
                 execute,
                 command(type_id, ioa, false),
-                "5.4.19.20 (type {type_id}): \"with COT = 6 … and S/E=0 (EXECUTE)\""
+                "5.4.19.20 (type {type_id}): the execute, cause 6 with S/E = 0"
             );
             dut.send(&execute);
             assert_eq!(
@@ -544,12 +536,10 @@ fn clause_5_4_19_20_the_controlling_station_executes_directly() {
 /// **`5.4.19.30`**, *"Select with Negative Confirmation by Controlled station
 /// (Abort)"*, `Reference` `IEC 60870-5-101:2003, 7.4.7`:
 ///
-/// > The Controlling station stops the Command function with an indication at
-/// > user level
-///
-/// (`Required` `PIXIT`), after the controlled station's *"`C_SC/DC/SE/RC_ACTCONneg`
-/// (Negative ACTCON)"* or, for a not existing object, its mirror *"with COT=47
-/// (unknown Information Object Address)"*.
+/// the controlling station ends the command function and indicates this to its
+/// user (`Required` `PIXIT`), after the controlled station's negative `ACTCON`
+/// or, for an object that does not exist, its mirror with cause 47 (unknown
+/// information object address).
 ///
 /// DUT: the **controlling** station, both sets, the six selectable types, one
 /// select answered each way. The indication the crate gives is the negative
@@ -587,7 +577,7 @@ fn clause_5_4_19_30_a_negative_select_confirmation_stops_the_command() {
                 );
                 assert!(
                     !dut.ct.is_awaiting(ioa) && !dut.ct.is_selected(ioa),
-                    "5.4.19.30 (type {type_id}): \"stops the Command function\""
+                    "5.4.19.30 (type {type_id}): the command function has ended"
                 );
                 assert_eq!(
                     dut.ct.execute(&value(type_id, ioa)),
@@ -605,15 +595,11 @@ fn clause_5_4_19_30_a_negative_select_confirmation_stops_the_command() {
 /// 604 Table 19 (6 of 9), PDF page index 75 (printed 74), procedure
 /// **`5.4.19.40`**, and (7 of 9), index 76, procedure **`5.4.19.50`**,
 /// `Reference` `IEC 60870-5-101:2003, 7.4.7` and `7.2.3`: the controlled
-/// station answers the execute with *"COT=7, `C_SC/DC/SE/RC_ACTCONneg` (Negative
-/// ACTCON)"*, or (PIXIT) *"first accept the command with a Positive ACTCON and
-/// then send a Negative Termination by mirroring the previous Command message
-/// with COT=10 … and P/N=1"*, and
-///
-/// > The Controlling station stops the Command function with an indication at
-/// > user level
-///
-/// (`Required` `PIXIT`). DUT: the **controlling** station, both sets, as a
+/// station answers the execute with a negative `ACTCON` (cause 7), or (PIXIT)
+/// confirms it positively first and then terminates it negatively, mirroring
+/// the command with cause 10 and `P/N` = 1; either way the controlling station
+/// ends the command function and indicates this to its user (`Required`
+/// `PIXIT`). DUT: the **controlling** station, both sets, as a
 /// select-and-execute station (the six selectable types, select first:
 /// `5.4.19.40`) and as a direct-execute station (all seven: `5.4.19.50`). Each
 /// execute is refused once each way; the crate reports the negative answer and
@@ -690,7 +676,7 @@ fn clause_5_4_19_40_and_50_a_refused_execute_stops_the_command() {
                     }
                     assert!(
                         !dut.ct.is_running(ioa),
-                        "5.4.19.40/.50 ({mode:?}, type {type_id}): \"stops the Command function\""
+                        "5.4.19.40/.50 ({mode:?}, type {type_id}): the command function has ended"
                     );
                 }
             }
@@ -705,13 +691,10 @@ fn clause_5_4_19_40_and_50_a_refused_execute_stops_the_command() {
 /// **`5.4.19.60`**, *"Command transmission with network delay supervision"*,
 /// `Reference` `IEC 60870-5-104:2006, 8`, `Required` `M`:
 ///
-/// > The Controlling station sends a Single, Double, Regulating step, Setpoint or
-/// > Bitstring Command message with time tag (look at PICS for the supported
-/// > ASDU's with time tag CP56Time2a) containing the time of command initiation
-/// > to the Controlled station
-/// >
-/// > The time label in the Command message from the Controlling station
-/// > represents the time of initiation (plausibility test)
+/// the controlling station sends a time-tagged single, double, regulating step,
+/// setpoint or bitstring command (the PICS names which `CP56Time2a` types are
+/// supported) whose time tag is the moment the command was initiated; the
+/// plausibility test checks that the tag is that moment.
 ///
 /// DUT: the **controlling** station of the time-tagged set, all seven types as a
 /// direct execute and the six selectable ones as a select. The application
@@ -769,12 +752,10 @@ fn clause_5_4_19_60_the_time_tag_is_the_time_of_initiation() {
 /// **`5.4.19.85`**, `Reference` `IEC 60870-5-104:2006, 9.5`, `Required`
 /// `PICS, 9.5`:
 ///
-/// > Either the ASDUs of the set <45> – <51> or of the set <58> – <64> are used
-/// > or configured at the same time
-///
-/// and 5-104 Table 2's sentence (PDF page index 50): *"Process information in
-/// control direction may be sent with or without a time tag but must not be
-/// mixed when sending to a given station."* DUT: the **controlling** station,
+/// only one of the two sets, <45> – <51> or <58> – <64>, is in use or
+/// configured at a time; 5-104 Table 2 (PDF page index 50) says the same of
+/// control-direction process information: it may go with or without a time tag,
+/// but the two must not be mixed towards one station. DUT: the **controlling** station,
 /// each set against every type of the other, as a select and as an execute:
 /// the crate refuses to build the command, and the peer receives nothing.
 #[test]
@@ -814,8 +795,8 @@ fn clause_5_4_19_85_the_controlling_station_does_not_mix_the_sets() {
 /// `IEC 60870-5-5:1995, 5` and `IEC 60870-5-101:2003, 7.4`, `Required`
 /// `PICS, 9.5`:
 ///
-/// > Command function during a running general interrogation is processed and
-/// > executed without waiting for the GI to finish.
+/// a command that arrives while a general interrogation is running is handled
+/// and carried out at once, not held back until the GI ends.
 ///
 /// DUT: the **controlling** station, both sets, all seven types as a direct
 /// execute, each sent and completed while its own station interrogation

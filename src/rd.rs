@@ -5,11 +5,10 @@
 //! # The service (5-104 clause 7.2)
 //!
 //! 5-104 clause **7.2** (PDF page index 64, printed page 63) is headed *"Data
-//! acquisition by polling (6.2 of IEC 60870-5-5)"* and opens, verbatim:
-//!
-//! > Request of user data class 1 and 2 are link functions of IEC 60870-5-2 and
-//! > therefore not available in this standard. However, data may be read
-//! > (requested) as shown in the bottom part of figure 10 of IEC 60870-5-5.
+//! acquisition by polling (6.2 of IEC 60870-5-5)"*. It opens by noting that the
+//! class 1 and class 2 user-data requests belong to the IEC 60870-5-2 link layer
+//! and so do not exist in 104; data can still be read (requested), following
+//! the lower part of figure 10 of IEC 60870-5-5.
 //!
 //! Its table has four rows: `A_RD_DATA.req` / `send` / `C_RD`, `A_RD_DATA.ind` /
 //! `receive` / `C_RD`, then `A_M_DATA.req` / `send` / `M` and `A_M_DATA.ind` /
@@ -18,9 +17,9 @@
 //! IEC 60870-5-5 is not in this repository, so this module cites the deferral
 //! rather than reconstructing the figure.
 //!
-//! The same page continues, verbatim: *"The requesting of data by cyclic
-//! requests is permitted, but should be avoided. Such cyclic requests burden the
-//! network with excess transmission traffic."* This warns against repeating a
+//! The same page continues: requesting data with cyclic requests is allowed
+//! but should be avoided, since it loads the network with unnecessary
+//! traffic. This warns against repeating a
 //! *read request* on a cycle. It is not a rule about clause 7.3's cyclic data
 //! transmission (cause `<1>`, [`crate::tx`]), and it is not a refusal: the
 //! cycle is permitted. [`Read`] schedules nothing, reads no clock and keeps no
@@ -29,13 +28,11 @@
 //! # The address is the object (5-101 clause 7.2.5)
 //!
 //! 5-101 clause **7.2.5** (PDF page index 44, printed page 43; figure 21 on the
-//! same page), verbatim:
+//! same page) singles out `C_RD_NA_1` as the general exception: its information
+//! object address points at an existing information object, which is sent back
+//! in the monitor direction.
 //!
-//! > The read command C_RD_NA_1 is a general exception since its information
-//! > object address serves to address available information objects which are
-//! > returned in the monitor direction.
-//!
-//! The same page prints *"`<0>` := INFORMATION OBJECT ADDRESS is irrelevant"*, so
+//! The same page defines `<0>` as the irrelevant information object address, so
 //! a read command at `<0>` names nothing. [`request`] and [`answer`] refuse it
 //! ([`RdError::IrrelevantAddress`]), and a received command at `<0>` is mirrored
 //! with cause 47 ([`refusal`], [`Read::on_request`]), the class for an address
@@ -67,9 +64,9 @@
 //! **104 does not mark the type `CON`, so a positive answer is not a mirror.**
 //! 104 **Table 4** (index 52, printed page 51) prints `<102>` without the `CON`
 //! mark that `<100>`, `<101>`, `<103>`, `<105>` and `<107>` carry, and the NOTE
-//! under Tables 3 to 6 on that page says *"ASDUs marked CON in the control
-//! direction are confirmed application services and may be mirrored in the
-//! monitor direction with different causes of transmission."* 5-101 **Table 11**
+//! under Tables 3 to 6 on that page says that only control-direction ASDUs
+//! marked CON are confirmed services, which may come back mirrored in the
+//! monitor direction with another cause of transmission. 5-101 **Table 11**
 //! (index 33, printed page 32) does mark `<102>` `CON`. This crate follows 104
 //! (the `confirmed: false` row for 102 in `src/asdu/types.rs`), so the positive
 //! answer is the monitor ASDU of the addressed object.
@@ -78,23 +75,19 @@
 //!
 //! 5-101 clause **7.4.14** (index 149, printed page 148), *"Read procedure"*,
 //! draws figure **109**: `A_RD_DATA.req` → `C_RD_NA_1 <5> REQ` →
-//! `A_RD_DATA.ind` / *"Read information object which is specified by the
-//! information object address"*, then `A_M_DATA.req` → `M_ <5> REQ` →
-//! `A_M_DATA.ind` / *"Respond information object which has been read"*. On
-//! index 150 (printed page 149), verbatim:
-//!
-//! > The application process in the controlled station returns the requested
-//! > information object as an A_M_DATA.req to the communication services. The
-//! > communication services in the controlled station attach the requested
-//! > information object to the assigned ASDU in the monitor direction and
-//! > transmit it as an M_PDU with the cause of transmission `<5>` REQ.
+//! `A_RD_DATA.ind` (read the information object the address names), then
+//! `A_M_DATA.req` → `M_ <5> REQ` → `A_M_DATA.ind` (the object that was read,
+//! returned). Index 150 (printed page 149) describes the return: the controlled
+//! station's application process hands the requested object to the
+//! communication services as `A_M_DATA.req`, and they put it into the matching
+//! monitor-direction ASDU and send it as an `M_PDU` with cause `<5>` REQ.
 //!
 //! So the command goes out as type 102 and a monitor ASDU of the addressed
 //! object comes back, both with cause `<5>` (table 14, index 41, printed page
 //! 40: *"`<5>` := request or requested"*).
 //!
-//! Index 150 prints the returned set: *"The following ASDUs `M_REQ` may be
-//! returned in the monitor direction:"*
+//! Index 150 then lists the `M_REQ` ASDUs a read may return in the monitor
+//! direction:
 //!
 //! | or-pair | untagged | tagged alternative |
 //! | --- | --- | --- |
@@ -109,9 +102,9 @@
 //! | — | `<21>` `M_ME_ND_1` | — |
 //! | — | `<126>` `F_DR_TA_1` | — |
 //!
-//! **104 clause 9** (index 100, printed page 99) says *"In this companion
-//! standard only the use of the set `<30>` – `<40>` for ASDUs with time tag is
-//! permitted."* ([`crate::tx`] and [`crate::ci`] enforce the same sentence.) A
+//! **104 clause 9** (index 100, printed page 99) allows only the set
+//! `<30>`–`<40>` for time-tagged ASDUs in 104. ([`crate::tx`] and
+//! [`crate::ci`] enforce the same rule.) A
 //! 104 station's tagged alternative is therefore `<30>`–`<36>`, never the
 //! `CP24Time2a` forms `<2>`, `<4>`, `<6>`, `<8>`, `<10>`, `<12>` or `<14>` the
 //! table's or-columns name ([`RdError::TagNotPermitted`]). [`is_returned`] is
@@ -124,29 +117,24 @@
 //! # The untagged form is the usual answer (5-101 clause 7.4.2)
 //!
 //! 5-101 clause **7.4.2** (index 122, printed page 121), *"Selections from data
-//! acquisition by polling"*, opens *"The complete function, defined in IEC
-//! 60870-5-5, 6.2, is used."* Its class 1 and class 2 paragraphs describe the
-//! link layer's poll, which 104 clause 7.2 excludes. What applies on TCP is the
-//! read-command paragraph, verbatim:
+//! acquisition by polling"*, selects all of IEC 60870-5-5 6.2. Its class 1 and
+//! class 2 paragraphs describe the link layer's poll, which 104 clause 7.2
+//! excludes. What applies on TCP is the read-command paragraph: the read
+//! command asks for individual information objects by their addresses, they
+//! come back with cause `<5>` requested, and as a rule they come back without
+//! a time tag.
 //!
-//! > When using the read command, specific information objects may be requested
-//! > by interrogating their respective information object addresses. The
-//! > requested information objects are returned with the cause of transmission
-//! > `<5>` requested. Normally, these requested objects do not include the time
-//! > tag.
-//!
-//! *"Normally"* makes the untagged form the usual answer and the tagged form of
+//! *"As a rule"* makes the untagged form the usual answer and the tagged form of
 //! index 150's list the alternative. Which form goes out is the application's
 //! choice, and [`is_returned`] accepts both.
 //!
 //! # The refusal is a mirror
 //!
-//! Index 150's closing sentence, verbatim:
-//!
-//! > If the values in the data unit identifier (except the variable structure
-//! > qualifier) and the information object address of the read command are
-//! > unknown (not defined) in the controlled station, the mirrored C_RD_NA_1
-//! > with the cause of transmission `<44 – 47>` is returned (see 7.2.3.1).
+//! Index 150's closing sentence: when a field of the read command's data unit
+//! identifier (the variable structure qualifier aside) or its information
+//! object address is unknown (not defined) in the controlled station, the
+//! station sends `C_RD_NA_1` back mirrored with cause `<44>`–`<47>`, and it
+//! refers to 7.2.3.1 for this.
 //!
 //! This PDF prints no numbered subsection 7.2.3.1. The mirror rule it does print
 //! is 5-101 clause **7.2.3** (index 42, printed page 41): the received ASDU comes
@@ -163,24 +151,24 @@
 //! `<103>` and `<105>`. Type 102 is not on the list, so [`request`] and
 //! [`Read::request`] refuse the broadcast address
 //! ([`RdError::BroadcastAddress`]). [`answer`] refuses both a broadcast command
-//! and an answer *at* the broadcast address, because the same clause says that
-//! broadcast requests *"have to be answered in the monitor direction by ASDUs
-//! that contain the specific defined COMMON ADDRESS (station address)."*
+//! and an answer *at* the broadcast address, because the same clause requires
+//! a broadcast request to be answered in the monitor direction by ASDUs that
+//! carry the station's own defined common address.
 //!
 //! A broadcast read command that arrives anyway gets the class-46 mirror,
 //! whatever the caller's [`Known`] says: TS 60870-5-604 clause **5.4.10.10**
-//! (PDF page index 54) says the controlled station *"rejects all other ASDU
-//! Types with a Broadcast CASDU value by mirroring the ASDU with P/N = 1
-//! negative (and with COT = 46, if supported)"*. [`Read::on_request`] and
+//! (PDF page index 54) has the controlled station refuse any other type sent to
+//! the broadcast CASDU by mirroring it with P/N = 1 (negative), using COT = 46
+//! when it supports that cause. [`Read::on_request`] and
 //! [`refusal`] both apply this before the discard rule, as [`crate::ct`] and
 //! [`crate::pm`] do for their own command types.
 //!
 //! # The answer echoes the command's originator address and test bit
 //!
-//! 5-101 clause **7.2.3** (index 38, printed page 37): *"the information source
-//! should set the originator address of the ASDUs in the command direction, and
-//! the controlled station should echo this originator address in the response in
-//! the monitor direction."* The `M` ASDU of clause 7.4.14 and the 44–47 mirror
+//! 5-101 clause **7.2.3** (index 38, printed page 37): the source of a
+//! command-direction ASDU should fill in its originator address, and the
+//! controlled station should return that same originator address in its
+//! monitor-direction response. The `M` ASDU of clause 7.4.14 and the 44–47 mirror
 //! are both such responses, so [`answer`] takes the received command and copies
 //! its originator address, and its `T` bit with it.
 //!
@@ -320,8 +308,8 @@ pub const RETURNED_TAGGED: [TypeId; 7] = [
 /// Every type identification a read may be answered with.
 ///
 /// [`RETURNED_UNTAGGED`] then [`RETURNED_TAGGED`]. The untagged form comes
-/// first because it is the usual one (5-101 clause 7.4.2: *"Normally, these requested objects do not
-/// include the time tag"*).
+/// first because it is the usual one (5-101 clause 7.4.2: requested objects
+/// come back without a time tag as a rule).
 ///
 /// `<126>` `F_DR_TA_1`, the list's last line, is not here: it is a
 /// file-transfer type of 5-101 clause 7.3.6, handled by [`crate::ft`].
@@ -485,13 +473,13 @@ pub const BROADCAST_CA: u16 = 0xFFFF;
 ///   ([`RdError::BroadcastAddress`]); a broadcast read that arrives is refused
 ///   with cause 46 instead ([`Read::on_request`]);
 /// * its originator address and `T` bit are echoed on the answer (5-101 clause
-///   7.2.3, index 38: *"the controlled station should echo this originator
-///   address in the response in the monitor direction"*).
+///   7.2.3, index 38: the controlled station should return the originator
+///   address in its monitor-direction response).
 ///
 /// `object`'s type must be one of [`RETURNED_TYPES`] and its address must not
 /// be `<0>` ([`RdError::IrrelevantAddress`], clause 7.2.5). `common_address` is
-/// the station's own, since clause 7.2.4 answers with *"the specific defined
-/// COMMON ADDRESS (station address)"*; the broadcast value is refused
+/// the station's own, since clause 7.2.4 answers with the station's own
+/// defined common address; the broadcast value is refused
 /// ([`RdError::BroadcastAddress`]).
 ///
 /// # Errors
@@ -532,9 +520,8 @@ pub fn answer_with<A: AsduLayout>(
         });
     }
     if common_address == sizes.broadcast_common_address() {
-        // The answer carries the station's own address (cl.7.2.4's
-        // *"specific defined COMMON ADDRESS (station address)"*), never the
-        // broadcast one.
+        // The answer carries the station's own address (cl.7.2.4: the
+        // station's own defined common address), never the broadcast one.
         return Err(RdError::BroadcastAddress { common_address });
     }
     if object.ioa == 0 {
@@ -577,9 +564,9 @@ pub fn answer_with<A: AsduLayout>(
 
 /// The 44–47 mirror of a received read command.
 ///
-/// Clause 7.4.14's *"the mirrored `C_RD_NA_1` with the cause of transmission
-/// `<44 – 47>` is returned"* (index 150, printed page 149), with `P/N = 1` and the received object area copied
-/// octet for octet ([`crate::asdu::mirror_frame`]).
+/// Clause 7.4.14's return of `C_RD_NA_1` mirrored with cause `<44>`–`<47>`
+/// (index 150, printed page 149), with `P/N = 1` and the received object area
+/// copied octet for octet ([`crate::asdu::mirror_frame`]).
 ///
 /// `Ok(None)` means the station knows every field [`Known`] asks about, so there
 /// is nothing to refuse and the caller answers with the object ([`answer`]).
@@ -600,8 +587,7 @@ pub fn answer_with<A: AsduLayout>(
 ///   as in [`Read::on_request`].
 ///
 /// `common_address` is the station's own, not the received frame's: clause
-/// 7.2.4 (index 43) answers with *"the specific defined COMMON ADDRESS (station
-/// address)"*.
+/// 7.2.4 (index 43) answers with the station's own defined common address.
 ///
 /// A frame that is not a read command is [`RdError::NotThisType`] (another
 /// type) or [`RdError::CauseNotListed`] (type 102 with a cause other than
@@ -794,24 +780,22 @@ pub enum RdError {
     },
     /// The answer's time tag is outside 104 clause 9's permitted set: a
     /// `CP24Time2a` form (`<2>`, `<4>`, `<6>`, `<8>`, `<10>`, `<12>` or `<14>`,
-    /// [`is_cp24_form`]) that index 150's or-columns print and clause 9's *"only
-    /// the use of the set `<30>` – `<40>` for ASDUs with time tag is permitted"*
-    /// excludes.
+    /// [`is_cp24_form`]) that index 150's or-columns print but clause 9
+    /// excludes, since it allows only `<30>` – `<40>` for time-tagged ASDUs.
     TagNotPermitted {
         /// The tagged type the answer would have carried.
         type_id: TypeId,
     },
     /// The answer the [`DataSource`] returned does not carry cause `<5>`, which
-    /// clause 7.4.14 requires of the returned object (*"transmit it as an `M_PDU`
-    /// with the cause of transmission `<5>` REQ"*).
+    /// clause 7.4.14 requires of the returned object (it goes out as an `M_PDU`
+    /// with cause `<5>` REQ).
     WrongCause {
         /// The cause the answer carried.
         got: Cause,
     },
     /// The answer the [`DataSource`] returned is not the object that was asked
-    /// for: a read asks for one address, and clause 7.4.14's *"Read information
-    /// object which is specified by the information object address"* is that
-    /// address.
+    /// for: a read asks for one address, and clause 7.4.14 reads the object
+    /// that address names.
     AddressMismatch {
         /// The address the command named.
         asked: u32,
@@ -833,16 +817,16 @@ pub enum RdError {
         count: u8,
     },
     /// The answer's common address is not the station's own. 5-101 clause 7.2.4
-    /// (index 43): *"ASDUs with a broadcast address in the control direction
-    /// have to be answered in the monitor direction by ASDUs that contain the
-    /// specific defined COMMON ADDRESS (station address)."*
+    /// (index 43): a control-direction ASDU sent to the broadcast address is
+    /// answered in the monitor direction by ASDUs carrying the station's own
+    /// defined common address.
     WrongCommonAddress {
         /// The common address the answer carried.
         got: u16,
     },
     /// The answer's originator address is not the command's. 5-101 clause 7.2.3
-    /// (index 38): *"the controlled station should echo this originator address
-    /// in the response in the monitor direction."*
+    /// (index 38): the controlled station should return the originator address
+    /// in its monitor-direction response.
     OriginatorMismatch {
         /// The originator the command carried.
         command: u8,
@@ -1027,9 +1011,9 @@ impl Read {
     ///    44–47) is clause 7.4.14's refusal, [`Reaction::Refused`]. It is
     ///    checked before the discard rule because the mirror is the answer the
     ///    controlling station asked for: clause 7.2.3's monitor-direction log
-    ///    list (index 42) names only *"mirrored ASDUs due to unknown numbers in
-    ///    the control direction (type identifications 45 to 51)"*, which does
-    ///    not include type 102.
+    ///    list (index 42) names only control-direction ASDUs mirrored because of
+    ///    an unknown value, for type identifications 45 to 51, which does not
+    ///    include type 102.
     /// 2. **Clause 7.2.3's discard rule** for everything else, as in the other
     ///    procedure modules.
     /// 3. The frame's own meaning: a read command ([`Reaction::Requested`]), or
@@ -1095,8 +1079,8 @@ impl Read {
     ///    stations cannot mirror each other.
     /// 2. **A broadcast read command** (type 102 at `FF`/`FFFF`, which clause
     ///    7.2.4, index 43, restricts to types `<100>`, `<101>`, `<103>` and
-    ///    `<105>`) is *"rejected … by mirroring the ASDU with P/N = 1 negative
-    ///    (and with COT = 46, if supported)"* (TS 60870-5-604 5.4.10.10, PDF page
+    ///    `<105>`) is refused by a mirror with P/N = 1 (negative), with
+    ///    COT = 46 when supported (TS 60870-5-604 5.4.10.10, PDF page
     ///    index 54). It is [`Reaction::Refused`] with the class-46 mirror in
     ///    [`Outcome::send`], whatever the caller's [`Known`] says, and the mirror
     ///    carries this station's own common address, as in [`crate::ct`] and
@@ -1104,7 +1088,7 @@ impl Read {
     /// 3. **Clause 7.2.3's rule for the control direction**: a frame whose type
     ///    identification, cause of transmission, common address or information
     ///    object address the station does not know (per the caller's [`Known`])
-    ///    is *"mirrored … with bit `P/N := <1>` negative confirm"* with the
+    ///    is mirrored with `P/N := <1>` (negative confirmation) and the
     ///    class's cause, never discarded. This is clause 7.4.14's 44–47 mirror:
     ///    [`Reaction::Refused`] with the mirror in [`Outcome::send`].
     /// 4. **Everything else**: a station that does not use the procedure
@@ -1261,7 +1245,7 @@ impl Read {
     /// Clause 7.2.3's mirror of a received frame for one of the four undefined
     /// classes: [`Reaction::Refused`] with the class's cause and the mirror in
     /// [`Outcome::send`], carrying this station's own common address (clause
-    /// 7.2.4's *"specific defined COMMON ADDRESS (station address)"*).
+    /// 7.2.4: the station's own defined common address).
     fn refuse(
         self,
         header: &Header,

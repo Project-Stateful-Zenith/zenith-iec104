@@ -41,15 +41,13 @@ const C_CS_NA_1: &[u8] = &[
 /// Link layer: the four subsections this crate does **not** make
 /// configurable, and the two fixed values 104 prints.
 ///
-/// Index 94 prints 9.1 (*"(system-specific parameter, indicate definition of a
-/// system or a device by marking one of the following with \" **X** \")"*) and
-/// 9.2 (*"(network-specific parameter, all configurations that are used are to
-/// be marked \" **X** \")"*); index 96 prints 9.3 (*"(network-specific parameter,
-/// all interfaces and data rates that are used are to be marked \" **X** \")"*)
-/// and 9.4 (*"(network-specific parameter, all options that are used are to be
-/// marked \" **X** \". Specify the maximum frame length. …)"*) and then strikes
-/// the link layer through: *"Frame format FT 1.2, single character 1 and the
-/// fixed time out interval are used exclusively in this companion standard."*
+/// Index 94 prints 9.1 (a system-specific parameter: mark with **X** whether a
+/// system or a device is defined) and 9.2 (a network-specific parameter: mark
+/// every configuration in use); index 96 prints 9.3 (network-specific: mark
+/// every interface and data rate in use) and 9.4 (network-specific: mark every
+/// option in use and give the maximum frame length), and then strikes the link
+/// layer through, as this companion standard uses only frame format FT 1.2,
+/// single character 1 and the fixed time-out interval.
 ///
 /// Those rows describe the **network and the device**, not the ASDU exchange, so
 /// the profile carries none of them: there is no interface, data-rate, frame
@@ -57,16 +55,16 @@ const C_CS_NA_1: &[u8] = &[
 /// on 9.5's page are asserted here as the constants they are.
 #[test]
 fn the_network_and_device_rows_of_9_1_to_9_4_are_not_configurables() {
-    // 9.5 (index 98): "The maximum length of APDU for both directions is 253.
-    // It is a fixed system parameter." The length *field* is 253, the ASDU
+    // 9.5 (index 98): the APDU is at most 253 octets long in both directions,
+    // a fixed system parameter. The length *field* is 253, the ASDU
     // 249 (104 cl.5, index 26).
     assert_eq!(apci::MAX_LENGTH, 253);
     assert_eq!(apci::MAX_ASDU, 249);
     // 9.4 (index 96) strikes the FT 1.2 frame format through; the modular TCP
     // profile of 104 keeps the 68H start octet alone.
     assert_eq!(apci::START, 0x68);
-    // 9.5 (index 98): "Mode 1 (Least significant octet first), as defined in
-    // 4.10 of IEC 60870-5-4, is used exclusively in this companion standard."
+    // 9.5 (index 98): this companion standard uses only mode 1 of IEC
+    // 60870-5-4 clause 4.10, least significant octet first.
     // There is no transmission-mode setting, and the one byte-order decision the
     // crate makes is little-endian, asserted on the header's CA field.
     let header = Header::parse(&[0x01, 0x01, 0x03, 0x00, 0x34, 0x12]).unwrap();
@@ -75,12 +73,11 @@ fn the_network_and_device_rows_of_9_1_to_9_4_are_not_configurables() {
 
 /// 9.5 Application layer (index 98): the sheet's **filled example**.
 ///
-/// *"Common address of ASDU (system-specific parameter, all configurations that
-/// are used are to be marked \" **X** \")"* with *"One octet"* / *"Two octets"*;
-/// *"Information object address …"* with *"One octet"* / *"Structured"* /
-/// *"Two octets"* / *"Unstructured"* / *"Three octets"*; *"Cause of
-/// transmission …"* with *"One octet"* / *"Two octets (with originator address).
-/// Originator address is set to zero if not used"*.
+/// The *Common address of ASDU* row (a system-specific parameter, every
+/// configuration in use marked **X**) offers one or two octets; the
+/// *Information object address* row offers one, two (`Structured` or
+/// `Unstructured`) or three octets; the *Cause of transmission* row offers one
+/// octet, or two with the originator address, which is zero when unused.
 ///
 /// The printed page's three `X` marks are in the *Two octets* CA column, the
 /// *Three octets* IOA row and the *Two octets (with originator address)* COT
@@ -111,13 +108,12 @@ fn the_address_rows_of_9_5_are_the_sheets_own_marked_example() {
 /// format APDUs k and latest acknowledge APDUs (w)"* (index 114), and 9.6's
 /// port number.
 ///
-/// *"t0 30 s Time-out of connection establishment"*, *"t1 15 s Time-out of send
-/// or test APDUs"*, *"t2 10 s Time-out for acknowledges in case of no data
-/// messages t2 < t1"*, *"t3 20 s Time-out for sending test frames in case of a
-/// long idle state"*, *"Maximum range for timeouts t0 to t2: 1 s to 255 s,
-/// accuracy 1 s."*, *"Recommended range for timeout t3: 1 s to 48 h, resolution
-/// 1 s."*; *"k 12 APDUs"*, *"w 8 APDUs"*, *"Maximum range of values k: 1 to
-/// 32767 (215–1) APDUs, accuracy 1 APDU"*.
+/// The defaults: t0 = 30 s (connection establishment), t1 = 15 s (sent or test
+/// APDUs), t2 = 10 s (acknowledging when no data flows, with t2 < t1), t3 =
+/// 20 s (test frames on a long idle link). t0 to t2 range over 1 s to 255 s at
+/// most, in 1 s steps; t3's recommended range is 1 s to 48 h, in 1 s steps.
+/// k = 12 and w = 8 APDUs, and k ranges over 1 to 32767 (2^15 − 1) APDUs at
+/// most, in steps of one APDU.
 ///
 /// The profile **carries** `params::LinkParams` (the crate's one time-out type)
 /// rather than a second copy of the table, and the table's own ranges are the
@@ -142,12 +138,11 @@ fn the_time_outs_and_k_w_of_9_5_are_the_link_params_table() {
 
 /// The marking scheme of index 94.
 ///
-/// *"The selected parameters should be marked in the white boxes as follows:"*
-/// *"Function or ASDU is not used"* (blank), *"**X** Function or ASDU is used as
-/// standardized (default)"*, *"**R** Function or ASDU is used in reverse mode"*,
-/// *"**B** Function or ASDU is used in standard and reverse mode"*; and *"The
-/// possible selection (blank, X, R, or B) is specified for each specific clause
-/// or parameter."*
+/// Each white box takes one of four marks: blank when the function or ASDU is
+/// unused, **X** when it is used as standardised (the default), **R** when it
+/// is used in reverse mode, and **B** when it is used in both standard and
+/// reverse mode. Which of the four a box allows is stated clause by clause and
+/// parameter by parameter.
 #[test]
 fn the_marking_scheme_is_the_four_valued_one_of_index_94() {
     assert_eq!(Direction::ALL.len(), 4, "blank, X, R, B");
@@ -250,7 +245,8 @@ fn the_grid_header_row_is_the_nineteen_columns_of_index_104() {
 /// The grid's rows: the type identifications index 104 and index 106 print.
 ///
 /// The list is the sheet's own, **including** the rows 104 black-boxes:
-/// *"Black boxes: option not permitted in this companion standard"*. `<104>`
+/// in its legend, a black box is an option this companion standard does not
+/// permit. `<104>`
 /// (`C_TS_NA_1`) and `<106>` (`C_CD_NA_1`) are printed and have no white box on
 /// the sheet, so they are rows with every cell blank and not missing entries.
 #[test]
@@ -277,25 +273,21 @@ fn the_grid_rows_are_the_types_of_index_104_and_index_106() {
 /// 9.6 Basic application functions (index 108, index 112, index 114): the
 /// thirteen rows, one [`Direction`] each, and the profile's default.
 ///
-/// index 108: *"Station initialization (station-specific parameter, mark \" **X**
-/// \" if function is used)"* with *"Remote initialization"*; *"Cyclic data
-/// transmission (station-specific parameter, mark \" **X** \" if function is only
-/// used in the standard direction, …)"*; *"Read procedure …"*; *"Spontaneous
-/// transmission …"*; *"Double transmission of information objects with cause of
-/// transmission spontaneous"*.
+/// index 108: *Station initialization* (station-specific, marked when used)
+/// with *Remote initialization*; *Cyclic data transmission* (station-specific,
+/// marked by direction); *Read procedure*; *Spontaneous transmission*; *Double
+/// transmission of information objects with cause of transmission spontaneous*.
 ///
-/// index 112: *"Transmission of integrated totals (station- or object-specific
-/// parameter, …)"*; *"Parameter loading (object-specific parameter, …)"*;
-/// *"Parameter activation (object-specific parameter, …)"*; *"Test procedure
-/// (station-specific parameter, …)"*.
+/// index 112: *Transmission of integrated totals* (station- or
+/// object-specific); *Parameter loading* and *Parameter activation* (both
+/// object-specific); *Test procedure* (station-specific).
 ///
-/// index 114: *"File transfer (station-specific parameter, mark \" **X** \" if
-/// function is used)."* with *"File transfer in monitor direction"* and *"File
-/// transfer in control direction"*; *"Background scan (station-specific
-/// parameter, …)"*; *"Acquisition of transmission delay (station-specific
-/// parameter, …)"*, struck through on the page, which 104's own rule explains:
-/// *"the text descriptions of parameters which are not applicable to this
-/// companion standard are strike-through"* (index 94).
+/// index 114: *File transfer* (station-specific, marked when used), with its
+/// monitor-direction and control-direction rows; *Background scan* and
+/// *Acquisition of transmission delay* (both station-specific), the latter
+/// struck through on the page, which 104's own rule explains: index 94 strikes
+/// through every parameter description that does not apply to this companion
+/// standard.
 #[test]
 fn every_clause_9_6_row_reads_its_own_mark_back() {
     assert_eq!(Function::ALL.len(), 13);
@@ -357,8 +349,9 @@ fn every_clause_9_6_row_reads_its_own_mark_back() {
 /// and not a derivation: the grid body carries no letter, but every box is
 /// drawn, and the legend beside the grid names the three fills.
 ///
-/// *"Shaded boxes: option not required. Black boxes: option not permitted in
-/// this companion standard Blank: functions or ASDU not used."* So a white box
+/// The legend: a shaded box is an option not required, a black box one this
+/// companion standard does not permit, and a blank box a function or ASDU
+/// left unused. So a white box
 /// is the only one a station may select ([`Cell::White`]), and
 /// [`InteropProfile::conventional`] marks precisely those, one `X` each.
 ///
@@ -592,8 +585,8 @@ fn the_seam_and_the_mutators(profile: &InteropProfile) {
     assert!(profile.uses_type(TypeId::MMeNb1));
 }
 
-/// A box the sheet draws **black** is *"option not permitted in this companion
-/// standard"* (index 104), so no station may select it and the builders refuse
+/// A box the sheet draws **black** is an option this companion standard does
+/// not permit (index 104), so no station may select it and the builders refuse
 /// it: `with_cell` leaves the profile unchanged and `with_type_row` skips the
 /// box while marking the row's other boxes normally.
 ///
@@ -665,9 +658,9 @@ fn a_black_box_is_option_not_permitted_and_the_builders_refuse_it() {
 /// receiver as **the clause's own typed answer**, never a panic and never
 /// silence.
 ///
-/// 5-101 clause 7.2.3's table, in its own words: an ASDU whose *"type
-/// identification"* is unknown is mirrored with cause 44, one whose *"cause of
-/// transmission"* is unknown *for that type identification* with cause 45, the
+/// 5-101 clause 7.2.3's table: an ASDU whose *type identification* is unknown
+/// is mirrored with cause 44, one whose *cause of transmission* is unknown *for
+/// that type identification* with cause 45, the
 /// common address with 46 and the information object address with 47. The
 /// profile's `NotUsed` is one of the first two classes, so the tests assert the
 /// **variant and the cause**, and the profile is never a second copy of

@@ -4,7 +4,7 @@
 //! This is a §5.3 verification row, not a §5.4 procedure, so its tests are named
 //! `clause_5_3_2_70_…` rather than `clause_5_4_…`. Every row it carries is
 //! `Required = M` and references `IEC 60870-5-104:2006, 5.3`; the rows the cases
-//! below quote are quoted verbatim from the page.
+//! below cite are paraphrased, with the page they come from.
 //!
 //! The crate implements four rows of this entry. This module is those four, each driven over a real socket against the controlled station under
 //! test.
@@ -24,16 +24,16 @@ use iec104::link::State;
 /// 604 Table 2 (4 of 5), PDF page index 15 (printed 14), row **`5.3.2.70`**,
 /// `Reference` `IEC 60870-5-104:2006, 5.3`, `Required` `M`:
 ///
-/// > After a TCP connection has been established, initially a Stopped connection
-/// > is created (a Stopped connection is an open ("established") TCP connection
-/// > that is in confirmed STOPDT state) and allows the exchange of U-frames in
-/// > controlling and controlled direction
+/// Requirement (paraphrased): a newly established TCP connection starts out as a
+/// Stopped connection, meaning an open TCP connection in the confirmed STOPDT
+/// state, and U-frames may be exchanged over it in both the controlling and the
+/// controlled direction.
 ///
 /// DUT: the **controlled** station. `Session::new(Role::Controlled)` starts in
 /// `Stopped`, and a U-frame is answered from every live state, so this test
 /// drives the **controlling-initiated** exchange (the peer's `TESTFR act`, the
-/// station's `TESTFR con`) before any STARTDT. The row's *"in controlling and
-/// controlled direction"* would also need the station to **initiate** a
+/// station's `TESTFR con`) before any STARTDT. The row's "both directions" would
+/// also need the station to **initiate** a
 /// U-frame, which takes a clock, and this harness has none. A
 /// **controlled-initiated** U-frame (the station's own `TESTFR act` and the
 /// peer's `con`) is therefore **not verified here**.
@@ -65,8 +65,8 @@ fn clause_5_3_2_70_a_stopped_connection_exchanges_u_frames() {
 /// 604 Table 2 (4 of 5), PDF page index 15 (printed 14), row **`5.3.2.70`**,
 /// `Reference` `IEC 60870-5-104:2006, 5.3`, `Required` `M`:
 ///
-/// > The receipt of I- and S-frames in a Stopped connection results in a TCP
-/// > Active close (TCP Control field FIN).
+/// Requirement (paraphrased): an I- or S-frame received on a Stopped connection
+/// makes the station actively close the TCP connection (a FIN).
 ///
 /// DUT: the **controlled** station. The I-frame is sent before any STARTDT, so
 /// the station is in `Stopped` when it arrives; the observable is the FIN, which
@@ -106,8 +106,8 @@ fn clause_5_3_2_70_an_i_frame_in_a_stopped_connection_is_actively_closed() {
 /// 604 Table 2 (4 of 5), PDF page index 15 (printed 14), row **`5.3.2.70`**,
 /// `Reference` `IEC 60870-5-104:2006, 5.3`, `Required` `M`:
 ///
-/// > The receipt of I- and S-frames in a Stopped connection results in a TCP
-/// > Active close (TCP Control field FIN).
+/// Requirement (paraphrased): an I- or S-frame received on a Stopped connection
+/// makes the station actively close the TCP connection (a FIN).
 ///
 /// DUT: the **controlled** station, for the S-frame half of the row (the case
 /// above is the I-frame half). An `S(N(R) = 0)` sent before any STARTDT arrives
@@ -141,14 +141,14 @@ fn clause_5_3_2_70_an_s_frame_in_a_stopped_connection_is_actively_closed() {
 /// 604 Table 2 (4 of 5), PDF page index 15 (printed 14), row **`5.3.2.70`**,
 /// `Reference` `IEC 60870-5-104:2006, 5.3`, `Required` `M`:
 ///
-/// > After the controlling station has received STARTDT_CON, the Started
-/// > connection is created and the controlled station may sent U-, I-, and S-
-/// > frames immediately after the STARTDT_CON. Controlled and controlling
-/// > stations are allowed to send U-, I-, and S- frames
+/// Requirement (paraphrased): once the controlling station has the STARTDT con,
+/// the connection is Started; the controlled station may send U-, I- and
+/// S-frames right after that con, and from then on both stations may send all
+/// three frame formats.
 ///
 /// DUT: the **controlled** station. Data handed over while data transfer was not
-/// enabled is held (`Session::queue_i_frame`, clause 5.3: *"Any pending user data
-/// in the controlled station is sent only after the STARTDT con"*) and goes out
+/// enabled is held (`Session::queue_i_frame`; clause 5.3 holds user data pending in
+/// the controlled station back until the STARTDT con has been sent) and goes out
 /// right behind the con (the session flushes its queue when it sends the con).
 #[test]
 fn clause_5_3_2_70_user_data_queued_before_start_goes_out_after_the_con() {
@@ -203,8 +203,8 @@ fn clause_5_3_2_70_user_data_queued_before_start_goes_out_after_the_con() {
 /// 604 Table 2 (4 of 5), PDF page index 15 (printed 14), row **`5.3.2.70`**,
 /// `Reference` `IEC 60870-5-104:2006, 5.3`, `Required` `M`:
 ///
-/// > Send sequence number N(S) and Receive Sequence number N(R) remain unchanged
-/// > during the use of U-frames with STARTDT / STOPDT indications
+/// Requirement (paraphrased): STARTDT and STOPDT U-frames leave both the send
+/// sequence number N(S) and the receive sequence number N(R) as they were.
 ///
 /// DUT: the **controlled** station. Two I-frames are sent with a full
 /// STOPDT/STARTDT round trip between them; the sequence numbers of the station's

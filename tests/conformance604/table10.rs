@@ -2,7 +2,7 @@
 //! and 2 of 2), PDF page indices 53–54 (printed 52–53), procedures `5.4.10.1`,
 //! `5.4.10.5` and `5.4.10.10`.
 //!
-//! The rows are quoted verbatim from the pages named on each test. The
+//! Each test paraphrases its row and names the page it is on. The
 //! `Reference` column is `IEC 60870-5-101:2003` clause 7.3 for the type
 //! identification, 7.2.3 for the cause of transmission and 7.2.4 for the common
 //! address of ASDU.
@@ -10,19 +10,19 @@
 //! # Direction
 //!
 //! Each of the three procedures carries **two** mandatory halves, and §5.1
-//! (index 10, printed 9) makes the direction part of the test: *"For testing
-//! reverse direction, the same test procedures apply in the opposite direction
-//! (replace "Controlling" with "Controlled" and vice versa), except for COT44-47
-//! which are only defined in Monitor direction"*:
+//! (index 10, printed 9) makes the direction part of the test: a procedure is
+//! also run in the reverse direction, with the controlling and controlled roles
+//! swapped, except for causes 44 to 47, which exist in the monitor direction
+//! only:
 //!
 //! - the **controlled**-station half (`COT44-47`, the mirror of 5-101 clause
 //!   7.2.3) is driven over a real loopback socket by [`ControlledStation`], the
-//!   role 5-101 clause 7.2.3 gives the mirror to ("mirrored by the controlled
-//!   station with bit `P/N := <1>` negative confirm");
-//! - the **controlling**-station half (*"Any undefined or not supported ASDU
-//!   received by the controlling station is ignored (or discarded)"* on
-//!   `5.4.10.1` and `.5`, *"The Controlling station handles any received ASDU
-//!   with a Broadcast CASDU as an ASDU with an undefined CASDU"* on `.10`) is
+//!   role 5-101 clause 7.2.3 gives the mirror to (the controlled station sends
+//!   the ASDU back with `P/N := <1>`, a negative confirmation);
+//! - the **controlling**-station half (on `5.4.10.1` and `.5`, a controlling
+//!   station ignores or discards an undefined or unsupported ASDU it receives;
+//!   on `.10`, it treats a received ASDU at the broadcast CASDU the same as one
+//!   at an undefined CASDU) is
 //!   driven by the interoperability harness's [`interop::Station`] against the mock
 //!   [`MonitorPeer`], and the station's verdict is the crate's monitor-direction
 //!   rule, `asdu::unknown::discard_reason`.
@@ -32,7 +32,7 @@
 //! system types. The controlling-half samples of `.1`, `.5` and `.10` are the
 //! **monitor**-direction ASDUs the rows are about (undefined types 41/42/43
 //! with COT 3, `M_SP_NA_1` with the three undefined causes 14/15/43,
-//! `M_SP_NA_1` at `FF FF`), the NOTEs' *"at least three"* applies to those rows
+//! `M_SP_NA_1` at `FF FF`), the NOTEs' minimum of three samples applies to those rows
 //! too, and the permitted-broadcast samples are built well formed (`QOI` 20,
 //! `QCC` 5, a 7-octet `CP56Time2a`, `QRP` 1).
 //!
@@ -99,21 +99,20 @@ fn broadcast_object_area(type_id: u8) -> Vec<u8> {
 /// **`5.4.10.1`**, `Test` column *"TYPE IDENTIFICATION"*, `Reference`
 /// `IEC 60870-5-101:2003, 7.3`, `Required` `PICS, 9.5`, mandatory (`M`):
 ///
-/// > If COT = 44 is supported, any undefined or not supported ASDU is mirrored
-/// > by the controlled station with P/N = 1: negative confirmation of
-/// > activation using COT = 44 (unknown type identification)
+/// Requirement: a controlled station that supports cause 44 answers every
+/// undefined or unsupported ASDU by mirroring it with P/N = 1, a negative
+/// activation confirmation carrying cause 44 (unknown type identification).
 ///
-/// and the row's own NOTE, same page: *"These tests are performed correctly for
-/// at least three undefined or not supported ASDUs. The test should include at
-/// least one undefined ASDU. … Undefined ASDU = ASDU which is not defined by the
-/// standard."*
+/// The row's NOTE, same page, asks for the test to be run on at least three
+/// undefined or unsupported ASDUs, at least one of them undefined, meaning not
+/// defined anywhere in the standard.
 ///
 /// DUT: the **controlled** station. The three type identifications 41, 42 and 43
 /// are the standard's reserved gap 5-101 clause 7.2.1.1's `<41..44>`, so each is
 /// undefined by the standard's own tables: `TypeId::info()` is `None` and
 /// `type_is_defined` answers `false` for it. Three undefined ASDUs satisfy the
-/// NOTE's "at least three undefined"; its *"If possible, the test should include
-/// at least one ASDU defined in the standard, but not supported by the DUT"* is
+/// NOTE's minimum of three; the NOTE's further wish, where possible, for one
+/// ASDU the standard defines but the DUT does not support is
 /// **not possible** with this harness: the profile is `Known::standard`, a
 /// station that implements everything the standard's tables define, so no ASDU
 /// defined by the standard is unsupported here.
@@ -140,7 +139,7 @@ fn clause_5_4_10_1_an_undefined_type_is_mirrored_with_cause_44() {
         assert_eq!(
             header.cause,
             Cause::UnknownTypeId,
-            "5.4.10.1 (type {type_id}): \"using COT = 44 (unknown type identification)\""
+            "5.4.10.1 (type {type_id}): the mirror carries cause 44, unknown type identification"
         );
         assert_eq!(
             header.cause.to_u8(),
@@ -149,7 +148,7 @@ fn clause_5_4_10_1_an_undefined_type_is_mirrored_with_cause_44() {
         );
         assert!(
             header.negative,
-            "5.4.10.1 (type {type_id}): \"mirrored … with P/N = 1\""
+            "5.4.10.1 (type {type_id}): the mirror has P/N = 1"
         );
         assert_eq!(
             header.common_address, CA,
@@ -186,12 +185,12 @@ fn clause_5_4_10_1_an_undefined_type_is_mirrored_with_cause_44() {
 /// The **controlling** station's half of the same procedure, same page,
 /// `Required` `PIXIT`:
 ///
-/// > Any undefined or not supported ASDU received by the controlling station is
-/// > ignored (or discarded)
+/// Requirement: the controlling station ignores, or discards, every undefined or
+/// unsupported ASDU it receives.
 ///
 /// DUT: the **controlling** station. The same reserved type identifications (41,
-/// 42 and 43, per the block's NOTE's *"at least three undefined or not supported
-/// ASDUs"*, which sits under this row too) arrive in the monitor direction,
+/// 42 and 43, per the block's NOTE's minimum of three undefined or unsupported
+/// ASDUs, which sits under this row too) arrive in the monitor direction,
 /// carried on COT 3 (`spont`), a cause of the monitor direction only, so the
 /// sample is the traffic the row is about and not a control-direction ASDU fed
 /// to a monitor-direction rule. The station's clause 7.2.3 verdict is
@@ -212,8 +211,8 @@ fn clause_5_4_10_1_an_undefined_type_in_the_monitor_direction_is_discarded() {
         assert_eq!(
             controlling_discard(&exchange.asdu).expect("the controlling station's answers"),
             Some(Discard::Unspecified(Unspecified::TypeIdentification)),
-            "5.4.10.1 (type {type_id}): \"Any undefined or not supported ASDU received by the \
-             controlling station is ignored (or discarded)\""
+            "5.4.10.1 (type {type_id}): the controlling station ignores (or discards) an \
+             undefined or unsupported ASDU"
         );
         assert!(
             !exchange.sent.iter().any(|apci| apci.is_i_format()),
@@ -227,21 +226,21 @@ fn clause_5_4_10_1_an_undefined_type_in_the_monitor_direction_is_discarded() {
 /// **`5.4.10.5`**, `Test` column *"CAUSE OF TRANSMISSION"*, `Reference`
 /// `IEC 60870-5-101:2003, 7.2.3`, `Required` `PICS, 9.5`, mandatory (`M`):
 ///
-/// > If COT=45 is supported, any undefined or not supported ASDU is mirrored by
-/// > the controlled station with P/N = 1: negative confirmation of activation
-/// > using COT = 45 (unknown cause of transmission)
+/// Requirement: a controlled station that supports cause 45 answers an ASDU with
+/// an undefined or unsupported cause by mirroring it with P/N = 1, a negative
+/// activation confirmation carrying cause 45 (unknown cause of transmission).
 ///
-/// and the row *"Originator address is zero or the applicable Originator
-/// address"*, same page, same `Reference`; the NOTE wants *"at least three
-/// undefined or not supported COTs"*, where *"Undefined COT = COT which is not
-/// defined by the standard"*.
+/// A second row on the same page, same `Reference`, requires the originator
+/// address to be either zero or the applicable originator address. The NOTE
+/// asks for at least three undefined or unsupported causes, an undefined cause
+/// being one the standard does not define.
 ///
 /// DUT: the **controlled** station. The causes 14, 15 and 43 are three of 5-101
 /// table 14's reserved values (14–19 and 42–43), so `cause_is_defined` answers
 /// `false` for each while the type identification (45, `C_SC_NA_1`) is one the
-/// station implements. Three undefined causes satisfy the NOTE; its *"if
-/// possible, one COT defined in the standard, but not supported by the DUT"* is
-/// **not possible** here, because this harness's profile implements every cause
+/// station implements. Three undefined causes satisfy the NOTE; its further
+/// wish, where possible, for one cause the standard defines but the DUT does
+/// not support is **not possible** here, because this harness's profile implements every cause
 /// the standard's table defines.
 #[test]
 fn clause_5_4_10_5_an_undefined_cause_is_mirrored_with_cause_45() {
@@ -265,7 +264,7 @@ fn clause_5_4_10_5_an_undefined_cause_is_mirrored_with_cause_45() {
         assert_eq!(
             header.cause,
             Cause::UnknownCause,
-            "5.4.10.5 (cause {cause}): \"using COT = 45 (unknown cause of transmission)\""
+            "5.4.10.5 (cause {cause}): the mirror carries cause 45, unknown cause of transmission"
         );
         assert_eq!(
             header.cause.to_u8(),
@@ -274,12 +273,12 @@ fn clause_5_4_10_5_an_undefined_cause_is_mirrored_with_cause_45() {
         );
         assert!(
             header.negative,
-            "5.4.10.5 (cause {cause}): \"mirrored … with P/N = 1\""
+            "5.4.10.5 (cause {cause}): the mirror has P/N = 1"
         );
         assert_eq!(
             header.originator, ORIGINATOR,
-            "5.4.10.5 (cause {cause}): \"Originator address is zero or the applicable Originator \
-             address\""
+            "5.4.10.5 (cause {cause}): the originator address is zero or the applicable \
+             originator address"
         );
         assert_eq!(
             &reply[Header::LEN..],
@@ -291,16 +290,12 @@ fn clause_5_4_10_5_an_undefined_cause_is_mirrored_with_cause_45() {
 
 /// 604 Table 10 (1 of 2), PDF page index 53 (printed 52), procedure
 /// **`5.4.10.5`**, `Test` column *"CAUSE OF TRANSMISSION"* (`test bit`), the
-/// rows *"Test bit = 0: ASDU generated during normal conditions"* (`Required`
-/// `M`) and *"Test bit = 1: ASDU generated during test conditions"*
-/// (`Required` `PIXIT`), the page's `Required` column read cell by cell:
-///
-/// > Test bit = 0: ASDU generated during normal conditions
-///
-/// > Test bit = 1: ASDU generated during test conditions
+/// two test-bit rows, the page's `Required` column read cell by cell: test bit
+/// 0 marks an ASDU produced in normal operation (`Required` `M`), and test bit 1
+/// one produced under test conditions (`Required` `PIXIT`).
 ///
 /// DUT: the **controlled** station, and the observable is 5-101 clause 7.2.3's
-/// T flag in the mirror: the clause's reply is *"mirrored"*, so the received
+/// T flag in the mirror: the clause's reply is a mirror, so the received
 /// T flag comes back unchanged. The same undefined cause (15) is used for both
 /// cases, so only the flag differs.
 #[test]
@@ -330,8 +325,8 @@ fn clause_5_4_10_5_the_test_bit_is_echoed_in_the_mirror() {
 /// `Required` `PICS, 9.5` (the page's `Required` column for this row, which the
 /// block's trailing `M` cell does not reach):
 ///
-/// > Any message received by the controlling station containing an undefined or
-/// > not supported COT is ignored (or discarded)
+/// Requirement: the controlling station ignores, or discards, every message it
+/// receives whose cause is undefined or unsupported.
 ///
 /// DUT: the **controlling** station. The ASDUs whose causes (14, 15 and 43, per
 /// the block's NOTE, which sits under this row too) are three of 5-101 table
@@ -358,8 +353,8 @@ fn clause_5_4_10_5_an_undefined_cause_in_the_monitor_direction_is_discarded() {
         assert_eq!(
             controlling_discard(&exchange.asdu).expect("the controlling station's answers"),
             Some(Discard::Unspecified(Unspecified::CauseOfTransmission)),
-            "5.4.10.5 (cause {cause}): \"Any message received by the controlling station \
-             containing an undefined or not supported COT is ignored (or discarded)\""
+            "5.4.10.5 (cause {cause}): the controlling station ignores (or discards) a \
+             message with an undefined or unsupported cause"
         );
         assert!(
             !exchange.sent.iter().any(|apci| apci.is_i_format()),
@@ -373,21 +368,20 @@ fn clause_5_4_10_5_an_undefined_cause_in_the_monitor_direction_is_discarded() {
 /// **`5.4.10.10`**, `Test` column *"COMMON ADDRESS of ASDU"*, `Reference`
 /// `IEC 60870-5-101:2003, 7.2.4`, `Required` `PICS, 9.5`, mandatory (`M`):
 ///
-/// > If COT=46 is supported, any ASDU with undefined CASDU is mirrored by the
-/// > controlled station with P/N = 1: negative confirmation of activation using
-/// > COT = 46 (unknown CASDU)
+/// Requirement: a controlled station that supports cause 46 answers an ASDU at
+/// an undefined CASDU by mirroring it with P/N = 1, a negative activation
+/// confirmation carrying cause 46 (unknown CASDU).
 ///
-/// and the second of the block's rows, same page:
-///
-/// > The Controlled station rejects all other ASDU Types with a Broadcast CASDU
-/// > value by mirroring the ASDU with P/N = 1 negative (and with COT = 46, if
-/// > supported)
+/// The second of the block's rows, same page: the controlled station refuses
+/// the broadcast CASDU on every type other than the permitted ones, by
+/// mirroring the ASDU negatively with P/N = 1, using cause 46 if it supports
+/// that cause.
 ///
 /// DUT: the **controlled** station, both halves. The station's own common
 /// address is 1, so 9999 is undefined for it; and `C_SC_NA_1` (45) is not one of
 /// the four types the broadcast address is allowed on, so the broadcast address
-/// `FF FF` is refused the same way (5-101 clause 7.2.4's "specific defined
-/// COMMON ADDRESS (station address)" read from the controlled side).
+/// `FF FF` is refused the same way (5-101 clause 7.2.4's station address, read
+/// from the controlled side).
 #[test]
 fn clause_5_4_10_10_an_undefined_common_address_is_mirrored_with_cause_46() {
     // An address that is not the station's own.
@@ -402,9 +396,9 @@ fn clause_5_4_10_10_an_undefined_common_address_is_mirrored_with_cause_46() {
     assert_eq!(
         header.cause.to_u8(),
         46,
-        "5.4.10.10: \"using COT = 46 (unknown CASDU)\""
+        "5.4.10.10: the mirror carries cause 46, unknown CASDU"
     );
-    assert!(header.negative, "5.4.10.10: \"mirrored … with P/N = 1\"");
+    assert!(header.negative, "5.4.10.10: the mirror has P/N = 1");
 
     // The broadcast half: 0xFF<FF> on a type that is not 100, 101, 103 or 105.
     let broadcast = asdu(0x2D, Cause::Activation.to_u8(), 0xFFFF, HELD_IOA, 0x01);
@@ -417,7 +411,8 @@ fn clause_5_4_10_10_an_undefined_common_address_is_mirrored_with_cause_46() {
     assert_eq!(
         header.cause.to_u8(),
         46,
-        "5.4.10.10: \"mirroring the ASDU with P/N = 1 negative (and with COT = 46, if supported)\""
+        "5.4.10.10: the broadcast is refused by a negative mirror, P/N = 1, with cause 46 \
+         where supported"
     );
     assert!(
         header.negative,
@@ -428,9 +423,9 @@ fn clause_5_4_10_10_an_undefined_common_address_is_mirrored_with_cause_46() {
 /// 604 Table 10 (2 of 2), PDF page index 54 (printed 53), procedure
 /// **`5.4.10.10`**, `Test` column *"COMMON ADDRESS of ASDU"*, `Required` `PIXIT`:
 ///
-/// > Broadcast CASDU value (0xFF<FF>) only used in control direction with ASDU
-/// > Types 100 (Interrogation), 101 (Counter interrogation), 103 (Clock Sync) or
-/// > 105 (Reset Process).
+/// Requirement: the broadcast CASDU (`0xFF<FF>`) appears only in the control
+/// direction, and only on types 100 (interrogation), 101 (counter
+/// interrogation), 103 (clock synchronisation) and 105 (reset process).
 ///
 /// DUT: the **controlled** station. Each of the four system types carries the
 /// *irrelevant* information object address 0 (5-101 clause 7.2.5), so at the
@@ -507,8 +502,8 @@ fn clause_5_4_10_10_a_system_type_at_the_stations_own_address_is_not_mirrored() 
 /// The **controlling** station's half of the broadcast rows, same page,
 /// `Required` `M`:
 ///
-/// > The Controlling station handles any received ASDU with a Broadcast CASDU as
-/// > an ASDU with an undefined CASDU
+/// Requirement: the controlling station treats every received ASDU at the
+/// broadcast CASDU exactly as it treats one at an undefined CASDU.
 ///
 /// DUT: the **controlling** station. `M_SP_NA_1` (1), a **monitor**-direction
 /// type so that the sample is the traffic a controlled station actually sends,
@@ -527,8 +522,7 @@ fn clause_5_4_10_10_a_broadcast_casdu_in_the_monitor_direction_is_discarded() {
     assert_eq!(
         controlling_discard(&exchange.asdu).expect("the controlling station's answers"),
         Some(Discard::Unspecified(Unspecified::CommonAddress)),
-        "5.4.10.10: \"The Controlling station handles any received ASDU with a Broadcast CASDU as \
-         an ASDU with an undefined CASDU\""
+        "5.4.10.10: the controlling station treats a broadcast CASDU like an undefined CASDU"
     );
     assert!(
         !exchange.sent.iter().any(|apci| apci.is_i_format()),

@@ -28,8 +28,8 @@ use crate::conformance604::{CA, HELD_IOA, ORIGINATOR, StationApp};
 /// cause octet whose bit 7 is `P/N` and bit 8 is `T`).
 pub const COT_OCTET: usize = 2;
 
-/// The `P/N` bit of the cause octet, bit 7 (5-101 clause 7.2.3, index 38:
-/// *"P/N := BS1[7] <0..1> <0> := positive confirm <1> := negative confirm"*).
+/// The `P/N` bit of the cause octet, bit 7 (5-101 clause 7.2.3, index 38: a
+/// one-bit field, 0 for a positive and 1 for a negative confirmation).
 pub const PN_BIT: u8 = 0x40;
 
 /// The first octet of the information object area with the conventional

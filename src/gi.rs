@@ -55,31 +55,28 @@
 //!
 //! - the controlling station sends `C_IC ACT`;
 //! - a controlled station that is ready confirms positively and returns the
-//!   objects, while *"the station interrogation command `C_IC` ACT is negatively
-//!   acknowledged by a `C_IC` ACTCON when the controlled station is not ready to
-//!   return the interrogated information. In this case, the station
-//!   interrogation command may be repeated"*;
+//!   objects, while one that is not ready to return the interrogated
+//!   information answers the `C_IC` ACT with a negative `C_IC` ACTCON, after
+//!   which the controlling station may repeat the command;
 //! - the objects are returned with causes `<20>` … `<36>`;
 //! - `C_IC ACTTERM` ends the procedure once all of the scope's data is sent.
 //!
-//! Two sentences bound the payload: *"ASDUs with cause of transmission 20 to 36
-//! are transmitted without time tags"*, and *"In response to a station
-//! interrogation request, these information objects are reported in type
+//! Two rules bound the payload: ASDUs with causes 20 to 36 carry no time tag,
+//! and the objects answering a station interrogation use the type
 //! identifications `<1>`, `<3>`, `<5>`, `<7>`, `<9>`, `<11>`, `<13>`, `<20>` or
-//! `<21>`."* Those nine untagged monitor types are [`INTERROGATED_TYPES`]. The
+//! `<21>`. Those nine untagged monitor types are [`INTERROGATED_TYPES`]. The
 //! time-tag rule and the type rule are therefore one rule and one check. The
 //! controlled station also accepts the three parameter types of
 //! [`INTERROGATED_PARAMETER_TYPES`], and refuses anything else in a response.
 //!
 //! # Re-activation of a running interrogation
 //!
-//! A running interrogation is one *"the controlling station has not received
-//! the `C_IC_ACTTERM` after it has sent a `C_IC_ACT`"* (TS 60870-5-604:2016
+//! A running interrogation is one whose `C_IC_ACT` the controlling station has
+//! sent without yet receiving its `C_IC_ACTTERM` (TS 60870-5-604:2016
 //! clause 5.4.17, Table 17 page 3 of 5, PDF page index 66). 5-101 clause 7.4.5
-//! locks a second **identical** interrogation on the controlling side
-//! (*"the initialization of an identical general interrogation of the same
-//! source before the previous one is terminated is normally locked by the
-//! controlling station"*). For a second activation that does arrive, the
+//! locks a second **identical** interrogation on the controlling side (the
+//! controlling station normally prevents starting an identical general
+//! interrogation of the same source until the previous one has terminated). For a second activation that does arrive, the
 //! conformance specification requires the controlled station to implement one
 //! of three PIXIT options and the controlling station to handle all three.
 //! [`ReActivation`] is that selection:
@@ -159,11 +156,11 @@ pub const CAUSE_DEACTIVATION_CON: Cause = Cause::DeactivationCon;
 pub const CAUSE_ACTIVATION_TERM: Cause = Cause::ActivationTermination;
 
 /// The nine monitor types an interrogation response may carry, in the clause's
-/// own order (5-101 clause 7.4.5, page index 122; quoted in the module doc).
+/// own order (5-101 clause 7.4.5, page index 122; see the module doc).
 ///
-/// All nine are untagged, which is the same rule as *"ASDUs with cause of
-/// transmission 20 to 36 are transmitted without time tags"* (5-101 clause
-/// 7.4.5, PDF page index 124, printed page 123).
+/// All nine are untagged, which is the same rule as the clause's ban on time
+/// tags for causes 20 to 36 (5-101 clause 7.4.5, PDF page index 124, printed
+/// page 123).
 pub const INTERROGATED_TYPES: [TypeId; 9] = [
     TypeId::MSpNa1,
     TypeId::MDpNa1,
@@ -312,7 +309,7 @@ pub enum ReActivation {
 /// for which [`is_interrogated`] holds, which the procedure checks.
 pub trait DataSource {
     /// Whether the station can return `scope` right now. If not, this is clause
-    /// 7.4.5's *"not ready to return the interrogated information"*, answered
+    /// 7.4.5's not-ready case, answered
     /// with a negative activation confirmation.
     fn ready(&self, scope: Scope) -> bool;
 
@@ -565,11 +562,10 @@ pub fn deactivation_with(
 /// The controlling station's stance on activating an interrogation while
 /// another one of the same scope is running.
 ///
-/// 5-101 clause 7.4.5 states the lock (quoted in the module doc), and TS
-/// 60870-5-604 Table 17 (page 3 of 5) leaves the other case open: *"If the
-/// Controlling station supports activating a new interrogation while another
-/// interrogation is already running, then the Controlling station shall be able
-/// to handle each option."* [`SecondActivation`] is that support, as a
+/// 5-101 clause 7.4.5 states the lock (see the module doc), and TS
+/// 60870-5-604 Table 17 (page 3 of 5) leaves the other case open: a
+/// controlling station that supports starting a new interrogation while one is
+/// still running shall be able to handle every option. [`SecondActivation`] is that support, as a
 /// selection; [`Interrogation::on_response`] handles all three options either
 /// way.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -587,8 +583,8 @@ pub enum SecondActivation {
 ///
 /// The role here is the *procedure's* role, not the transport's: a station that
 /// is the TCP client is the controlling station (5-104 clause 7, page index 54:
-/// *"The controlling station is equivalent to the client (connector), the
-/// controlled station to the server (listener)"*), but the same station may hold
+/// the controlling station is the client, which connects, and the controlled
+/// station the server, which listens), but the same station may hold
 /// the other role's instance for the reverse direction, which clause 7.1 calls
 /// the case of "two equivalent controlling stations or partners".
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -712,8 +708,8 @@ impl Interrogation {
     }
 
     /// The procedures that are running, in TS 60870-5-604 clause 5.4.17's sense:
-    /// *"a running GI means that the controlling station has not received the
-    /// `C_IC_ACTTERM` after it has sent a `C_IC_ACT`"*. An activation whose
+    /// a GI is running from the controlling station's `C_IC_ACT` until it
+    /// receives the `C_IC_ACTTERM`. An activation whose
     /// confirmation is still in flight therefore counts as running. For a
     /// controlled station it is the interrogation it has confirmed and not yet
     /// terminated (a queued one is in [`Interrogation::queued`]).
@@ -863,12 +859,10 @@ impl Interrogation {
     ///
     /// An instance whose common address is the **broadcast** `FF`/`FFFF`
     /// follows every LRU separately. 5-101 clause 7.4.5 (PDF page index 124):
-    /// *"When issuing a station interrogation command to a controlled station
-    /// using the common address FF or FFFF (request of all), ACTCON, ACTTERM and
-    /// the interrogated information objects are returned with the specific
-    /// common addresses of the LRUs in exactly the same manner as if they were
-    /// initiated by a station interrogation command issued to the specific
-    /// LRU."* The activation stays in flight after the first confirmation, so
+    /// for a station interrogation sent to the common address `FF`/`FFFF`
+    /// (addressing every LRU), each LRU returns its ACTCON, ACTTERM and
+    /// interrogated objects with its own specific common address, exactly as if
+    /// the command had been addressed to that LRU alone. The activation stays in flight after the first confirmation, so
     /// each LRU's positive `ACTCON` starts that LRU's procedure, its objects
     /// belong to it and its `ACTTERM` ends it (TS 60870-5-604 5.4.17.10, index
     /// 65). Objects or a termination from an LRU that has not confirmed
@@ -973,7 +967,7 @@ impl Interrogation {
         }
         let answered = remove_one(&mut self.pending, &scope);
         if header.negative {
-            // "the station interrogation command may be repeated": a
+            // The command may be repeated after a refusal (cl.7.4.5): a
             // negative confirmation settles the activation in flight
             // and starts nothing. It cannot stop a procedure that is
             // already running (option 1 answers with this same frame
@@ -987,9 +981,8 @@ impl Interrogation {
             // interrogation outlives the first one's termination.
             // Only a confirmation that answers an activation of ours
             // counts: one `C_IC ACT` is one procedure (TS 60870-5-604
-            // Table 17: "A running GI means that the controlling
-            // station has not received the C_IC_ACTTERM after it has
-            // sent a C_IC_ACT"), so a repeated confirmation opens none.
+            // Table 17: a GI runs from its `C_IC_ACT` until the
+            // controlling station receives the `C_IC_ACTTERM`), so a repeated confirmation opens none.
             if answered {
                 self.running.push(scope);
             }
@@ -1157,7 +1150,7 @@ impl Interrogation {
             Some(current) => match self.policy {
                 ReActivation::Continue => self.confirmation_outcome(scope, true, header),
                 ReActivation::Restart => {
-                    // "the current GI is stopped": indicated with the
+                    // Option 2 stops the current GI: indicated with the
                     // termination that procedure owed, then the second
                     // activation is confirmed positively.
                     let stopped = self.terminate(current)?;
@@ -1180,8 +1173,8 @@ impl Interrogation {
                     self.confirmation_outcome(scope, true, header)
                 }
                 ReActivation::Queue => {
-                    // "mirrors the second Interrogation Command with
-                    // COT = 7, C_IC_ACTCON"; its data waits for the
+                    // Option 3 confirms the second command at once (its
+                    // mirror with cause 7, `C_IC_ACTCON`); its data waits for the
                     // first procedure's termination.
                     let confirmed = self.confirmation(scope, false, header)?;
                     self.queued.push(scope);
@@ -1202,7 +1195,7 @@ impl Interrogation {
                 self.confirmation_outcome(scope, false, header)
             }
             // Not ready: a negative confirmation changes no state, so
-            // "the station interrogation command may be repeated".
+            // the controlling station may repeat the command (cl.7.4.5).
             None => self.confirmation_outcome(scope, true, header),
         }
     }
@@ -1275,8 +1268,8 @@ impl Interrogation {
         frames.push(self.terminate(current)?);
         self.running.clear();
         self.awaiting_data = false;
-        // "After activation termination (COT=10) the Information Objects that
-        // are part of the second initiated GI are sent with the correct COT."
+        // Option 3: once the first GI's termination (cause 10) is out, the
+        // second GI's objects follow with their own cause.
         while let Some(next) = self.queued.first().copied() {
             self.queued.remove(0);
             frames.extend(collect(data, next, self.sizes, self.origin(next))?);

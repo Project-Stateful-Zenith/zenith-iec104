@@ -4,8 +4,8 @@
 //! Four pieces, none of them protocol code:
 //!
 //! - [`visit_monitor_layout`] reaches the crate's typed layout for a monitor
-//!   type identification octet, so a case can loop over *"each ASDU in the
-//!   PICS"* through the library's own generic producers (`tx::cyclic`,
+//!   type identification octet, so a case can loop over every ASDU the PICS
+//!   lists through the library's own generic producers (`tx::cyclic`,
 //!   `rd::answer`, ...) instead of writing octets by hand;
 //! - [`sample_value`] is one well-formed element of such a type, built from
 //!   [`sample_element`] (5-101 clause 7.3's geometry, time tags inside clause
@@ -52,9 +52,8 @@ pub trait LayoutVisitor {
 /// Every monitor type identification [`visit_monitor_layout`] reaches: the
 /// untagged types of 5-101 tables 8 and 10 that 104 clause 9 selects (`<1>` to
 /// `<21>`, without the `CP24Time2a` forms 104 does not permit) and the
-/// `CP56Time2a` set `<30>` to `<40>` (104 clause 9, PDF page index 100: *"In
-/// this companion standard only the use of the set <30> – <40> for ASDUs with
-/// time tag is permitted."*).
+/// `CP56Time2a` set `<30>` to `<40>` (104 clause 9, PDF page index 100: for
+/// time-tagged ASDUs this companion standard allows only `<30>` to `<40>`).
 pub const MONITOR_LAYOUTS: [u8; 21] = [
     1, 3, 5, 7, 9, 11, 13, 15, 20, 21, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
 ];

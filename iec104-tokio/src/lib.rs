@@ -199,9 +199,9 @@ pub enum Event {
     },
     /// Redundancy group: a frame on `conn` that the group refused and did not
     /// act on. That is an I- or S-frame on a connection that is not the
-    /// started one (10.5, 10.6: *"The controlled station shall only
-    /// acknowledge user data received on the connection on which it last
-    /// received a `STARTDT_ACT`"*), or a STARTDT act on a connection that is
+    /// started one (10.5, 10.6: the controlled station acknowledges user data
+    /// only on the connection where its most recent `STARTDT_ACT` arrived),
+    /// or a STARTDT act on a connection that is
     /// already over. Nothing was acknowledged or delivered; a peer that keeps
     /// doing this is misbehaving.
     FrameRefused {

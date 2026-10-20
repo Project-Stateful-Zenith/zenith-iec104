@@ -547,10 +547,9 @@ async fn clause_5_junk_after_a_frame_closes_the_connection() {
     Master::start(real, true).await;
 }
 
-/// 104 cl.5.3: *"In this state, the controlled station does not send any data
-/// via this connection, except unnumbered control functions and
-/// confirmations to such functions."* and *"Any pending user data in the
-/// controlled station is sent only after the STARTDT con."* The end of
+/// 104 cl.5.3: while stopped, the controlled station sends nothing on the
+/// connection but unnumbered control functions and their confirmations, and
+/// holds back pending user data until the STARTDT con. The end of
 /// initialisation comes first (5-101 Table 16's first row; 104 cl.7.1 figure
 /// 21), then the event that was waiting.
 #[tokio::test(start_paused = true)]
@@ -570,8 +569,8 @@ async fn clause_5_3_nothing_before_startdt_then_end_of_initialisation_first() {
     assert_eq!(master.next().await, scaled(SPONT, 1234));
 }
 
-/// TS 60870-5-604 5.4.12.30: after re-establishment *"no `M_EI` (End of
-/// initialisation) is sent (nor needed) to the Controlling station"*. The
+/// TS 60870-5-604 5.4.12.30: after re-establishment the controlling station
+/// gets no `M_EI` (end of initialisation), nor does it need one. The
 /// end of initialisation goes out on the first started connection only.
 #[tokio::test(start_paused = true)]
 async fn the_end_of_initialisation_is_sent_once() {
@@ -590,8 +589,8 @@ async fn the_end_of_initialisation_is_sent_once() {
 }
 
 /// 5-101 cl.7.4.5 and Table 17: the station interrogation is confirmed, the
-/// points come with cause 20 in their untagged types (*"ASDUs with cause of
-/// transmission 20 to 36 are transmitted without time tags"*), one ASDU per
+/// points come with cause 20 in their untagged types (ASDUs sent with causes
+/// 20 to 36 carry no time tag), one ASDU per
 /// type, and the termination ends it. The counter is not in it: counters
 /// answer the counter interrogation.
 #[tokio::test(start_paused = true)]
@@ -633,7 +632,7 @@ async fn a_silent_write_is_sent_when_asked_for() {
 }
 
 /// 104 cl.7.2 and 5-101 cl.7.4.2: a read returns the object with cause 5
-/// (*"Normally, these requested objects do not include the time tag."*); an
+/// (requested objects are normally sent without a time tag); an
 /// address the station has no point at is mirrored with cause 47 (5-101
 /// cl.7.2.3).
 #[tokio::test(start_paused = true)]
@@ -714,14 +713,13 @@ async fn clause_7_2_3_a_test_counter_interrogation_does_not_reset() {
     );
 }
 
-/// 104 cl.7.6: *"After the execution of the clock sync internally the
-/// controlled station generates a `C_CS` ACTCON PDU that contains the local
-/// time before it was synchronized."* The application gets the new time.
-/// Before it, a time-tagged event carries the invalid mark (*"This mark is
-/// also set after station initializiation (warm and cold boot) of controlled
-/// stations before reception of a valid `C_CS` ACT PDU."*); after it, not
-/// (*"Time-tagged events that occur after the reception of valid `C_CS` ACT PDU
-/// are transmitted without the mark."*).
+/// 104 cl.7.6: once the controlled station has set its clock, it answers with
+/// a `C_CS` `ACTCON` carrying its local time from before the correction. The
+/// application gets the new time. Before it, a time-tagged event carries the
+/// invalid mark (the mark also applies from a controlled station's
+/// initialisation, cold or warm start, until a valid `C_CS` `ACT` arrives);
+/// after it, not (events time-tagged after a valid `C_CS` `ACT` go out
+/// unmarked).
 #[tokio::test(start_paused = true)]
 async fn clause_7_6_clock_synchronisation_and_the_invalid_mark() {
     let config = config().point(4002, PointConfig::new(Value::Single(false)));
@@ -747,9 +745,9 @@ async fn clause_7_6_clock_synchronisation_and_the_invalid_mark() {
     assert_eq!(master.next().await, single_tagged(0x00, TIME));
 }
 
-/// 104 cl.7.6 names the alternative to the procedure: *"Use of this procedure
-/// avoids the necessity of installing clock synchronization receivers or
-/// similar equipment"*. A station whose clock such equipment keeps (GPS,
+/// 104 cl.7.6 names the alternative to the procedure: the procedure spares a
+/// station a dedicated time receiver or similar equipment. A station whose
+/// clock such equipment keeps (GPS,
 /// NTP) does not wait for a `C_CS ACT`: its time-tagged events carry no
 /// invalid mark from the start, and none after the agreed interval either.
 #[tokio::test(start_paused = true)]
@@ -796,9 +794,9 @@ async fn clause_7_7_direct_execute_confirmed_operated_terminated() {
     );
 }
 
-/// 5-101 cl.7.2.3: the test bit marks an ASDU *"generated during test
-/// conditions"*, used *"to test transmission and equipment without
-/// controlling the process"*. A `T = 1` execute is confirmed and terminated
+/// 5-101 cl.7.2.3: the test bit marks an ASDU produced under test
+/// conditions, for exercising transmission and equipment without acting on
+/// the process. A `T = 1` execute is confirmed and terminated
 /// under test conditions, and never operated; a `T = 1` clock synchronisation
 /// is answered under test conditions and does not set the clock.
 #[tokio::test(start_paused = true)]
@@ -887,8 +885,8 @@ async fn clause_7_7_unknown_address_and_refused_command() {
     assert!(side.operations.try_recv().is_err());
 }
 
-/// TS 60870-5-604 5.4.19.1: *"Command function EXECUTE after SELECT shall be
-/// received within the configured delay in the controlled station"*. An
+/// TS 60870-5-604 5.4.19.1: the execute that follows a select must reach the
+/// controlled station within the configured delay. An
 /// execute 11 s after its select, past the 10 s default, is refused with the
 /// negative confirmation (5.4.19.40); within it, it is operated.
 #[tokio::test(start_paused = true)]
@@ -916,9 +914,9 @@ async fn select_timeout() {
     assert_eq!(master.next().await, single_command(ACTTERM, IOA_4001, 0x01));
 }
 
-/// TS 60870-5-604 Table 19: *"Command function during a running general
-/// interrogation is processed and executed without waiting for the GI to
-/// finish."* An operation that takes a minute does not hold up an
+/// TS 60870-5-604 Table 19: a command arriving while a general interrogation
+/// runs is handled and executed at once, not after the GI ends. An operation
+/// that takes a minute does not hold up an
 /// interrogation that arrives meanwhile.
 #[tokio::test(start_paused = true)]
 async fn a_slow_operation_does_not_hold_up_an_interrogation() {
@@ -1110,10 +1108,9 @@ async fn clause_7_10_test_command_and_cause_44_for_parameters() {
     assert_eq!(master.next().await, mirror);
 }
 
-/// 5-101 cl.7.4, Table 16: *"If a controlled station has data for more than
-/// one of the following ASDU types ready for transmission at the same time,
-/// they must be sent in the following order regardless of which data was
-/// generated first."* With k = 1 (clause 5.5) and the one I-frame
+/// 5-101 cl.7.4, Table 16: when a controlled station has data of several of
+/// the table's ASDU types ready at once, it sends them in the table's order,
+/// whichever was produced first. With k = 1 (clause 5.5) and the one I-frame
 /// unconfirmed, an interrogation, an event and a command arrive in that
 /// order; as the window opens one frame at a time they go out as the table
 /// orders them: the command's mirror, the event, then the interrogation.
@@ -1160,9 +1157,9 @@ async fn table_16_orders_what_is_ready_at_the_same_time() {
     assert_eq!(master.next().await, single_command(ACTTERM, IOA_4001, 0x01));
 }
 
-/// 5-101 cl.7.2.2.2: *"The transmission of successive values of a particular
-/// INFORMATION OBJECT must always be in the chronological order in which the
-/// values were measured."* An event that overtakes a waiting interrogation
+/// 5-101 cl.7.2.2.2: successive values of one information object are always
+/// sent in the order they were measured. An event that overtakes a waiting
+/// interrogation
 /// does not leave the interrogation with an older value: it is encoded when
 /// it is handed over.
 #[tokio::test(start_paused = true)]
@@ -1215,30 +1212,28 @@ fn scaled_objects(cause: u8, objects: &[(u32, i16)]) -> Vec<u8> {
     asdu
 }
 
-/// 5-101 cl.7.4, Table 16: *"If a controlled station has data for more than
-/// one of the following ASDU types ready for transmission at the same time,
-/// they must be sent in the following order regardless of which data was
-/// generated first."* Its rows put *"45 to 69"* (*"Command transmission"*,
-/// *"Mirrored ASDUs"*) and *"1 to 44"* (*"Event reporting: In monitor
-/// direction with COT = 3"*) above *"100, 101"* (*"Station interrogation,
-/// transmission of integrated totals"*). The table holds while an
+/// 5-101 cl.7.4, Table 16: when a controlled station has data of several of
+/// the table's ASDU types ready at once, it sends them in the table's order,
+/// whichever was produced first. Its rows put types 45 to 69 (command
+/// transmission, mirrored ASDUs) and 1 to 44 (event reporting in the monitor
+/// direction, COT = 3) above 100 and 101 (station interrogation, integrated
+/// totals). The table holds while an
 /// interrogation's answer is being sent, not only before it starts: a
 /// command and an event that come up between two of its ASDUs go out before
 /// the rest of it.
 ///
 /// The station has 81 scaled points in the station interrogation (100 and
-/// 1001 to 1080). 104 clause 5: *"The maximum length of the ASDU is limited to
-/// 249"*; an `M_ME_NB_1` object with a three-octet address takes 6 octets
+/// 1001 to 1080). 104 clause 5 caps the ASDU at 249 octets; an `M_ME_NB_1`
+/// object with a three-octet address takes 6 octets
 /// after the 6 of the data unit identifier, so an ASDU holds 40 of them and
 /// the answer is three `M_ME_NB_1` ASDUs (40, 40 and 1 objects), then the
 /// `M_DP_NA_1` of 4001, then the termination (5-101 cl.7.4.5). With k = 1
 /// (clause 5.5) each acknowledgement opens room for one ASDU.
 ///
-/// The same paragraph of 5-101 cl.7.4 ends *"The chronological reporting
-/// requirements defined in 7.2.2.2 are valid."*, and 7.2.2.2 reads *"The
-/// transmission of successive values of a particular INFORMATION OBJECT must
-/// always be in the chronological order in which the values were
-/// measured."* The event for 1050 overtakes the ASDU that holds 1050, so
+/// The same paragraph of 5-101 cl.7.4 ends by keeping the chronological
+/// reporting rules of 7.2.2.2 in force, and 7.2.2.2 has successive values of
+/// one information object always sent in the order they were measured. The
+/// event for 1050 overtakes the ASDU that holds 1050, so
 /// that ASDU carries the event's value, not the older one.
 #[tokio::test(start_paused = true)]
 async fn table_16_holds_while_an_interrogation_is_being_sent() {
@@ -1326,19 +1321,17 @@ fn large_answer() -> Vec<Vec<u8>> {
 }
 
 /// TS 60870-5-604 5.4.17.50, *"Deactivate a running Outstation
-/// interrogation"*: *"The Controlling station sends an Interrogation Command
-/// with COT = 8, `C_IC_DEACT` to the Controlled station with QOI=20 (station)
-/// or 21..36 (group 1..16)"*, *"The Controlled station sends an Interrogation
-/// Command with COT = 9, `C_IC_DEACTCON` to the Controlling station"*, then
-/// *"No further Information Objects that are part of the GI for that QOI are
-/// sent to the Controlling station. No Interrogation Command with COT = 10
-/// (ACTTERM) to the Controlling station"*.
+/// interrogation"*: the controlling station sends the interrogation command
+/// with COT = 8 (`C_IC_DEACT`) and QOI = 20 (station) or 21..36 (groups
+/// 1..16); the controlled station confirms with COT = 9 (`C_IC_DEACTCON`),
+/// then sends no more objects of that QOI's interrogation and no COT = 10
+/// (`ACTTERM`).
 ///
 /// The deactivation arrives after the first of the answer's four data ASDUs,
 /// while the rest wait for room in the k = 1 window. The interrogation is
-/// still running (TS 60870-5-604 Table 17: *"A running GI means that the
-/// controlling station has not received the `C_IC_ACTTERM` after it has sent
-/// a `C_IC_ACT`"*), so the confirmation is positive, and nothing of the answer
+/// still running (TS 60870-5-604 Table 17: a GI counts as running from the
+/// controlling station's `C_IC_ACT` until it receives the `C_IC_ACTTERM`), so
+/// the confirmation is positive, and nothing of the answer
 /// follows it. A later group interrogation is answered in full.
 #[tokio::test(start_paused = true)]
 async fn ts_604_5_4_17_50_a_deactivation_stops_the_answer_being_sent() {
@@ -1370,8 +1363,8 @@ async fn ts_604_5_4_17_50_a_deactivation_stops_the_answer_being_sent() {
 }
 
 /// TS 60870-5-604 5.4.17.30, *"Re-activate a running Outstation
-/// interrogation"*, *"Option 2: the running GI is stopped and the second GI
-/// is started"* (`ReActivation::Restart`). The second activation arrives
+/// interrogation"*, option 2: the running GI is abandoned and the second one
+/// begins (`ReActivation::Restart`). The second activation arrives
 /// after the first data ASDU: the stopped interrogation sends nothing more
 /// of its answer, and the second one sends the whole answer from the start,
 /// then its termination (5-101 cl.7.4.5). The stopped one is closed with a
@@ -1404,8 +1397,8 @@ async fn ts_604_5_4_17_30_a_restart_stops_the_answer_being_sent() {
     assert!(master.silent_for(Duration::from_secs(5)).await);
 }
 
-/// TS 60870-5-604 5.4.17.40, *"Option 3: the running GI continues and after
-/// activation termination (COT=10) the second GI is started."*
+/// TS 60870-5-604 5.4.17.40, option 3: the running GI carries on, and the
+/// second one begins after its activation termination (COT = 10)
 /// (`ReActivation::Queue`). A group 1 interrogation arrives while the station
 /// interrogation's confirmation waits for its acknowledgement (k = 1). The
 /// second is confirmed, and each procedure keeps 5-101 Table 17's order:
@@ -1464,9 +1457,9 @@ fn totals(cause: u8, objects: &[(u32, i32)]) -> Vec<u8> {
 }
 
 /// The counter interrogation's answer is sent the same way: 5-101 Table 16
-/// puts *"101"* in the same row as *"100"*, below event reporting. 31
+/// puts type 101 in the same row as 100, below event reporting. 31
 /// counters (200 and 1201 to 1230) need two `M_IT_NA_1` ASDUs: an object
-/// takes 8 octets, so 30 fit in 104 clause 5's *"249"*. An event for 1230
+/// takes 8 octets, so 30 fit in 104 clause 5's 249. An event for 1230
 /// reported while the first ASDU waits for its acknowledgement goes out
 /// before the second, and the second carries the event's reading (5-101
 /// cl.7.2.2.2). No freeze was made, so the counters answer with their
@@ -1512,8 +1505,8 @@ async fn table_16_holds_while_a_counter_interrogation_is_being_sent() {
     assert_eq!(master.next().await, counter_interrogation(ACTTERM, 0x05));
 }
 
-/// TS 60870-5-604 5.4.16.1's *"Local buffer function to collect events that
-/// may appear faster than it is possible to transmit them"*: its size is the
+/// TS 60870-5-604 5.4.16.1's local event buffer, which holds events arriving
+/// faster than they can be sent: its size is the
 /// station's. Beyond it the oldest event is dropped and counted.
 #[tokio::test(start_paused = true)]
 async fn the_event_buffer_drops_the_oldest() {
@@ -1556,9 +1549,9 @@ async fn the_request_buffer_drops_new_requests() {
     assert_eq!(server.dropped().await, Ok(100 - u64::from(k) - 2));
 }
 
-/// 104 cl.10.6: *"any unconfirmed user data will be retransmitted on the new
-/// started connection after a connection switchover has been performed,
-/// including potential unconfirmed ACTCONs or ACTTERMs."* An event the first
+/// 104 cl.10.6: after a switchover, all user data still unconfirmed, any
+/// unconfirmed ACTCONs or ACTTERMs among it, is sent again on the newly
+/// started connection. An event the first
 /// connection did not confirm goes out again on the second, once the
 /// controlling station starts it (10.7: the first one is closed).
 #[tokio::test(start_paused = true)]

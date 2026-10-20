@@ -2,17 +2,17 @@
 //!
 //! Every rule asserted here is read off IEC 60870-5-104:2006:
 //!
-//! - **t0**: clause 9 interoperability list ("t0 30 s — Time-out of connection
-//!   establishment"); clause 10's connection diagrams raise it per connection
-//!   attempt ("Timeout t0"), and clause 10 states "It should be possible to set
-//!   the values of the timers t0 to t3 individually for each connection".
-//! - **t1**: figures 17/18 NOTE 2: "t1 is the timer of a sent U-frame or
-//!   I-frame"; figures 15/16 mark `Temporisateur t1` on the STARTDT act and
+//! - **t0**: clause 9 interoperability list (t0, 30 s, the time-out for
+//!   establishing a connection); clause 10's connection diagrams raise it per
+//!   connection attempt (`Timeout t0`), and clause 10 recommends that t0 to t3
+//!   be settable separately for each connection.
+//! - **t1**: figures 17/18 NOTE 2: t1 times a sent U-frame or I-frame;
+//!   figures 15/16 mark `Temporisateur t1` on the STARTDT act and
 //!   STOPDT act, and figure 14 draws `Time-out t1` → `Active close`.
 //! - **t2**: clause 5.2/5.5; figures 10/11 mark `Temporisateur t2`, and clause
 //!   5.5's w is the other half of the same acknowledgement decision.
-//! - **t3**: clause 5.2 verbatim: "The reception of every frame – I frame,
-//!   S frame or U frame – retriggers timer t3"; figure 13 draws the expiry as
+//! - **t3**: clause 5.2: any received frame, whether I, S or U, restarts t3;
+//!   figure 13 draws the expiry as
 //!   `Time-out t3` → `U (TESTFR act)`.
 //!
 //! No wall-clock read happens anywhere in the crate: the scheduler is handed
@@ -74,7 +74,7 @@ fn nothing_is_armed_on_a_fresh_scheduler() {
 
 #[test]
 fn t0_fires_at_the_connection_timeout_and_not_before() {
-    // clause 9: "t0 30 s — Time-out of connection establishment".
+    // clause 9: t0, 30 s, the connection-establishment time-out.
     let b = base();
     let mut tm = scheduler();
     tm.connection_attempt(b);
@@ -102,8 +102,7 @@ fn connection_established_cancels_t0_and_arms_t3() {
 
 #[test]
 fn t3_is_retriggered_by_every_received_frame() {
-    // clause 5.2: "The reception of every frame – I frame, S frame or U frame –
-    // retriggers timer t3."
+    // clause 5.2: any received frame, whether I, S or U, restarts t3.
     let b = base();
     let mut tm = scheduler();
     tm.connection_established(b);
@@ -164,7 +163,7 @@ fn every_due_timer_is_reported_in_a_fixed_order() {
 
 #[test]
 fn t1_is_armed_by_a_sent_frame_and_cancelled_by_its_confirmation() {
-    // figures 17/18 NOTE 2: "t1 is the timer of a sent U-frame or I-frame"; it
+    // figures 17/18 NOTE 2: t1 times a sent U-frame or I-frame; it
     // is cancelled the moment the frame it supervises is confirmed.
     let b = base();
     let mut tm = scheduler();
@@ -271,8 +270,7 @@ fn the_parameters_are_validated() {
 
 #[test]
 fn the_time_outs_are_read_from_the_link_parameters() {
-    // clause 10: "It should be possible to set the values of the timers t0 to t3
-    // individually for each connection."
+    // clause 10: t0 to t3 should be settable separately for each connection.
     let b = base();
     let params = LinkParams {
         t0: Duration::from_secs(5),
@@ -311,8 +309,8 @@ fn a_t0_expiry_is_the_failed_connection_attempt() {
 #[test]
 fn a_t1_expiry_produces_the_active_close() {
     // Figure 15: the STARTDT act is supervised by `Temporisateur t1`. Clause 5.3:
-    // "If the STARTDT is not confirmed, the connection is closed by the
-    // controlling station"; and figure 14's `Time-out t1` → `Active close`.
+    // an unconfirmed STARTDT makes the controlling station close the
+    // connection; and figure 14's `Time-out t1` → `Active close`.
     let b = base();
     let mut s = Session::new(Role::Controlling);
     s.on_connection_established();
@@ -411,10 +409,9 @@ fn a_confirmed_test_frame_cancels_t1_and_restarts_t3() {
 
 #[test]
 fn a_received_test_frame_keeps_our_own_idle_timer_alive() {
-    // clause 5.2: "Station B has to supervise the connection independently.
-    // However, as long as it receives test frames from station A, it will not
-    // send test frames." The mechanism is the sentence before it ("The
-    // reception of every frame ... retriggers timer t3"), so the peer's act both
+    // clause 5.2: station B supervises the connection on its own, yet sends no
+    // test frames of its own while station A's keep arriving. The mechanism is
+    // the sentence before it (any received frame restarts t3), so the peer's act both
     // gets its con and moves our own deadline: no act of ours is due at the
     // instant our own t3 would otherwise have fired.
     let b = base();

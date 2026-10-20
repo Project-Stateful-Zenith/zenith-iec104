@@ -1,13 +1,12 @@
 //! IEC 60870-5-104 clause **9**: the interoperability support matrix, as data.
 //!
 //! Clause 9 is the one clause of the companion standard that is a **form**. Its
-//! opening calls its content *"sets of parameters and alternatives from which
-//! subsets must be selected to implement particular telecontrol systems"* and
-//! states the rule that makes it a profile: *"This means that only one value of
-//! the defined parameters is admitted per system."* (index 94, printed 93). Its
-//! closing sentence is why this module exists: *"If a system is composed of
-//! equipment stemming from different manufacturers, it is necessary that all
-//! partners agree on the selected parameters."*
+//! opening describes its content as parameter sets and alternatives from which
+//! a given telecontrol system has to pick a subset, and states the rule that
+//! makes it a profile: a system admits exactly one value per defined parameter
+//! (index 94, printed 93). Its closing sentence is why this module exists: when
+//! a system mixes equipment from several manufacturers, every partner has to
+//! agree on the parameters selected.
 //!
 //! Several parts of clause 9 are already values in their own modules:
 //! [`crate::asdu::AddressSizes`] (9.5's system parameters),
@@ -23,32 +22,29 @@
 //!
 //! # The marking scheme
 //!
-//! Verbatim from index 94: *"The selected parameters should be marked in the
-//! white boxes as follows:"*
+//! Index 94 has the selection marked in the white boxes, with four marks:
 //!
-//! > Function or ASDU is not used
-//! > **X** Function or ASDU is used as standardized (default)
-//! > **R** Function or ASDU is used in reverse mode
-//! > **B** Function or ASDU is used in standard and reverse mode
+//! | Mark | Meaning |
+//! | --- | --- |
+//! | blank | the function or ASDU is not used |
+//! | **X** | used as standardized (the default) |
+//! | **R** | used in reverse mode |
+//! | **B** | used in both standard and reverse mode |
 //!
-//! and the two sentences that bound it: *"The possible selection (blank, X, R, or
-//! B) is specified for each specific clause or parameter."* and *"A black check
-//! box indicates that the option cannot be selected in this companion
-//! standard."* The four letters are [`Direction`]'s four variants; blank is
+//! Two more rules bound it: each clause or parameter states which of blank,
+//! X, R and B it allows, and a black box is an option 104 does not allow at
+//! all. The four letters are [`Direction`]'s four variants; blank is
 //! [`Direction::NotUsed`].
 //!
 //! # The type/cause grid
 //!
 //! Index 104 (printed 103) and index 106 (printed 105) print
 //! *"Type identifier and cause of transmission assignments (station-specific
-//! parameters)"* with the rule
-//!
-//! > Mark Type Identification/Cause of transmission combinations: *"X"* if only
-//! > used in the standard direction; *"R"* if only used in the reverse
-//! > direction; *"B"* if used in both directions.
-//!
-//! and the header *"Shaded boxes: option not required. Black boxes: option not
-//! permitted in this companion standard Blank: functions or ASDU not used."* Its
+//! parameters)"*. Each type/cause combination is marked `X` when used only in
+//! the standard direction, `R` when used only in the reverse direction and `B`
+//! when used in both. The legend gives three box fills: shaded (option not
+//! required), black (option not permitted in 104) and blank (function or ASDU
+//! not used). Its
 //! column header reads `1 2 3 4 5 6 7 8 9 10 11 12 13 20 to 36 37 to 41 44 45 46
 //! 47`: **nineteen** columns ([`CAUSE_COLUMNS`]). [`InteropProfile`] stores the
 //! grid as the table it is, [`TYPE_ROWS`] × [`CAUSE_COLUMNS`], each cell one
@@ -68,26 +64,23 @@
 //! Three values on clause 9's pages are **not** configurable and this module
 //! does not make them so:
 //!
-//! - the application-data transmission mode (index 98): *"Mode 1 (Least
-//!   significant octet first), as defined in 4.10 of IEC 60870-5-4, is used
-//!   exclusively in this companion standard."*
-//! - the APDU length (index 98): *"The maximum length of APDU for both
-//!   directions is 253. It is a fixed system parameter."*
+//! - the application-data transmission mode (index 98): 104 uses only mode 1
+//!   of IEC 60870-5-4 clause 4.10, least significant octet first;
+//! - the APDU length (index 98): at most 253 in both directions, a fixed system
+//!   parameter;
 //! - clause 9.3's physical layer and 9.4's link layer (index 96), which 104
-//!   strike through: *"Frame format FT 1.2, single character 1 and the fixed
-//!   time out interval are used exclusively in this companion standard."*
+//!   strike through: 104 uses only frame format FT 1.2, single character 1 and
+//!   the fixed time-out interval.
 //!
 //! # The time-outs are `LinkParams`, not a second type
 //!
 //! Clause 9.6's *"Definition of time outs"* (index 114) prints `t0 30 s`,
-//! `t1 15 s`, `t2 10 s`, `t3 20 s` with *"Maximum range for timeouts t0 to t2:
-//! 1 s to 255 s, accuracy 1 s."* and *"Recommended range for timeout t3: 1 s to
-//! 48 h, resolution 1 s."*, and the *"Maximum number of outstanding I format
-//! APDUs k and latest acknowledge APDUs (w)"* table prints `k 12 APDUs`, `w 8
-//! APDUs` with *"Maximum range of values k: 1 to 32767 (215–1) APDUs, accuracy 1
-//! APDU"*. Those are exactly [`crate::params::LinkParams`]' fields, its
-//! `Default` and its `validate`, so [`InteropProfile::link`] **is** a
-//! `LinkParams`.
+//! `t1 15 s`, `t2 10 s`, `t3 20 s`, with t0 to t2 ranging at most from 1 s to
+//! 255 s in 1 s steps and t3 recommended from 1 s to 48 h in 1 s steps; the k/w
+//! table prints `k 12 APDUs`, `w 8 APDUs`, with k ranging at most from 1 to
+//! 32767 (2^15 − 1) APDUs in steps of one APDU. Those are exactly
+//! [`crate::params::LinkParams`]' fields, its `Default` and its `validate`, so
+//! [`InteropProfile::link`] **is** a `LinkParams`.
 //!
 //! # How the profile is used
 //!
@@ -131,9 +124,8 @@ use crate::{ci, ft, ts};
 /// The sheet's marking scheme (index 94): blank, `X`, `R` or `B`, one per
 /// variant, in the standard's order.
 ///
-/// *"The possible selection (blank, X, R, or B) is specified for each specific
-/// clause or parameter."* So a [`Direction`] is the value of **one row or one
-/// cell** of clause 9.
+/// Each clause or parameter states which of blank, X, R and B it allows, so a
+/// [`Direction`] is the value of **one row or one cell** of clause 9.
 ///
 /// Do not confuse it with [`crate::asdu::Direction`], which is the direction a
 /// *type identification* may travel (monitor, control or both). A
@@ -142,13 +134,13 @@ use crate::{ci, ft, ts};
 /// own direction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Direction {
-    /// Blank: *"Function or ASDU is not used"*.
+    /// Blank: the function or ASDU is not used.
     NotUsed,
-    /// `X`: *"Function or ASDU is used as standardized (default)"*.
+    /// `X`: used as standardized, the default.
     Standard,
-    /// `R`: *"Function or ASDU is used in reverse mode"*.
+    /// `R`: used in reverse mode.
     Reverse,
-    /// `B`: *"Function or ASDU is used in standard and reverse mode"*.
+    /// `B`: used in both standard and reverse mode.
     Both,
 }
 
@@ -163,15 +155,14 @@ impl Direction {
         !matches!(self, Self::NotUsed)
     }
 
-    /// Whether the mark is `X`, *"only used in the standard direction"*.
+    /// Whether the mark is `X`, used in the standard direction only.
     #[must_use]
     pub const fn is_standard(self) -> bool {
         matches!(self, Self::Standard)
     }
 
     /// Whether the mark says the function is used against the standard
-    /// direction: `R` (*"only used in the reverse direction"*) or `B` (*"used
-    /// in both directions"*).
+    /// direction: `R` (reverse direction only) or `B` (both directions).
     #[must_use]
     pub const fn is_reverse(self) -> bool {
         matches!(self, Self::Reverse | Self::Both)
@@ -276,9 +267,9 @@ pub const CAUSE_COLUMNS: [CauseColumn; 19] = [
 /// their order.
 ///
 /// The list is the sheet's own, **including** the rows 104 black-boxes
-/// (`<104>` and `<106>`: *"Black boxes: option not permitted in this companion
-/// standard"*) and the `CP24Time2a` types it does not select. A profile is a
-/// form, so a row with every cell blank is a statement, not a missing entry.
+/// (`<104>` and `<106>`: black boxes, an option 104 does not permit) and the
+/// `CP24Time2a` types it does not select. A profile is a form, so a row with
+/// every cell blank is a statement, not a missing entry.
 pub const TYPE_ROWS: [TypeId; 67] = [
     TypeId::MSpNa1,
     TypeId::MSpTa1,
@@ -383,32 +374,31 @@ pub fn column_of(cause: Cause) -> Option<usize> {
 /// One box of the sheet's clause 9 type/cause grid, as index 104 and index 106
 /// draw it: the fill the box carries, which the legend beside the grid names.
 ///
-/// *"Shaded boxes: option not required. Black boxes: option not permitted in
-/// this companion standard Blank: functions or ASDU not used."* (index 104).
-/// The marking rule addresses the white boxes: *"The selected parameters should
-/// be marked in the white boxes"* (index 94), so a white box is the only box a
-/// station may select.
+/// The legend (index 104) has shaded boxes for options that are not required,
+/// black boxes for options 104 does not permit, and blank for functions or
+/// ASDUs not used. The marking rule puts the selection in the white boxes
+/// (index 94), so a white box is the only box a station may select.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Cell {
     /// White: a combination the station may select (`X`, `R` or `B`).
     White,
-    /// Shaded: *"option not required"*, so the station need not implement it.
+    /// Shaded: the option is not required, so the station need not implement it.
     Shaded,
-    /// Black: *"option not permitted in this companion standard"*, so no
+    /// Black: the option is not permitted in 104, so no
     /// station of this companion standard may select it.
     Black,
 }
 
 impl Cell {
     /// Whether the sheet lets a station mark this box at all: white only
-    /// (index 94's *"marked in the white boxes"*).
+    /// (index 94 puts the selection in the white boxes).
     #[must_use]
     pub const fn is_selectable(self) -> bool {
         matches!(self, Self::White)
     }
 
-    /// Whether the sheet **forbids** the combination:
-    /// *"Black boxes: option not permitted in this companion standard"*.
+    /// Whether the sheet **forbids** the combination: a black box, an option 104
+    /// does not permit.
     #[must_use]
     pub const fn is_not_permitted(self) -> bool {
         matches!(self, Self::Black)
@@ -551,7 +541,7 @@ const fn decode_row(mut boxes: &[u8], mut cells: &mut [Cell]) {
 /// The conventional grid: [`SHEET`]'s white boxes, in the standard direction.
 ///
 /// Nothing is derived from the crate's catalogue: each white box is marked `X`
-/// (*"only used in the standard direction"*) and every shaded or black box
+/// (standard direction only) and every shaded or black box
 /// stays blank.
 fn conventional_grid() -> Grid {
     SHEET.map(|boxes| {
@@ -571,14 +561,11 @@ fn conventional_grid() -> Grid {
 /// Each variant is one row the sheet prints, and the profile holds one
 /// [`Direction`] per variant. Clause 9.6's station interrogation, clock
 /// synchronization and command transmission rows are not in this list. The
-/// sheet uses two marking sentences:
+/// sheet marks rows in two ways, both as station-specific parameters: either
+/// `X` when the function is used, or `X` (standard direction only), `R`
+/// (reverse direction only) or `B` (both directions).
 ///
-/// > (station-specific parameter, mark " **X** " if function is used)
-/// > (station-specific parameter, mark " **X** " if function is only used in the
-/// > standard direction, " **R** " if only used in the reverse direction, and
-/// > " **B** " if used in both directions)
-///
-/// The **three** rows behind the first sentence (index 108's *"Station
+/// The **three** rows marked the first way (index 108's *"Station
 /// initialization"* and the two direction rows of index 114's *"File
 /// transfer"*) have **two** values, blank or `X` ([`Function::is_used_only`]);
 /// the other ten are four-valued. Both are stored as [`Direction`].
@@ -593,14 +580,12 @@ pub enum Function {
     /// *"Spontaneous transmission"* (index 108).
     SpontaneousTransmission,
     /// *"Double transmission of information objects with cause of transmission
-    /// spontaneous"* (index 108): *"both a Type ID without time and corresponding
-    /// Type ID with time are issued in response to a single spontaneous change
-    /// of a monitored object"*.
+    /// spontaneous"* (index 108): one spontaneous change of a monitored object
+    /// produces both the type without time and its matching type with time.
     ///
-    /// The sheet marks this row **per information type** (*"mark each
-    /// information type \"X\" where both a Type ID without time and corresponding
-    /// Type ID with time are issued in response to a single spontaneous change of
-    /// a monitored object"*) and leaves the addresses to a project-specific list,
+    /// The sheet marks this row **per information type** (`X` for each type
+    /// where one spontaneous change yields both the untagged and the matching
+    /// tagged type) and leaves the addresses to a project-specific list,
     /// so one [`Direction`] here is a simplification: the profile records the
     /// station's answer for the row as a whole. The per-type pairs and the
     /// address list are [`crate::tx::DoublePair`] and [`crate::tx::ProjectList`].
@@ -608,23 +593,23 @@ pub enum Function {
     /// *"Transmission of integrated totals"* (index 112): the row whose value
     /// is [`crate::ci::CounterMode`]'s four modes A to D.
     IntegratedTotals,
-    /// *"Parameter loading"* (index 112), an *"object-specific parameter"*.
+    /// *"Parameter loading"* (index 112), an object-specific parameter.
     ParameterLoading,
-    /// *"Parameter activation"* (index 112), an *"object-specific parameter"*.
+    /// *"Parameter activation"* (index 112), an object-specific parameter.
     ParameterActivation,
     /// *"Test procedure"* (index 112): the row whose value is
     /// [`crate::ts::Form`].
     TestProcedure,
-    /// *"File transfer in monitor direction"* (index 114): *"mark \"X\" if
-    /// function is used"*.
+    /// *"File transfer in monitor direction"* (index 114): marked `X` when the
+    /// function is used.
     FileTransferMonitor,
     /// *"File transfer in control direction"* (index 114).
     FileTransferControl,
     /// *"Background scan"* (index 114).
     BackgroundScan,
     /// *"Acquisition of transmission delay"* (index 114). 104 strikes it
-    /// through (*"the text descriptions of parameters which are not applicable
-    /// to this companion standard are strike-through"*, index 94), so a 104
+    /// through (index 94: descriptions of parameters that do not apply to 104
+    /// are struck through), so a 104
     /// station leaves it [`Direction::NotUsed`] and a profile that marks it is a
     /// 5-101 one.
     AcquisitionOfTransmissionDelay,
@@ -710,9 +695,9 @@ impl Function {
         }
     }
 
-    /// Whether the row is one of the **three** the sheet marks *"if function is
-    /// used"*: a two-valued row (blank or `X`), not a directional one. The
-    /// sheet prints that sentence twice, for index 108's *"Station
+    /// Whether the row is one of the **three** the sheet marks only for whether
+    /// the function is used: a two-valued row (blank or `X`), not a directional
+    /// one. The sheet uses that marking twice, for index 108's *"Station
     /// initialization"* and for index 114's *"File transfer"*, whose two
     /// direction rows are [`Function::FileTransferMonitor`] and
     /// [`Function::FileTransferControl`].
@@ -726,7 +711,7 @@ impl Function {
 }
 
 /// A station's clause 9 interoperability profile: the values the standard
-/// leaves *"to be selected"* for one device, as one value.
+/// leaves to be selected for one device, as one value.
 ///
 /// It carries the existing types rather than copies of them:
 /// [`crate::asdu::AddressSizes`] (9.5's CA/IOA/COT widths),
@@ -771,8 +756,8 @@ impl InteropProfile {
     /// Every [`Function`] row is marked [`Direction::Standard`] except
     /// *"Acquisition of transmission delay"*, which 104 strikes through (index
     /// 114) and which is therefore [`Direction::NotUsed`]. The grid is
-    /// [`SHEET`]'s white boxes, each marked `X` (*"only used in the standard
-    /// direction"*): the standard's own selection (303 of the 1 273 boxes), not
+    /// [`SHEET`]'s white boxes, each marked `X` (standard direction only): the
+    /// standard's own selection (303 of the 1 273 boxes), not
     /// a derivation from the crate's catalogue.
     #[must_use]
     pub fn conventional() -> Self {
@@ -826,7 +811,7 @@ impl InteropProfile {
     /// - a pair the sheet's grid does not print at all: a private or reserved
     ///   type, or a cause outside [`CAUSE_COLUMNS`];
     /// - a box the sheet fills **black** ([`SHEET`], `Cell::Black`), which the
-    ///   legend calls *"option not permitted in this companion standard"*, so
+    ///   legend marks as not permitted in 104, so
     ///   the builder refuses it rather than recording an illegal mark.
     ///   `C_CS_NA_1` `<103>` with cause 3 (`Spontaneous`) is one such box.
     ///
@@ -852,8 +837,8 @@ impl InteropProfile {
     /// except the boxes the sheet fills black.
     ///
     /// For a type the grid does not print the profile is unchanged (see
-    /// [`with_cell`](Self::with_cell)). A black box (*"option not permitted in
-    /// this companion standard"*) stays [`Direction::NotUsed`]; white and
+    /// [`with_cell`](Self::with_cell)). A black box (an option 104 does not
+    /// permit) stays [`Direction::NotUsed`]; white and
     /// shaded boxes are both marked.
     #[must_use]
     pub fn with_type_row(mut self, type_id: TypeId, direction: Direction) -> Self {
@@ -885,7 +870,7 @@ impl InteropProfile {
     }
 
     /// The mark the grid gives one (`type_id`, `cause`) pair: index 104's
-    /// *"Mark Type Identification/Cause of transmission combinations"*.
+    /// per-combination type/cause mark.
     ///
     /// [`Direction::NotUsed`] for a pair the sheet's grid has no cell for: a
     /// type identification outside [`TYPE_ROWS`], or a cause outside

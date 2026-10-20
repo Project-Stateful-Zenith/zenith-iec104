@@ -200,8 +200,8 @@ fn the_type_is_the_catalogues_103_and_its_element_is_seven_octets() {
 
 #[test]
 fn the_controlled_station_answers_with_the_time_it_had_before_the_correction() {
-    // 5-104 cl.7.6: the ACTCON "contains the local time before it was
-    // synchronized". The request is sent at 13:16, the station's own clock read
+    // 5-104 cl.7.6: the ACTCON carries the station's local time as it was
+    // before the synchronisation. The request is sent at 13:16, the station's own clock read
     // 12:16 before the correction is applied.
     let sent = worked();
     let before = Cp56Time2a {
@@ -261,8 +261,8 @@ fn a_broadcast_request_keeps_the_broadcast_address() {
 
 #[test]
 fn the_answer_to_a_broadcast_carries_the_stations_own_address() {
-    // "ACTCON … are returned with the specific common addresses of the
-    // controlled stations" (cl.7.2.4). The module never rewrites one into the
+    // The ACTCON comes back under each controlled station's own specific
+    // common address (cl.7.2.4). The module never rewrites one into the
     // other, so the request's broadcast is still on the request and the
     // station's own address is on the answer.
     let broadcast = request(worked(), 0xFFFF, 0).expect("the layout builds it");
@@ -282,11 +282,11 @@ fn the_answer_to_a_broadcast_carries_the_stations_own_address() {
 
 #[test]
 fn the_answer_echoes_the_originator_address_of_the_request() {
-    // 5-101 cl.7.2.3: "the information source should set the originator address
-    // of the ASDUs in the command direction, and the controlled station should
-    // echo this originator address in the response in the monitor direction",
-    // because "the returned information is only of importance for the source
-    // which initiated the request or the command". TS 60870-5-604 Table 18's row
+    // 5-101 cl.7.2.3: the source of a command-direction ASDU should put its
+    // originator address in it, and the controlled station should return that
+    // address in its monitor-direction response, because only the source that
+    // issued the request or command has a use for what comes back. TS
+    // 60870-5-604 Table 18's row
     // 5.4.18.1 calls this frame a mirror of ASDU 103. The station's own
     // originator is 0 here and the request's is 42, so the two cannot be
     // confused.
@@ -311,9 +311,9 @@ fn the_answer_echoes_the_originator_address_of_the_request() {
     );
 }
 
-/// 5-101 cl.7.2.3: the `T` bit marks an ASDU *"generated during test
-/// conditions"*, used *"to test transmission and equipment without
-/// controlling the process"*. The answer to a `T = 1` request echoes it, the
+/// 5-101 cl.7.2.3: the `T` bit marks an ASDU produced under test conditions,
+/// which exist to exercise the transmission path and the equipment without
+/// acting on the process. The answer to a `T = 1` request echoes it, the
 /// reaction reports it, and the clock is not counted as synchronised.
 #[test]
 fn a_test_request_is_answered_under_test_and_does_not_synchronise() {
@@ -407,10 +407,10 @@ fn a_negative_confirmation_reports_its_flag() {
 
 #[test]
 fn a_negative_activation_is_still_classified_as_a_request() {
-    // 5-101 cl.7.2.3: "The P/N-bit indicates the positive or negative
-    // confirmation of activation requested by the primary application function.
-    // In the case of irrelevance, the P/N-bit is zero." Figure 75's
-    // control-direction list prints only "<6> activation", so a negative
+    // 5-101 cl.7.2.3: the P/N bit says whether the confirmation of an
+    // activation the primary application function asked for is positive or
+    // negative, and is zero where it has no meaning. Figure 75's
+    // control-direction list prints only `<6>` (activation), so a negative
     // activation is a value this type does not define, and the clause's discard
     // rule is about undefined *causes of transmission* for a type
     // identification, not about this bit. The module therefore reads the cause,
@@ -738,9 +738,9 @@ fn the_day_of_week_is_carried_unchanged() {
 
 #[test]
 fn the_invalid_and_summer_time_bits_are_carried() {
-    // 5-101 cl.7.4.6: "Bit IV is set to 1 if the clock is not synchronized for a
-    // specific period of time" and "The summer-time bit is ignored in both
-    // controlling and controlled stations, and should be set to zero." The
+    // 5-101 cl.7.4.6: IV becomes 1 when the clock has gone unsynchronised for
+    // a given period, and both station types ignore the summer-time bit,
+    // which should be zero. The
     // marking is the application's, but the bits must survive the frame.
     let time = Cp56Time2a {
         invalid: true,
@@ -830,14 +830,12 @@ fn the_addressing_accessors_report_what_was_built() {
 
 // ------------------------------------- clause 7.6: the time tag's invalid mark
 //
-// 5-104 cl.7.6 (PDF page index 66, printed page 65), verbatim: "Controlled
-// stations expect the reception of clock synchronization messages within agreed
-// time intervals. When the synchronization command does not arrive within this
-// time interval, the controlled station sets all time-tagged information objects
-// with a mark that the time tag may be inaccurate (invalid). This mark is also
-// set after station initializiation (warm and cold boot) of controlled stations
-// before reception of a valid C_CS ACT PDU. Time-tagged events that occur after
-// the reception of valid C_CS ACT PDU are transmitted without the mark."
+// 5-104 cl.7.6 (PDF page index 66, printed page 65), in summary: a controlled
+// station expects a clock synchronisation within an agreed interval. If none
+// arrives in time, it marks every time-tagged information object as possibly
+// inaccurate (invalid). It sets the same mark after a warm or cold start, until
+// the first valid `C_CS` activation arrives; events time-tagged after a valid
+// `C_CS` activation are sent without the mark.
 //
 // The mark is the IV bit: 5-101 cl.7.2.6.18 (PDF page index 52, printed 51)
 // lists CP56Time2a's fields as "milliseconds,minutes,RES1,invalid,...", so the
@@ -865,8 +863,8 @@ fn octets(time: Cp56Time2a) -> Vec<u8> {
     out
 }
 
-/// Clause 7.6: "This mark is also set after station initializiation ... before
-/// reception of a valid `C_CS` ACT PDU." A new record is the state after a boot.
+/// Clause 7.6: a station start also sets the mark, until the first valid
+/// `C_CS` activation arrives. A new record is the state after a boot.
 #[test]
 fn every_time_tag_is_marked_invalid_before_the_first_synchronisation() {
     let boot = Instant::now();
@@ -891,8 +889,8 @@ fn every_time_tag_is_marked_invalid_before_the_first_synchronisation() {
     assert_eq!(out, [0x55, 0x69, 0x90], "cl.7.2.6.19: the same octet");
 }
 
-/// Clause 7.6: "Time-tagged events that occur after the reception of valid
-/// `C_CS` ACT PDU are transmitted without the mark."
+/// Clause 7.6: events time-tagged after a valid `C_CS` activation are sent
+/// without the mark.
 #[test]
 fn a_positive_synchronisation_clears_the_mark() {
     let boot = Instant::now();
@@ -919,9 +917,9 @@ fn a_positive_synchronisation_clears_the_mark() {
     assert!(validity.mark(already, synced).invalid);
 }
 
-/// Clause 7.6: "When the synchronization command does not arrive within this
-/// time interval, the controlled station sets all time-tagged information
-/// objects with a mark". The next valid `C_CS` ACT clears it again.
+/// Clause 7.6: if no synchronisation arrives within the interval, the
+/// controlled station marks every time-tagged information object. The next
+/// valid `C_CS` ACT clears it again.
 #[test]
 fn the_mark_returns_once_the_agreed_interval_passes_without_a_synchronisation() {
     let boot = Instant::now();
@@ -947,11 +945,11 @@ fn the_mark_returns_once_the_agreed_interval_passes_without_a_synchronisation() 
     assert!(!validity.time_valid(resynced + AGREED));
 }
 
-/// Clause 7.6 clears the mark on "reception of valid `C_CS` ACT PDU" only. An
+/// Clause 7.6 clears the mark only when a valid `C_CS` activation arrives. An
 /// activation the station refused (the cl.7.2.3 mirror, 5-101 PDF page index
 /// 38, printed 37), one with no time in it (cl.7.2.2's `N = 0`), a frame that
 /// is not an activation, and an activation the station answered with
-/// "<1> := negative confirm" (5-101 cl.7.2.3, bit 7 of the cause octet) leave
+/// a negative confirmation (`<1>`, 5-101 cl.7.2.3, bit 7 of the cause octet) leave
 /// the time tags marked.
 #[test]
 fn a_refused_or_negative_synchronisation_does_not_count() {
@@ -1007,8 +1005,8 @@ fn a_refused_or_negative_synchronisation_does_not_count() {
     assert!(!validity.time_valid(now));
 }
 
-/// Clause 7.6: the mark "is also set after station initializiation (warm and
-/// cold boot)", even when the station was synchronised before it.
+/// Clause 7.6: a warm or cold start of the station sets the mark too, even
+/// when the station was synchronised before it.
 #[test]
 fn a_restart_marks_the_time_tags_again() {
     let boot = Instant::now();

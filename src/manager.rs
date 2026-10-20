@@ -5,35 +5,27 @@
 //! # What the standard says
 //!
 //! IEC 60870-5-104:2006 defines no connection manager; it defines where the
-//! decisions live. Clause 7.1 (page index 54, printed page 53) is the
-//! establishment sentence:
+//! decisions live. Clause 7.1 (page index 54, printed page 53) assigns
+//! establishment: when the partner is a controlled station, the controlling
+//! station opens the connection; between two equivalent controlling stations
+//! (or partners) a fixed selection, a parameter, decides (figure 1).
 //!
-//! > Connection establishment is performed by the controlling station in case of
-//! > a controlled station as a partner; a fixed selection (parameter) in the case
-//! > of two equivalent controlling stations or partners (see figure 1).
-//!
-//! The retry is on the same page, in figure 21's own description:
-//!
-//! > Figure 21 shows the controlling station repeatedly attempting to establish a
-//! > connection with a controlled station. These attempts fail until the
-//! > controlled station has performed a local initialization and given a passive
-//! > open call to its TCP which has then acquired the listen status (status not
-//! > shown in the figure).
+//! The retry is on the same page, in the text describing figure 21: the
+//! controlling station keeps trying to connect to a controlled station, and
+//! every try fails until the controlled station has finished its local
+//! initialization and done a passive open on its TCP, which puts TCP into the
+//! listen state (a state the figure does not draw).
 //!
 //! Its timer is clause 9's row (index 114, printed 113), `t0  30 s Time-out of
 //! connection establishment`, and figure 33 (index 126, printed 125) draws
 //! `Timeout t0` on each `active open`. Clause 10.5 (index 128, printed 127)
-//! states that the retry never gives up:
-//!
-//! > The failed connection is eventually closed by both sides, and reopening is
-//! > regularly retried by the controlling station until the error has been
-//! > corrected and the connection is re-established.
+//! states that the retry never gives up: both sides end up closing the failed
+//! connection, and the controlling station keeps retrying the open at regular
+//! intervals until the fault is cleared and the connection is up again.
 //!
 //! Clause 10.7 (index 136, printed 135) is why every station carries its own
-//! scheduler:
-//!
-//! > It should be possible to set the values of the timers t0 to t3 individually
-//! > for each connection within a redundancy group.
+//! scheduler: it recommends (a *should*, not a *shall*) that t0 to t3 be
+//! settable per connection within a redundancy group.
 //!
 //! # What this module adds
 //!
@@ -58,8 +50,8 @@
 //! Three consequences of that policy:
 //!
 //! - **Only a controlling manager dials.** Clause 7.1's other half (index 54,
-//!   printed 53) is *"The controlling station is equivalent to the client
-//!   (connector), the controlled station to the server (listener)."* A
+//!   printed 53) maps the roles onto TCP: the controlling station is the
+//!   client (it connects), the controlled station the server (it listens). A
 //!   [`Role::Controlled`] manager therefore never emits [`Directive::Connect`]
 //!   and never arms t0: its stations wait for the caller's own accept, reported
 //!   through [`ConnectionManager::on_connection_established`].
@@ -68,7 +60,7 @@
 //!   faster than t0 still gets one attempt per t0 expiry.
 //! - **A lost connection is dialed again when its attempt's t0 runs out.** A
 //!   connection that lasted longer than t0 is dialed again at once (clause
-//!   10.5's *"reopening is regularly retried"*); one lost sooner waits for the
+//!   10.5's regular retry of the open); one lost sooner waits for the
 //!   rest of that t0. A peer that takes every connection and closes it at once
 //!   so gets one attempt per t0, as a peer that refuses them does, and not one
 //!   per round trip.
@@ -122,7 +114,7 @@
 //!   [`ConnectionManager::on_connection_lost`], which is what starts the next
 //!   attempt.
 //! - **t1 follows the *oldest* unconfirmed frame.** Figures 17/18 NOTE 2 make t1
-//!   *"the timeout of a sent U-frame or I-frame"*, singular. An acknowledgement
+//!   the timeout of one sent U-frame or I-frame, singular. An acknowledgement
 //!   that advances the clause 5.1 send buffer while frames remain re-arms t1
 //!   from the instant of the acknowledgement (or from when a still pending act
 //!   was sent). A peer that confirms every frame shortly after it arrives is
@@ -244,8 +236,8 @@ pub struct Station {
     /// failed attempt reported by the caller never sets it.
     lost: bool,
     /// How many attempts have been started. A label, never a limit (the standard
-    /// sets none: *"reopening is regularly retried by the controlling station
-    /// until the error has been corrected"*, index 128).
+    /// sets none: clause 10.5 has the controlling station retry at regular
+    /// intervals until the fault is cleared, index 128).
     attempts: u32,
     /// True from the start of an attempt until the caller reports its outcome
     /// (established, or a refused dial): an attempt still unanswered when its
@@ -430,8 +422,8 @@ pub enum Directive {
 /// [`Directive::Connect`] reports it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConnectReason {
-    /// No attempt has been started for this station yet (clause 7.1's
-    /// *"Connection establishment is performed by the controlling station"*).
+    /// No attempt has been started for this station yet (clause 7.1: the
+    /// controlling station is the one that establishes the connection).
     FirstAttempt,
     /// An earlier attempt was refused (reported through
     /// [`ConnectionManager::on_connection_lost`]) and its t0 has expired:
@@ -444,7 +436,7 @@ pub enum ConnectReason {
     /// and leave two connections to one station.
     AttemptTimedOut,
     /// A connection that had been established was lost, and clause 10.5's
-    /// *"reopening is regularly retried"* applies (index 128). This is the first
+    /// regular retry of the open applies (index 128). This is the first
     /// attempt after the loss only: the attempts after it are
     /// [`ConnectReason::AttemptFailed`] or [`ConnectReason::AttemptTimedOut`].
     ConnectionLost,
@@ -622,8 +614,8 @@ impl ConnectionManager {
         for (index, station) in self.stations.iter_mut().enumerate() {
             if !station.connected {
                 if !controlling {
-                    // Clause 7.1: *"the controlled station to the server
-                    // (listener)"*. Nothing to dial: its connection is the
+                    // Clause 7.1: the controlled station is the TCP server
+                    // (listener). Nothing to dial: its connection is the
                     // caller's accept, not this manager's request.
                     continue;
                 }
@@ -734,14 +726,14 @@ impl ConnectionManager {
     ///   ([`Session::on_connection_lost`], which emits nothing: the peer is gone
     ///   and there is nobody left to confirm anything to) and its scheduler
     ///   cancels t0–t3. The next [`ConnectionManager::tick`] asks for a new
-    ///   connection at once (clause 10.5's *"reopening is regularly retried by
-    ///   the controlling station until the error has been corrected"*), and that
+    ///   connection at once (clause 10.5: the controlling station retries the
+    ///   open at regular intervals until the fault is cleared), and that
     ///   attempt's `reason` is [`ConnectReason::ConnectionLost`].
     /// - **A dial that was refused.** A session that was never established has no
     ///   connection to lose, so it is left alone, and the attempt's own t0
     ///   **stays armed**: the next dial comes at that expiry, not on every tick.
     ///   Figure 21's peer refuses *every* dial until it listens, and clause
-    ///   10.5's *"regularly retried"* is one attempt per t0, not a busy loop.
+    ///   10.5's regular retry is one attempt per t0, not a busy loop.
     ///   The retry's `reason` is [`ConnectReason::AttemptFailed`].
     ///
     /// # Errors
@@ -891,8 +883,8 @@ impl ConnectionManager {
     }
 
     /// Hands one ASDU to a station's connection for it to hold until it may send
-    /// it: clause 5.3's *"Any pending user data in the controlled station is
-    /// sent only after the STARTDT con."*
+    /// it: clause 5.3 has the controlled station hold back pending user data
+    /// until it has sent STARTDT con.
     ///
     /// The queue is the session's, not a second one here: the session releases
     /// it itself when data transfer becomes enabled or the k window reopens

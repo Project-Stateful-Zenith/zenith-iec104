@@ -75,7 +75,7 @@ M_ME_NB_1(11) SQ=0 N=1 cause=spont(3) P/N=0 T=0 ORG=0 CA=1
   test.
 - `ORG` is the cause field's originator octet, present or absent per profile. A
   profile without it prints `ORG=-`. 5-104 clause 9.5 (index 98, printed 97)
-  says *"Originator address is set to zero if not used"*, so printing `0` there
+  has an unused originator address sent as zero, so printing `0` there
   would be indistinguishable from clause 7.2.3's real `<0> := default`.
 
 ## Addresses and the profile
@@ -92,8 +92,8 @@ CA 2 octets, IOA 3 octets, originator present
 That is `AddressSizes::CONVENTIONAL`: originator present, common address two
 octets (5-101 cl.7.2.4, index 42, printed 41), information object address three
 octets (cl.7.2.5, index 43, printed 42). The one value 104 clause 9.5 calls
-fixed is the frame size: *"The maximum length of APDU for both directions is
-253. It is a fixed system parameter."* That is `apci::MAX_LENGTH`.
+fixed is the frame size: an APDU is at most 253 octets in either direction,
+and that limit is not configurable. That is `apci::MAX_LENGTH`.
 
 `diag::information_object_address(objects, sizes)` reads the address at the head
 of an object area at the profile's width with `asdu::read_ioa_with` and prints
@@ -113,8 +113,8 @@ t0=30 s t1=15 s t2=10 s t3=20 s k=12 w=8 port=2404
 
 Clause 10.7, *State transition diagrams* (index 136, printed 135), asks for the
 per-connection detail, and its sentence stands in the redundant-connection case
-it is written for: *"It should be possible to set the values of the timers t0 to
-t3 individually for each connection within a redundancy group."* So print the
+it is written for: within a redundancy group, each connection should allow its
+own t0 to t3 values. So print the
 line per connection, not once for a process.
 
 The table scales t0–t2 in whole seconds, but a time-out is a `Duration` here, so
@@ -137,15 +137,15 @@ discarded: mirrored ASDU
 
 The first four are `Discard::Unspecified`'s classes in the clause's table order,
 each with the cause its own table pairs with the field. The fifth is
-`Discard::Mirror`, the clause's *"mirrored ASDUs due to unknown numbers in the
-control direction (type identifications 45 to 51)"*.
+`Discard::Mirror`, the clause's case of ASDUs mirrored because of unknown
+numbers in the control direction (type identifications 45 to 51).
 
 ## Driving the crate, and where the line plugs in
 
 The core does not open the socket for you. 5-104 clause 7.1 (index 54, printed
-53) says who does: *"Connection establishment is performed by"*, in its first
-bullet, *"the controlling station in case of a controlled station as a
-partner"*. The shape of a caller is:
+53) says who does: its first bullet gives connection establishment to the
+controlling station when the partner is a controlled station. The shape of a
+caller is:
 
 1. `link::Session::new(role)` (or `with_params`) per connection, with its
    `params::LinkParams`; `manager::ConnectionManager` holds several such

@@ -5,8 +5,8 @@
 //!
 //! # `5.4.25.1`: not automated here
 //!
-//! > Establishing a connection by the controlling station having an IP address
-//! > that is not known in the controlled station is not possible
+//! The row: a controlling station whose IP address the controlled station
+//! does not know cannot establish a connection.
 //!
 //! The crate's core opens and accepts no socket (it does no I/O at all), so the
 //! station's list of known addresses and the refusal of any other one are the
@@ -21,8 +21,8 @@
 //!
 //! The row's command half is driven below: the crate compares a command's time
 //! tag with the station's clock as standard time, so both `SU` bits are taken
-//! into account. Its event half (*"The time stamp of an event is recalculated and
-//! the summer time bit is taken into account"*) is partly the application's:
+//! into account. Its event half (the receiver recalculates an event's time
+//! stamp, taking the summer-time bit into account) is partly the application's:
 //! the crate has no time zone and no calendar clock, so it cannot recalculate a
 //! time stamp; what it owes is to carry the `SU` bit both ways unchanged, which
 //! is what the event cases check.
@@ -123,12 +123,10 @@ impl StationApp for QualityApp {
 /// 604 Table 25, PDF page index 88 (printed 87), procedure **`5.4.25.2`**,
 /// *"Quality descriptor"*, `Required` `PIXIT`:
 ///
-/// > The quality descriptor consist of five defined quality bits which can be
-/// > set independently from each other
+/// the five defined bits of the quality descriptor can each be set
+/// independently of the others
 ///
-/// (5-101 clause 7.2.6.3, PDF page index 46: *"The quality descriptor consists
-/// of five defined quality bits which may be set independently from each
-/// other."*). DUT: the **controlled** station, which sends all 32 combinations
+/// (the same rule as 5-101 clause 7.2.6.3, PDF page index 46). DUT: the **controlled** station, which sends all 32 combinations
 /// in one `M_ME_NB_1`; each object's `QDS` octet on the wire must be exactly
 /// [`qds_octet`], the clause's bit positions, with the reserved bits 2–4 zero.
 #[test]
@@ -200,9 +198,9 @@ fn clause_5_4_25_2_the_controlling_station_reads_each_quality_bit_independently(
 /// 604 Table 25, PDF page index 88 (printed 87), procedure **`5.4.25.3`**,
 /// *"Command transmission"*, `Required` `PIXIT`:
 ///
-/// > Direct Execute commands sent to an object configured as Select before
-/// > Operate command are answered with ACT_CON_NEG and not executed by the
-/// > controlled station
+/// a direct-execute command for an object configured for select before
+/// operate is not executed; the controlled station answers it with a negative
+/// activation confirmation (`ACT_CON_NEG`);
 ///
 /// DUT: the **controlled** select-and-execute station, both sets, the six
 /// selectable types: an execute with no select before it is mirrored with cause
@@ -220,13 +218,13 @@ fn clause_5_4_25_3_a_direct_execute_of_a_select_before_operate_object_is_negativ
             assert_eq!(
                 master.recv("5.4.25.3: the answer"),
                 mirrored(&execute, 7, true),
-                "5.4.25.3 (type {type_id}): \"answered with ACT_CON_NEG\""
+                "5.4.25.3 (type {type_id}): answered with ACT_CON_NEG"
             );
         }
         let log = crate::conformance604::table19::finish(master, station, &log);
         assert!(
             log.executed.is_empty(),
-            "5.4.25.3 ({set:?}): \"not executed by the controlled station\": {:?}",
+            "5.4.25.3 ({set:?}): not executed by the controlled station: {:?}",
             log.executed
         );
     }
@@ -304,15 +302,14 @@ fn accepted(tag: Cp56Time2a, wall: Cp56Time2a) -> Vec<bool> {
 /// *"Summer time – Summer time bit is taken into account when using commands
 /// and events"*, `Required` `PIXIT`:
 ///
-/// > A command using summer time bit shall be used to either accept or ignore
-/// > the command based on its configured acceptable delay for command
-/// > transmission
+/// the summer-time bit of a command shall be used in deciding whether to
+/// accept or ignore it against the configured maximum delay for command
+/// transmission
 ///
-/// with the row's second example, *"A command sent with SU-bit =1 (in summer
-/// time) and time 15:00:000 is NOT executed (ignored) by the DUT when its time is
-/// 14:00:000 in summer time"*, and the row's combinations *"sending station not
-/// in summer time, receiving station not in summer time"* and *"sending station
-/// in summer time, receiving station in summer time"* at a delay of two seconds
+/// with the row's second example (a command tagged 15:00:000 with `SU = 1`
+/// is ignored, not executed, by a DUT whose clock reads 14:00:000 summer
+/// time), and the row's combinations with neither station, and with both
+/// stations, in summer time, at a delay of two seconds
 /// (inside the station's ten-second maximum, 5-104 clause 8).
 ///
 /// DUT: the **controlled** station, the seven time-tagged types. These are the
@@ -341,13 +338,12 @@ fn clause_5_4_25_4_a_command_in_the_stations_own_time_is_judged_by_its_delay() {
 /// `SU` bit decides: 15:00 summer time is 14:00 standard time (one hour
 /// ahead), so
 ///
-/// - the row's first example, *"A command sent with SU-bit =1 (in summer time)
-///   and time 15:00:000 is executed by the DUT when its time is 14:00:000 not in
-///   summer time"*;
-/// - *"sending station not in summer time, receiving station in summer time"*:
+/// - the row's first example: a command tagged 15:00:000 with `SU = 1` is
+///   executed by a DUT whose clock reads 14:00:000 standard time;
+/// - sender in standard time, receiver in summer time:
 ///   tagged 12:00:00 standard at a DUT reading 13:00:02 summer time, two
 ///   seconds later;
-/// - *"sending station in summer time, receiving station not in summer time"*:
+/// - sender in summer time, receiver in standard time:
 ///   tagged 13:00:00 summer time at a DUT reading 12:00:02 standard time;
 ///
 /// are all executed, and a command tagged 12:00:00 **summer** time (11:00:00
@@ -438,15 +434,13 @@ const fn event_time_octets(summer_time: bool) -> [u8; 7] {
 
 /// 604 Table 25, PDF page index 88, procedure `5.4.25.4`, the event half:
 ///
-/// > The time stamp of an event is recalculated and the summer time bit is
-/// > taken into account to define the valid time stamp for the receiving
-/// > station.
+/// the receiving station recalculates an event's time stamp, using the
+/// summer-time bit to arrive at the time stamp valid for it.
 ///
 /// DUT: the **controlled** station sending an event, both `SU` states. The
 /// recalculation is the receiver's; what the sender owes is the `SU` bit in its
-/// place (5-101 clause 7.2.6.18: *"The summer-time bit SU may optionally be used
-/// as an additional information to indicate the presently valid time (standard
-/// or summer-time)."*, PDF page index 52), which the octets on the wire must
+/// place (5-101 clause 7.2.6.18, PDF page index 52: the optional `SU` bit
+/// tells which time, standard or summer, is currently in force), which the octets on the wire must
 /// carry.
 #[test]
 fn clause_5_4_25_4_the_controlled_station_sends_the_summer_time_bit_of_an_event() {

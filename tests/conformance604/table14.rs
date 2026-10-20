@@ -3,9 +3,9 @@
 //! data transmission and Background Scan – sequential procedure"*) and
 //! `5.4.14.10` (*"COMPATIBILITY WITH OTHER TEST CASES"*).
 //!
-//! The block's NOTE makes every row conditional: *"The following tests are
-//! only required for systems supporting Cyclic data transmission and/or
-//! Background Scan."* The crate supports both (`tx::cyclic`,
+//! The block's NOTE makes every row conditional: the tests apply only to a
+//! system that supports cyclic data transmission, background scan or both.
+//! The crate supports both (`tx::cyclic`,
 //! `tx::background`), so every row applies.
 //!
 //! # The rows, and where each one is
@@ -27,9 +27,9 @@
 //! # What is not the library's
 //!
 //! `tx` builds the frames and classifies them; the *schedule* is the caller's.
-//! The module says so (its section *"What is the caller's"*): *"The
-//! transmission cycle is configured by fixed parameters in the controlled
-//! station."* (5-101 clause 7.4.13) *"Nothing here reads a clock, holds a timer
+//! The module says so (its section *"What is the caller's"*): 5-101 clause
+//! 7.4.13 leaves the transmission cycle to fixed parameters set in the
+//! controlled station, and *"Nothing here reads a clock, holds a timer
 //! or schedules anything."* So:
 //!
 //! - **the configured periods** of COT=1 and COT=2 are a property of the
@@ -37,8 +37,8 @@
 //!   test's own loop, so none is written;
 //! - **which measured values are cyclic** and therefore stay out of COT 2, 3
 //!   and 20–36 is per information object address, a project configuration
-//!   (the row is `PIXIT`, and 5-101 clause 7.4.13 says *"are not usually
-//!   reported"*). `tx` gates by type only (`tx::CYCLIC_TYPES`,
+//!   (the row is `PIXIT`, and 5-101 clause 7.4.13 says cyclic values are
+//!   normally not also reported with those causes). `tx` gates by type only (`tx::CYCLIC_TYPES`,
 //!   `tx::BACKGROUND_TYPES`), so there is no library rule to drive;
 //! - the SQ:=1 row is `PIXIT` for the controlled station, and `tx` has no
 //!   sequence producer (see the deviation below), so the controlled side of
@@ -70,8 +70,8 @@ use iec104::tx::{
 };
 
 /// The cyclic types of 5-101 **Table 16**, *"Respond priorities of the
-/// controlled station"* (PDF page index 121), row `9, 11, 13, 21`: *"Cyclic
-/// data transmission (in monitor direction with COT = 1)"*. The row's
+/// controlled station"* (PDF page index 121), row `9, 11, 13, 21`: cyclic
+/// data transmission, monitor direction, cause 1. The row's
 /// `120 to 127` are file transfer, which is Table 23's.
 const TABLE_16_CYCLIC: [u8; 4] = [9, 11, 13, 21];
 
@@ -113,14 +113,13 @@ fn every_type_goes_out(row: &str, function: Function, cause: Cause, types: &[u8]
 /// `Reference` `IEC 60870-5-101:2003, 7.4.3` / `IEC 60870-5-5:1995, 6.3.1`,
 /// `Required` `PICS, 9.6 Cyclic data transmission`:
 ///
-/// > The Controlled station transfers the configured Periodic / Cyclic process
-/// > information data in ASDUs (look at PICS for the supported ASDU's), with
-/// > COT=1 to the Controlling station
+/// the controlled station sends its configured periodic/cyclic process data to
+/// the controlling station with cause 1, in the ASDUs its PICS lists;
 ///
-/// with the rows *"The tests in this Table are performed correctly by each ASDU
-/// in the PICS that supports COT=1 (PER/CYC) and/or 2 (BACK)"* (`M`) and *"The
-/// values of the object(s) transferred and stored on the controlling station
-/// should represent the actual values on the controlled station"* (`M`).
+/// with the `M` rows that the tests run for every ASDU of the PICS that
+/// supports cause 1 (`PER/CYC`) and/or 2 (`BACK`), and that the values the
+/// controlling station receives and stores should be the controlled station's
+/// actual values.
 ///
 /// DUT: the **controlled** station. Its application hands `tx::cyclic`'s
 /// frames (through a controlled `tx::Transmission`) to the station's session;
@@ -148,8 +147,8 @@ fn clause_5_4_14_1_cyclic_data_goes_out_with_cause_1_for_every_cyclic_type() {
 /// `Reference` `IEC 60870-5-101:2003, 7.4.13` / `IEC 60870-5-5:1995, 6.3.1`,
 /// `Required` `PICS, 9.6 Background Scan`:
 ///
-/// > The Controlled station transfers the configured Background Scan process
-/// > information data in ASDUs with COT=2 (BACK) to the Controlling station
+/// the controlled station sends its configured background-scan process data
+/// to the controlling station with cause 2 (`BACK`);
 ///
 /// and the same `M` rows as the case above (each ASDU with COT=2; the values
 /// stored represent the actual ones).
@@ -173,7 +172,7 @@ fn clause_5_4_14_1_background_scan_data_goes_out_with_cause_2_for_every_backgrou
 }
 
 /// How many `M_ME_NB_1` objects fit one SQ = 0 ASDU: 104 clause 5 caps the
-/// ASDU at 249 octets (*"The maximum length of the ASDU is limited to 249"*), the data unit identifier takes 6 and each
+/// ASDU at 249 octets, the data unit identifier takes 6 and each
 /// object 3 address octets + `SVA` 2 + `QDS` 1 (5-101 clause 7.3.1.11).
 /// `(249 - 6) / 6 = 40`, below 5-101 clause 7.2.2.1's `N` limit of 127.
 const MME_NB_PER_ASDU: usize = 40;
@@ -182,19 +181,17 @@ const MME_NB_PER_ASDU: usize = 40;
 /// `Reference` `IEC 60870-5-3:1992, 5.1.5` / `IEC 60870-5-101:2003, 7.2.2.2`,
 /// `Required` **`M`**:
 ///
-/// > The Controlled station transmits Periodic, Cyclic, Background Scan
-/// > process information data of the same Type, COT and priority but with gaps
-/// > in their addresses as a Set of Information elements (SQ:=0) in one single
-/// > ASDU, filled up to but not exceeding the maximum configured ASDU or APDU
-/// > length as in the PICS
+/// periodic, cyclic or background-scan data sharing type, cause and priority
+/// but with non-consecutive addresses goes out as a set of information
+/// objects (SQ:=0) in a single ASDU, filled as far as the maximum ASDU or APDU
+/// length configured in the PICS allows and no further;
 ///
 /// DUT: the **controlled** station. Fifty cyclic `M_ME_NB_1` values are due at
 /// once, at the addresses `0x4001, 0x4003, …` (every other one: gaps), packed
 /// by the library's set producer, `Transmission::cyclic_set`. The row
 /// wants them in SQ = 0 ASDUs filled up to the maximum: [`MME_NB_PER_ASDU`]
-/// objects in the first, the other ten in the second (5-101 clause 7.2.2.1:
-/// *"The ASDU may consist of one or more than one equal INFORMATION
-/// OBJECTs"*).
+/// objects in the first, the other ten in the second (5-101 clause 7.2.2.1
+/// lets an ASDU carry one or several information objects of the same kind).
 ///
 /// Before `tx` had the set producers it built one ASDU of `N = 1` per object:
 /// a station sent fifty one-object ASDUs, and the first frame arrived with
@@ -241,7 +238,7 @@ fn clause_5_4_14_1_objects_with_gaps_are_packed_into_one_sq0_asdu() {
     assert_eq!(
         usize::from(header.count),
         MME_NB_PER_ASDU,
-        "5.4.14.1: \"in one single ASDU, filled up to but not exceeding the maximum\" \
+        "5.4.14.1: one ASDU filled up to, and not past, the maximum \
          ASDU length: 40 M_ME_NB_1 objects fit 249 octets"
     );
     let decoded = decode_asdu::<MMeNb1>(&first).expect("the ASDU decodes");
@@ -259,19 +256,18 @@ const VALUES: [i16; 3] = [0x1234, -2, 300];
 
 /// 604 Table 14, PDF page index 61 (printed 60), procedure **`5.4.14.1`**, the
 /// same rows as [`clause_5_4_14_1_objects_with_gaps_are_packed_into_one_sq0_asdu`]
-/// and the SQ:=1 row (`Required` `PIXIT`, *"with sequential addresses as a
-/// Sequence of Information elements (SQ:=1) in one single ASDU"*), plus the
-/// `M` row *"The values of the object(s) transferred and stored on the
-/// controlling station should represent the actual values on the controlled
-/// station"*.
+/// and the SQ:=1 row (`Required` `PIXIT`: consecutive addresses go out as a
+/// sequence of information elements, SQ:=1, in a single ASDU), plus the `M`
+/// row that the values the controlling station receives and stores should be
+/// the controlled station's actual values.
 ///
 /// DUT: the **controlling** station (§5.1's swap: the receiving half of the
 /// rows). The mock controlled peer sends two cyclic `M_ME_NB_1` ASDUs written
 /// octet by octet from 5-101 clause 7.2.2.1 and figure 12's layout (SQ bit 8
 /// of the variable structure qualifier) and clause 7.3.1.11's element (`SVA`
 /// little endian, then `QDS`): a set of three objects with gaps (SQ = 0) and a
-/// sequence of three elements (SQ = 1, addresses *"incrementing continuously
-/// by +1"* from the first). The station classifies each with
+/// sequence of three elements (SQ = 1, each address one more than the one
+/// before, from the first). The station classifies each with
 /// `tx::Transmission::controlling` as cyclic data and decodes the values the
 /// peer sent.
 #[test]
@@ -324,8 +320,8 @@ fn clause_5_4_14_1_the_controlling_station_takes_sets_and_sequences_of_cyclic_va
         assert_eq!(
             stored,
             ioas.iter().copied().zip(VALUES).collect::<Vec<_>>(),
-            "5.4.14.1 (SQ = {}): \"The values of the object(s) transferred and stored on the \
-             controlling station should represent the actual values\"",
+            "5.4.14.1 (SQ = {}): the values stored on the controlling station must be the \
+             controlled station's actual values",
             u8::from(header.sequence)
         );
     }
@@ -394,8 +390,8 @@ impl StationApp for CyclicUnderActivation {
 /// One `P_AC_NA_1` for [`CYCLIC_IOA`] with `QPA` `<3>`, octet by octet from
 /// 5-101 figure 82 (clause 7.3.5.4, PDF page index 113): type 113, SQ = 0
 /// N = 1, the cause, OA 0, CA 1, the address, `QPA`. `<3>` is clause
-/// 7.2.6.25's *"act/deact of persistent cyclic or periodic transmission of the
-/// addressed object"*.
+/// 7.2.6.25's value for switching persistent cyclic/periodic transmission of
+/// the addressed object on or off.
 fn parameter_activation(cause: u8) -> Vec<u8> {
     let ioa = CYCLIC_IOA.to_le_bytes();
     vec![
@@ -422,10 +418,9 @@ fn until_type(peer: &mut Peer, type_id: u8) -> (Vec<u8>, usize) {
 /// `Reference` `IEC 60870-5-101:2003, 7.3.5.4`, `Required` `PICS, 9.6
 /// Parameter activation`:
 ///
-/// > The Controlling station activates or deactivates cyclic or periodic
-/// > transmission of the addressed object by using P_AC_NA_1 (ASDU 113). The
-/// > Controlled station acknowledges the activation or deactivation by
-/// > mirroring the command with COT=7 (ACTCON)
+/// the controlling station switches cyclic/periodic transmission of an object
+/// on or off with `P_AC_NA_1` (type 113), and the controlled station confirms
+/// either by mirroring the command with cause 7 (`ACTCON`);
 ///
 /// DUT: the **controlled** station, `pm::ParameterLoading::controlled` for the
 /// answer and `tx` for the cyclic frames. The expected answers are 5-101
@@ -468,7 +463,7 @@ fn clause_5_4_14_1_parameter_activation_switches_cyclic_transmission() {
     let (confirmation, _) = until_type(&mut peer, 113);
     assert_eq!(
         confirmation[2], 7,
-        "5.4.14.1: \"mirroring the command with COT=7 (ACTCON)\""
+        "5.4.14.1: the command mirrored with cause 7 (ACTCON)"
     );
     assert_eq!(
         (&confirmation[..2], &confirmation[3..]),

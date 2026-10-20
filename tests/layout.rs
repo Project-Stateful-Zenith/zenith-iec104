@@ -711,7 +711,7 @@ fn a_type_only_the_clause_does_not_define_has_no_layout() {
 /// path and on the write path, with the clause's own reason.
 #[test]
 fn a_sequence_is_refused_for_a_type_whose_definition_line_has_none() {
-    // M_SP_TA_1 (7.3.1.2): "does not exist as a sequence of information elements".
+    // M_SP_TA_1 (7.3.1.2) has no sequence form.
     let asdu = hex("02 82 03 00 0C 00 10 30 00 21 04 03 C5 11 30 00 21 04 03 C5");
     assert_eq!(
         decode_asdu::<MSpTa1>(&asdu),
@@ -762,7 +762,7 @@ fn two_objects_are_refused_for_a_single_object_type() {
     assert_eq!(decoded[0].ioa, 3);
     assert_eq!(decoded[0].value, value);
 
-    // N = 0 is clause 7.2.2's "<0> := ASDU contains no INFORMATION OBJECT":
+    // N = 0 is clause 7.2.2's ASDU without any information object:
     // a received one decodes to nothing, but the writer does not produce one.
     assert_eq!(
         encode_asdu::<MEpTb1>(&header(TypeId::MEpTb1, false, 0), &[]),

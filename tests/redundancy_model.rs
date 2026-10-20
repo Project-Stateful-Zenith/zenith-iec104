@@ -7,8 +7,8 @@
 //! started connection is the controlling station's switchover). After every
 //! step, the test checks the three properties clause 10.5 and 10.6 ask for:
 //!
-//! - **Nothing is lost** (10.5: *"Care shall be taken that data are not lost
-//!   during a connection switchover"*): every ASDU handed to the group that the
+//! - **Nothing is lost** (10.5 requires that a switch to another connection
+//!   lose no data): every ASDU handed to the group that the
 //!   master has not confirmed and the application has not discarded is in
 //!   exactly one place: held by the group, queued on a connection, sent and
 //!   unconfirmed on a live connection, or left behind by a failed one.

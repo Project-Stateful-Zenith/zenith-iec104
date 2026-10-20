@@ -273,8 +273,8 @@ fn validity_reads_the_three_octet_time_tag() {
     );
 }
 
-/// `M_ME_ND_1` `<21>` (5-101 cl.7.3.1.21) is a normalized value *"without
-/// quality descriptor"*: there is no `IV` to read.
+/// `M_ME_ND_1` `<21>` (5-101 cl.7.3.1.21) is a normalized value with no
+/// quality descriptor: there is no `IV` to read.
 #[test]
 fn a_type_without_a_quality_descriptor_has_no_invalid_flag() {
     let frame = [
@@ -511,7 +511,7 @@ fn points_read_a_bitstring() {
 /// Normalized values, `M_ME_NA_1` `<9>` (cl.7.3.1.9): `NVA` (cl.7.2.6.6) is
 /// `F16[1..16]<-1..+1-2^-15>`, so `00 40` (0x4000) is 0.5 and `00 80`
 /// (0x8000) is -1; the second object's `QDS` has `IV`. `M_ME_ND_1` `<21>`
-/// (cl.7.3.1.21) is the same value *"without quality descriptor"*, so its
+/// (cl.7.3.1.21) is the same value with no quality descriptor, so its
 /// quality is `None`.
 #[test]
 fn points_read_normalized_values_with_and_without_quality() {

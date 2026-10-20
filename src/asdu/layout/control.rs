@@ -36,11 +36,10 @@
 //! # Two facts that are easy to get wrong
 //!
 //! * **`C_RD_NA_1` (type 102) has no element at all.** Its `LEN` is 0 and its
-//!   whole payload is the information object address. Clause 7.2.5: "The
-//!   read command `C_RD_NA_1` is a general exception since its information
-//!   object address serves to address available information objects which
-//!   are returned in the monitor direction." This is the object the body
-//!   cursor's `next_object(0)` path exists for.
+//!   whole payload is the information object address. Clause 7.2.5 makes it
+//!   the general exception: its address selects an existing information
+//!   object, which is then returned in the monitor direction. This is the
+//!   object the body cursor's `next_object(0)` path exists for.
 //! * **`C_TS_TA_1` (type 107) carries `TSC`,** the one element of this crate
 //!   that 5-101 does not define (`TSC := UI16[1..16]<0..65535>`, 5-104 cl.8.8).
 //!
@@ -609,9 +608,9 @@ impl AsduLayout for CCiNa1 {
 /// ```
 ///
 /// The type's whole payload is its information object address, which clause
-/// 7.2.5 describes as the exception: "The read command `C_RD_NA_1` is a general
-/// exception since its information object address serves to address available
-/// information objects which are returned in the monitor direction."
+/// 7.2.5 names as the general exception: the address of a `C_RD_NA_1` selects
+/// an existing information object, which is then returned in the monitor
+/// direction.
 /// `LEN` is therefore 0 and the element part of the object is empty, which is
 /// what `BodyReader::next_object(0)` yields.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

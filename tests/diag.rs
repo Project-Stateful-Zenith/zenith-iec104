@@ -1,6 +1,6 @@
-//! The diagnostics layer (`iec104::diag`): the standard's own words for a frame.
+//! The diagnostics layer (`iec104::diag`): the standard's own terms for a frame.
 //!
-//! Every test names the clause it pins and quotes the sentence it read, with
+//! Every test names the clause it pins and restates the rule it read, with
 //! the PDF page index (and printed page) where it stands. The sources are
 //! 5-104 clause 5's figures 4–8, 5-101 clause 7.2.1/table 8, clause 7.2.3 with
 //! figure 14 and table 14, clauses 7.2.4 and 7.2.5, and 5-104 clause 9.5 and
@@ -45,10 +45,10 @@ const fn header(type_id: TypeId, cause: Cause) -> Header {
 // cl.5: the frame level, the I/S/U formats and the six U-function names
 // ---------------------------------------------------------------------------
 
-/// 5-104 clause 5, figures 6–8 (index 28, printed 27): *"Three types of control
-/// field formats are used to perform numbered information transfer (I format),
-/// numbered supervisory functions (S format) and unnumbered control functions
-/// (U format)."* Figure 8 spells the six U functions `STARTDT act`,
+/// 5-104 clause 5, figures 6–8 (index 28, printed 27): the control field has
+/// three formats, I for numbered information transfer, S for numbered
+/// supervisory functions and U for unnumbered control functions. Figure 8
+/// spells the six U functions `STARTDT act`,
 /// `STARTDT con`, `STOPDT act`, `STOPDT con`, `TESTFR act` and `TESTFR con`.
 /// No value in `src/apci.rs` carries these names.
 #[test]
@@ -82,8 +82,8 @@ fn clause_5_the_frame_level_names_the_six_u_functions_and_the_three_formats() {
 // cl.7.2.1: the ASDU names the line prints
 // ---------------------------------------------------------------------------
 
-/// 5-101 clause 7.2.1, table 8 (index 31, printed 30): *"`<11>` := measured
-/// value, scaled value  `M_ME_NB_1`"*. The line prints `TypeId::name`'s answer,
+/// 5-101 clause 7.2.1, table 8 (index 31, printed 30): type `<11>` is
+/// `M_ME_NB_1`, the scaled measured value. The line prints `TypeId::name`'s answer,
 /// never the Rust variant name a `{:?}` would print.
 #[test]
 fn clause_7_2_1_the_line_prints_the_standards_asdu_names() {
@@ -125,11 +125,11 @@ fn clause_7_2_1_the_line_prints_the_standards_asdu_names() {
 // cl.7.2.3 / table 14: the cause column
 // ---------------------------------------------------------------------------
 
-/// 5-101 table 14 (index 41, printed 40): *"`<1>` := periodic, cyclic
-/// per/cyc"*, *"`<3>` := spontaneous  spont"*. The mnemonic is
+/// 5-101 table 14 (index 41, printed 40): cause `<1>` (periodic, cyclic) has
+/// the mnemonic `per/cyc`, and `<3>` (spontaneous) has `spont`. The mnemonic is
 /// `Cause::mnemonic`'s, and the number beside it is `Cause::to_u8`'s, which
 /// folds the numbered families of clause 7.2.3's own range (index 38, printed
-/// 37: *"`<20>` := interrogated by station interrogation  inrogen"*).
+/// 37: `<20>`, station interrogation, is `inrogen`).
 #[test]
 fn clause_7_2_3_the_cause_column_is_the_tables_mnemonic_beside_its_number() {
     assert_eq!(
@@ -168,10 +168,10 @@ fn clause_7_2_3_the_cause_column_is_the_tables_mnemonic_beside_its_number() {
 
 /// 5-101 figure 14 (index 37, printed 36) labels the octet `T`, `P/N` and
 /// `Originator address optional per system`, and index 38 (printed 37) reads
-/// the two flags: *"`<0>` := positive confirm / `<1>` := negative confirm"* and
-/// *"T = test … `<0>` := no test / `<1>` := test"*. A profile without the
+/// the two flags: `P/N` is 0 for a positive and 1 for a negative confirmation,
+/// and `T` is 0 for no test and 1 for test. A profile without the
 /// originator octet prints `ORG=-`: 5-104 clause 9.5 (index 98, printed 97)
-/// says *"Originator address is set to zero if not used"*, so a `0` there would
+/// has an unused originator address set to zero, so a `0` there would
 /// read as clause 7.2.3's real `<0> := default` rather than as an absent field.
 #[test]
 fn clause_7_2_3_the_pn_and_test_flags_and_the_optional_originator_octet() {
@@ -198,14 +198,12 @@ fn clause_7_2_3_the_pn_and_test_flags_and_the_optional_originator_octet() {
 // cl.7.2.4 / cl.7.2.5 / 104 cl.9.5: the addresses and their widths
 // ---------------------------------------------------------------------------
 
-/// 5-101 clause 7.2.4 (index 42, printed 41): *"The length of the COMMON
-/// ADDRESS (one or two octets) is a parameter which is fixed per system."*
-/// Clause 7.2.5 (index 43, printed 42): *"The length of the INFORMATION OBJECT
-/// ADDRESS (one, two or three octets) is a parameter which is fixed per
-/// system."* 5-104 clause 9.5 (index 98, printed 97) lists all four as
-/// *"system-specific parameter"* and fixes exactly one value: *"The maximum
-/// length of APDU for both directions is 253. It is a fixed system
-/// parameter."*
+/// 5-101 clause 7.2.4 (index 42, printed 41): the common address is one or
+/// two octets long, a length each system fixes. Clause 7.2.5 (index 43,
+/// printed 42): the information object address likewise, at one, two or three
+/// octets. 5-104 clause 9.5 (index 98, printed 97) lists all four as
+/// system-specific parameters and fixes exactly one value: the APDU is at
+/// most 253 octets long in both directions, a fixed system parameter.
 #[test]
 fn clause_7_2_4_and_7_2_5_the_address_widths_are_a_line_of_their_own() {
     assert_eq!(
@@ -221,9 +219,9 @@ fn clause_7_2_4_and_7_2_5_the_address_widths_are_a_line_of_their_own() {
     assert_eq!(iec104::apci::MAX_LENGTH, 253);
 }
 
-/// 5-101 clause 7.2.5 (index 43, printed 42): *"INFORMATION OBJECT ADDRESS :=
-/// UI8[1..8]<0..255>"*, figure 19, *"`<0>` := INFORMATION OBJECT ADDRESS is
-/// irrelevant"*. The line reads the field with `asdu::read_ioa_with`, at the
+/// 5-101 clause 7.2.5 (index 43, printed 42): the one-octet form of the
+/// address is `UI8[1..8]<0..255>` (figure 19), and the value `<0>` marks an
+/// address that is irrelevant. The line reads the field with `asdu::read_ioa_with`, at the
 /// width the profile fixes. A shorter buffer is a typed `TooShort`, never a
 /// widened read.
 #[test]
@@ -247,13 +245,13 @@ fn clause_7_2_5_the_information_object_address_is_read_at_the_profiles_width() {
 // cl.7.2.3: the communications error log; 104 cl.9: the time-outs
 // ---------------------------------------------------------------------------
 
-/// 5-101 clause 7.2.3 (index 42, printed 41): *"A controlling station may
-/// monitor for and maintain a communications error log reporting each time
-/// that the following ASDUs are received: ASDUs in the monitor direction with
-/// undefined values in the data unit identifier (except the variable structure
-/// qualifier); ASDUs in the monitor direction with undefined values of
-/// information object address; mirrored ASDUs due to unknown numbers in the
-/// control direction (type identifications 45 to 51)."* The three bullets are
+/// 5-101 clause 7.2.3 (index 42, printed 41): a controlling station may keep a
+/// communications error log with an entry for each received ASDU of three
+/// kinds: a monitor-direction ASDU with an undefined value in its data unit
+/// identifier (the variable structure qualifier excepted); a monitor-direction
+/// ASDU with an undefined information object address; and a mirror caused by
+/// an unknown number in the control direction (type identifications 45 to
+/// 51). The three bullets are
 /// the four classes of `Discard::Unspecified` (the first bullet names the
 /// identifier's three fields) plus `Discard::Mirror`, and their causes are the
 /// clause's own 44–47.
@@ -278,11 +276,10 @@ fn clause_7_2_3_the_communications_error_log_line() {
     assert_eq!(diag::discard(Discard::Mirror), "discarded: mirrored ASDU");
 }
 
-/// 5-104 clause 9's time-out table (index 114, printed 113): *"t0 30 s
-/// Time-out of connection establishment … t1 15 s Time-out of send or test
-/// APDUs … t2 10 s Time-out for acknowledges in case of no data messages
-/// t2 < t1 … t3 20 s Time-out for sending test frames in case of a long idle
-/// state"*, and its k/w row *"k 12 APDUs … w 8 APDUs"*.
+/// 5-104 clause 9's time-out table (index 114, printed 113): t0 = 30 s for
+/// connection establishment, t1 = 15 s for sent or test APDUs, t2 = 10 s for
+/// acknowledging when no data flows (with t2 < t1), t3 = 20 s before test
+/// frames are sent on a long idle link, and its k/w row: k = 12 and w = 8 APDUs.
 #[test]
 fn clause_9_the_timeouts_are_the_tables_own_line() {
     assert_eq!(
@@ -302,8 +299,8 @@ fn clause_9_the_timeouts_are_the_tables_own_line() {
 
 /// The line must never round a configured value into one the crate would
 /// reject. `LinkParams { t1: 1500 ms, t2: 500 ms, ..default }` satisfies
-/// clause 9's `t2 < t1` and its *"Maximum range for timeouts t0 to t2: 1 s to
-/// 255 s"* (index 114, printed 113; `params::LinkParams::validate` answers
+/// clause 9's `t2 < t1` and its 1 s to 255 s maximum range for t0 to t2
+/// (index 114, printed 113; `params::LinkParams::validate` answers
 /// `Ok(())`), yet `as_secs` alone would print `t2=0 s`, a zero the same
 /// `validate` refuses. A sub-second part is therefore printed exactly; a whole
 /// number of seconds keeps the table's own `15 s` shape.
@@ -329,10 +326,10 @@ fn clause_9_a_sub_second_timeout_is_printed_exactly_and_never_rounded_to_zero() 
 // cl.5: the whole frame in one line
 // ---------------------------------------------------------------------------
 
-/// 5-104 clause 5, figures 4 and 5 (index 26, printed 25): *"START 68H defines
-/// the point of start within the data stream. The length of the APDU defines
-/// the length of the body of the APDU, which consists of the four control field
-/// octets of the APCI plus the ASDU."* `apdu` formats one complete frame: the
+/// 5-104 clause 5, figures 4 and 5 (index 26, printed 25): `68H` marks where a
+/// frame starts in the stream, and the length octet counts the APDU body,
+/// which is the APCI's four control field octets followed by the ASDU. `apdu`
+/// formats one complete frame: the
 /// control field, the ASDU header and the first information object address.
 #[test]
 fn clause_5_one_line_for_a_whole_frame() {
@@ -366,7 +363,7 @@ fn clause_5_one_line_for_a_whole_frame() {
 
 /// The formatter's failures are the codec's own, carried as values and never
 /// panicked over: clause 5 (index 26, printed 25) bounds the length field
-/// (*"max. 253"*, and at least the four control field octets), and a header
+/// (253 at most, and at least the four control field octets), and a header
 /// shorter than the profile's `header_len` is `AsduError::TooShort`.
 #[test]
 fn a_malformed_frame_is_a_typed_error_and_not_a_panic() {
@@ -386,8 +383,8 @@ fn a_malformed_frame_is_a_typed_error_and_not_a_panic() {
 
 /// `apdu` formats *one* frame, so octets past the first frame's own end are a
 /// refusal, not silently dropped. The length field is 5-104 clause 5's own
-/// frame bound (figure 5, index 26, printed 25: *"The length of the APDU
-/// defines the length of the body of the APDU"*); a buffer holding two frames
+/// frame bound (figure 5, index 26, printed 25: the length octet counts the
+/// APDU body); a buffer holding two frames
 /// back to back is two frames, and `apci::parse` reports the first as complete
 /// while returning a consumed count of 6. Formatting one and discarding the
 /// rest would print a line for octets it never read.
