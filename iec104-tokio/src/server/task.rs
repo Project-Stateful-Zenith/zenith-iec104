@@ -3,7 +3,7 @@
 //! received ASDU to the procedure [`iec104::dispatch::route`] names, and
 //! empties the send queue into the k window.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use iec104::asdu::{
@@ -37,13 +37,25 @@ struct Operated {
     ok: bool,
 }
 
-/// Where an execute's [`Operated`] goes, with the logical link it arrived on
+/// What an operation's task reports.
+#[derive(Clone, Copy)]
+enum Report {
+    /// The operation ended in time.
+    Operated(Operated),
+    /// The operation outlasted [`ServerConfig::operate_timeout`]: it counts
+    /// as failed, but runs on and its object stays refused.
+    TimedOut(u32),
+    /// A timed-out operation really ended; its result goes nowhere.
+    Ended(u32),
+}
+
+/// Where an execute's [`Report`]s go, with the logical link it arrived on
 /// ([`Task::link`]).
-struct Done(mpsc::UnboundedSender<(u64, Operated)>, u64);
+struct Done(mpsc::UnboundedSender<(u64, Report)>, u64);
 
 impl Done {
-    fn send(&self, done: Operated) -> Result<(), mpsc::error::SendError<(u64, Operated)>> {
-        self.0.send((self.1, done))
+    fn send(&self, report: Report) -> Result<(), mpsc::error::SendError<(u64, Report)>> {
+        self.0.send((self.1, report))
     }
 }
 
@@ -74,8 +86,11 @@ struct Task<A> {
     /// Group members that failed while started, whose unconfirmed data goes
     /// out again on the next started connection.
     failed: Vec<usize>,
-    /// Each operation with the logical link its execute arrived on.
-    operated: mpsc::UnboundedSender<(u64, Operated)>,
+    /// Each operation's reports with the logical link its execute arrived on.
+    operated: mpsc::UnboundedSender<(u64, Report)>,
+    /// The objects whose operation timed out but still runs: every select
+    /// and execute to them is refused until it ends, whatever the link.
+    overrun: BTreeSet<u32>,
     /// The logical links gone so far: an operation outliving its link
     /// (104 cl.10.2) is told apart by it.
     link: u64,
@@ -167,6 +182,7 @@ pub(super) async fn run<A: Application>(
         started: false,
         failed: Vec::new(),
         operated,
+        overrun: BTreeSet::new(),
         link: 0,
     };
     if let Some(max) = config.max_command_delay {
@@ -191,11 +207,7 @@ pub(super) async fn run<A: Application>(
                 Some(event) => task.on_event(event).await,
                 None => return,
             },
-            Some((link, done)) = operated_rx.recv() => if link == task.link {
-                task.on_operated(done);
-            } else {
-                task.on_operated_late(done);
-            },
+            Some((link, report)) = operated_rx.recv() => task.on_report(link, report),
         }
         task.release().await;
     }
@@ -514,6 +526,17 @@ impl<A: Application> Task<A> {
                     self.refuse(asdu);
                     return;
                 }
+                // An operation that timed out still runs: a select or execute
+                // gets the same negative confirmation until it ends. A
+                // deactivation goes on to the procedure, which has no select
+                // there to stop (selects are refused) and answers a negative
+                // DEACTCON; it never cancels the operation.
+                Some(_)
+                    if header.cause == Cause::Activation && self.overrun.contains(&command.ioa) =>
+                {
+                    self.refuse(asdu);
+                    return;
+                }
                 Some(_) => {}
             }
             if header.cause == Cause::Activation && !self.app.accept(&command) {
@@ -551,30 +574,56 @@ impl<A: Application> Task<A> {
         }
     }
 
-    /// Runs the application's operation in a task of its own.
+    /// Runs the application's operation in a task of its own. An operation
+    /// that panics counts as failed, so its object is still terminated and
+    /// released rather than held until restart.
     ///
-    /// An operation that panics, or outlasts [`ServerConfig::operate_timeout`] and is
-    /// dropped, counts as failed, so its object is still terminated and
-    /// released rather than held until restart. Each operation reports once,
-    /// so a dropped one leaves no late result behind.
+    /// One that outlasts [`ServerConfig::operate_timeout`] is terminated
+    /// negatively but not cancelled: dropping it midway would leave the
+    /// equipment in an unknown state. It runs on, its object refused, and
+    /// its eventual result is discarded.
     fn operate(&self, command: Command) {
         let app = Arc::clone(&self.app);
         let done = Done(self.operated.clone(), self.link);
         let limit = self.operate_timeout;
+        let ioa = command.ioa;
         tokio::spawn(async move {
             let mut operation = tokio::spawn(async move { app.operate(command).await });
             let joined = match limit {
                 Some(limit) => tokio::time::timeout(limit, &mut operation).await.ok(),
                 None => Some((&mut operation).await),
             };
-            // Drops the application's future if it is still running.
-            operation.abort();
-            let ok = matches!(joined, Some(Ok(true)));
-            let _ = done.send(Operated {
-                ioa: command.ioa,
-                ok,
-            });
+            if let Some(joined) = joined {
+                let ok = matches!(joined, Ok(true));
+                let _ = done.send(Report::Operated(Operated { ioa, ok }));
+            } else {
+                let _ = done.send(Report::TimedOut(ioa));
+                let _ = operation.await;
+                let _ = done.send(Report::Ended(ioa));
+            }
         });
+    }
+
+    /// An operation's report, from the link its execute arrived on or an
+    /// earlier one.
+    fn on_report(&mut self, link: u64, report: Report) {
+        let done = match report {
+            Report::Operated(done) => done,
+            Report::TimedOut(ioa) => {
+                self.overrun.insert(ioa);
+                Operated { ioa, ok: false }
+            }
+            // Whatever the link: the object is free once the operation is.
+            Report::Ended(ioa) => {
+                self.overrun.remove(&ioa);
+                return;
+            }
+        };
+        if link == self.link {
+            self.on_operated(done);
+        } else {
+            self.on_operated_late(done);
+        }
     }
 
     /// The termination of an operated execute, where its family has one.
