@@ -1836,6 +1836,13 @@ pub enum Reaction {
     Deactivated {
         /// The information object address that was deactivated.
         ioa: u32,
+        /// The `P/N` bit of the `DEACTCON` (5-101 cl.7.2.3): the station
+        /// refused the deactivation. The controlled station answers that way
+        /// only when it holds no select for the object
+        /// ([`Reaction::NothingToDeactivate`]), so the controlling station
+        /// forgets its select either way. Always `false` on the controlled
+        /// station.
+        negative: bool,
     },
     /// The monitor-direction process ASDU of the controlled object arrived: a
     /// return information, with cause 11, 12 or 3.
@@ -2593,7 +2600,12 @@ impl CommandTransmission {
                     }
                     self.selected.retain(|selected| selected.ioa != command.ioa);
                     self.awaiting.retain(|sent| sent.ioa != command.ioa);
-                    Reaction::Deactivated { ioa: command.ioa }
+                    // Forgotten even on a negative DEACTCON: the station sends
+                    // one only when it holds no select for the object.
+                    Reaction::Deactivated {
+                        ioa: command.ioa,
+                        negative: header.negative,
+                    }
                 }
                 _ => Reaction::Other,
             };
@@ -2924,7 +2936,10 @@ impl CommandTransmission {
         }
         self.drop_select(command.ioa);
         Ok(Outcome {
-            reaction: Reaction::Deactivated { ioa: command.ioa },
+            reaction: Reaction::Deactivated {
+                ioa: command.ioa,
+                negative: false,
+            },
             send: vec![deactivation_confirmation_with(
                 command,
                 self.ca,

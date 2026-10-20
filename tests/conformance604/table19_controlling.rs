@@ -475,7 +475,10 @@ fn clause_5_4_19_10_the_controlling_station_deactivates_a_select() {
             dut.send(&deact);
             assert_eq!(
                 dut.react("5.4.19.10: the DEACTCON"),
-                Reaction::Deactivated { ioa },
+                Reaction::Deactivated {
+                    ioa,
+                    negative: false
+                },
                 "5.4.19.10 (type {type_id}): the DEACTCON"
             );
             assert!(
