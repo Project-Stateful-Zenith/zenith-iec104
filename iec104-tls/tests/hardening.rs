@@ -312,8 +312,9 @@ fn an_expired_client_certificate_cannot_resume_a_tls13_session() {
     assert_expiry_is_checked_on_resumption(&connect_thrice(server, &ours.client_config()));
 }
 
-/// TLS 1.2 (RFC 5077): the server resumes TLS 1.2 tickets too, and checks
-/// them as TLS 1.3 ones.
+/// With session resumption on and TLS 1.2 allowed, the server resumes no
+/// session: a client that does offer a TLS 1.2 ticket (rustls' default) gets
+/// a full handshake, which refuses it once its certificate expired.
 #[test]
 fn an_expired_client_certificate_cannot_resume_a_tls12_session() {
     let ca = Ca::new("test CA");
@@ -329,7 +330,25 @@ fn an_expired_client_certificate_cannot_resume_a_tls12_session() {
     // Not our client, which offers no TLS 1.2 ticket: rustls' default resumption.
     let mut client = (*ours.client_config()).clone();
     client.resumption = rustls::client::Resumption::default();
-    assert_expiry_is_checked_on_resumption(&connect_thrice(server, &Arc::new(client)));
+    let [first, second, third] = connect_thrice(server, &Arc::new(client));
+    assert_eq!(first.0, Some(rustls::HandshakeKind::Full));
+    assert!(first.1.is_ok(), "full handshake refused");
+    assert_eq!(
+        second.0,
+        Some(rustls::HandshakeKind::Full),
+        "server resumed a TLS 1.2 session"
+    );
+    assert!(second.1.is_ok(), "second full handshake refused");
+    let e = third.1.unwrap_err();
+    assert!(
+        matches!(
+            iec104_tls::tls_error(&e),
+            Some(rustls::Error::InvalidCertificate(
+                rustls::CertificateError::Expired | rustls::CertificateError::ExpiredContext { .. }
+            ))
+        ),
+        "server accepted a client whose certificate expired: {e:?}"
+    );
 }
 
 /// The mirror case: our client checks the server of a resumed session again,

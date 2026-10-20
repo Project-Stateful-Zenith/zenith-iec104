@@ -34,7 +34,7 @@
 //! | A minimum key length (lib60870: 2048 bits) | partly: webpki refuses RSA keys under 2048 bits; P-256, P-384 and Ed25519 keys are accepted |
 //! | Session key renewal, TLS 1.2: periodic renegotiation (lib60870 notes session resumption *within* a connection as required) | **not implemented** (rustls does not renegotiate) |
 //! | Session key renewal, TLS 1.3 | `KeyUpdate`: [`TlsConfigBuilder::key_update_interval`], but mbedTLS peers end the session at a `KeyUpdate` (see below) |
-//! | Session resumption on reconnect | opt-in, [`TlsConfigBuilder::session_resumption`]; off by default; the peer's certificate is validated again on every resumed session; our client offers TLS 1.3 tickets only |
+//! | Session resumption on reconnect | opt-in, [`TlsConfigBuilder::session_resumption`]; off by default; TLS 1.3 only, and the server issues tickets only when its minimum version is TLS 1.3 (a TLS 1.2 ticket would void forward secrecy for anyone holding the ticket key); resumed sessions are validated again (certificate expiry, CRL past its `nextUpdate`, allow-list) by this crate's `accept`/`connect` |
 //! | Re-validation of open sessions when a CRL changes (lib60870: renegotiation) | **not implemented**; build a new [`TlsConfig`] and reconnect |
 //! | Security events on failures | every refused handshake is returned as an error carrying the [`rustls::Error`] ([`tls_error`]); the `tokio` accept loops pass them to a callback. Logging them is the application's |
 //!

@@ -253,12 +253,20 @@ impl TlsConfig {
     }
 
     /// The rustls client configuration, for use with rustls directly.
+    ///
+    /// Sessions resumed over it directly are not checked again: only this
+    /// crate's `accept`, `connect` and `connect_over` do that (see
+    /// [`TlsConfigBuilder::session_resumption`]).
     #[must_use]
     pub fn client_config(&self) -> Arc<ClientConfig> {
         self.client.clone()
     }
 
     /// The rustls server configuration, for use with rustls directly.
+    ///
+    /// Sessions resumed over it directly are not checked again: only this
+    /// crate's `accept`, `connect` and `connect_over` do that (see
+    /// [`TlsConfigBuilder::session_resumption`]).
     #[must_use]
     pub fn server_config(&self) -> Arc<ServerConfig> {
         self.server.clone()
@@ -382,16 +390,26 @@ impl TlsConfigBuilder {
     /// every connection is a full handshake.
     ///
     /// When on, a resumed session skips the handshake's certificate exchange,
-    /// and rustls accepts it on the ticket alone. This crate then validates
-    /// the peer's chain from the ticket again, as a full handshake would and
-    /// at the current time (chain, validity period, the allow-list and the
-    /// CRLs), and drops the connection if it fails, on either side. With
-    /// TLS 1.3 the client learns of a refusal only on its first read. Tickets
-    /// are stateless and rotated by rustls (currently every 6 hours, each
-    /// valid for two periods). Our client offers TLS 1.3 tickets only, because
-    /// rustls keeps a client's TLS 1.2 sessions with no time limit; our server
-    /// resumes TLS 1.2 and TLS 1.3 tickets. The server keeps no session cache,
-    /// because rustls keeps TLS 1.2 sessions there with no time limit.
+    /// and rustls accepts it on the ticket alone. This crate's `accept`,
+    /// `connect` and `connect_over` (and so `serve`) then validate the peer's
+    /// chain from the ticket again, as a full handshake would and at the
+    /// current time (certificate expiry, a CRL past its `nextUpdate`, the
+    /// allow-list), and drop the connection if it fails, on either side.
+    /// A session resumed with rustls directly, over
+    /// [`TlsConfig::client_config`] or [`TlsConfig::server_config`], is not
+    /// checked again. With TLS 1.3 the client learns of a refusal only on its
+    /// first read. Tickets are stateless and rotated by rustls (currently
+    /// every 6 hours, each valid for two periods).
+    ///
+    /// Only TLS 1.3 sessions are resumed. Our client offers TLS 1.3 tickets
+    /// only, because rustls keeps a client's TLS 1.2 sessions with no time
+    /// limit. Our server issues tickets only when the minimum version is
+    /// TLS 1.3: a TLS 1.2 ticket carries the session's master secret and is
+    /// sent before `ChangeCipherSpec`, so whoever obtains the ticket key could
+    /// decrypt recorded TLS 1.2 sessions (no forward secrecy). With TLS 1.2
+    /// allowed, the server resumes no session at all, whatever the client
+    /// offers. The server keeps no session cache, because rustls keeps
+    /// TLS 1.2 sessions there with no time limit.
     #[must_use]
     pub const fn session_resumption(mut self, on: bool) -> Self {
         self.resumption = on;
@@ -518,10 +536,13 @@ impl TlsConfigBuilder {
             .map_err(tls)?;
         // No server-side session cache: rustls keeps TLS 1.2 sessions in it
         // with no time limit. Resumption, when on, is by stateless tickets,
-        // which rustls rotates and so expire, for TLS 1.2 and 1.3 alike; the
-        // client of a resumed session is checked again at accept.
+        // which rustls rotates and so expire; the client of a resumed session
+        // is checked again at accept. rustls' ticketer serves TLS 1.2 too,
+        // whose tickets carry the master secret (no forward secrecy against
+        // the ticket key), so it is installed only when TLS 1.2 is not
+        // allowed.
         server.session_storage = Arc::new(NoServerSessionStorage {});
-        if self.resumption {
+        if self.resumption && self.min == Version::Tls13 {
             server.ticketer = rustls::crypto::ring::Ticketer::new().map_err(tls)?;
         } else {
             server.send_tls13_tickets = 0;
