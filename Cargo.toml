@@ -1,6 +1,6 @@
 [package]
 name = "iec104"
-version = "0.33.0"
+version = "0.34.0"
 edition = "2024"
 rust-version = "1.88"
 description = "Clean-room IEC 60870-5-104 (IEC 104) protocol library"
