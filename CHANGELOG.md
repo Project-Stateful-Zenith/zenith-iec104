@@ -7,6 +7,14 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `ft::receive`: the receiving side of a file transfer as a session.
+  `Receiver` runs one file from select file to the file acknowledgement,
+  checks each section's and the file's checksum, and asks for a section
+  again when its checksum does not add up. `DirectoryCall` collects a
+  directory over as many `F_DR_TA_1` ASDUs as it takes. Both stay sans-IO.
+
 ### Changed
 
 - `iec104-tls` no longer depends on `iec104` for its blocking API. With the
