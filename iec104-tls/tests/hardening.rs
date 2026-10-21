@@ -163,6 +163,33 @@ fn narrow_client(port: u16, client: &TlsConfig, timeout: Duration) -> iec104_tls
     tls
 }
 
+/// Writes until a flush stalls, and returns what the writes took. A peer that
+/// reads nothing does not stall a single 64 KiB write everywhere: Windows'
+/// loopback takes it in whole despite the small socket buffers.
+fn write_until_stalled(tls: &mut iec104_tls::TlsStream) -> Vec<u8> {
+    let data: Vec<u8> = (0..=250u8).cycle().take(65536).collect();
+    let mut written = Vec::new();
+    loop {
+        let n = tls.write(&data).unwrap();
+        assert!(n > 0);
+        written.extend(data.iter().take(n));
+        match tls.flush() {
+            Ok(()) => assert!(
+                written.len() < 64 << 20,
+                "64 MiB went out to a peer that reads nothing"
+            ),
+            Err(e) => {
+                let kind = e.kind();
+                assert!(
+                    matches!(kind, io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut),
+                    "{kind:?}"
+                );
+                return written;
+            }
+        }
+    }
+}
+
 /// The write timeout bounds the whole flush, not each send: a peer draining
 /// 2 KiB every 50 ms keeps every send moving, yet a flush of 64 KiB with a
 /// 150 ms write timeout gives up after a few timeouts.
@@ -228,15 +255,8 @@ fn a_queued_write_is_not_reported_as_failed() {
         got
     });
     let mut tls = narrow_client(port, &client, Duration::from_millis(100));
-    let data: Vec<u8> = (0..=250u8).cycle().take(65536).collect();
-    let n = tls.write(&data).unwrap();
-    assert!(n > 0);
     // The peer reads nothing yet: the rest of the data cannot go out.
-    let kind = tls.flush().unwrap_err().kind();
-    assert!(
-        matches!(kind, io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut),
-        "{kind:?}"
-    );
+    let data = write_until_stalled(&mut tls);
     go.send(()).unwrap();
     let started = Instant::now();
     loop {
@@ -252,7 +272,7 @@ fn a_queued_write_is_not_reported_as_failed() {
         }
     }
     tls.shutdown().unwrap();
-    assert_eq!(srv.join().unwrap(), data[..n]);
+    assert_eq!(srv.join().unwrap(), data);
 }
 
 /// Data stuck on the way out does not stop the way in: a station whose own
@@ -274,13 +294,7 @@ fn a_stalled_send_does_not_stop_the_read() {
         let _ = wait.recv();
     });
     let mut tls = narrow_client(port, &client, Duration::from_millis(100));
-    let data: Vec<u8> = (0..=250u8).cycle().take(65536).collect();
-    assert!(tls.write(&data).unwrap() > 0);
-    let kind = tls.flush().unwrap_err().kind();
-    assert!(
-        matches!(kind, io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut),
-        "{kind:?}"
-    );
+    write_until_stalled(&mut tls);
     let mut got = [0u8; 4];
     let started = Instant::now();
     let mut have = 0;
