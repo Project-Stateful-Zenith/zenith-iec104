@@ -1069,6 +1069,11 @@ fn no_response_to(
         mirrored(&probe, 7, false),
         "{row}: the first answer is the probe's, so no request was answered"
     );
+    // Read what the execute still owes: closing on unread data resets the
+    // connection on Windows, and the station would end on a read error.
+    if mode == CommandMode::Direct {
+        expect_completion(&mut master, &probe, row);
+    }
     let mut log = finish(master, station, &log);
     log.executed.retain(|ioa| *ioa != probe_ioa);
     log
