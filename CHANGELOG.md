@@ -9,6 +9,16 @@ follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `iec104-tokio`'s `Server` serves files: `ServerConfig::file` declares one
+  at an address, the directory lists the declared files, and select and
+  call file transfer them through `ft::provide`. A request for an address
+  without a file gets the cause 47 mirror, one for another name a negative
+  file ready. Without declared files nothing changes: the cause 44 mirror.
+- `ServerError::FileTooLong` for a declared file longer than `LOF` can
+  state; a file at address 0 is `ServerError::IrrelevantAddress`.
+
+### Added
+
 - `ft::provide`: the providing side of a file transfer as a session.
   `Provider` holds one file and answers select file, call file and call
   section with its sections, segments and checksums, sends a section again
