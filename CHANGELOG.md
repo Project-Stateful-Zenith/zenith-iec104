@@ -18,6 +18,15 @@ follow [Semantic Versioning](https://semver.org/).
   answer that never comes. They now check what the test station sent, which
   takes `cargo test --workspace --all-features` from about 48 s to about
   20 s (#60).
+- On Windows, a blocking `iec104-tls` write or flush that ran into the
+  socket's write timeout could corrupt the TLS session: the timed-out send
+  may already have sent part of its data, and that part went out again. The
+  peer then failed with `DecryptError`, and the socket could fail later reads
+  with os error 10060. Sends under a write timeout now run non-blocking under
+  the stream's own deadline and never time out partway.
+- Conformance and `iec104-tls` tests that failed on Windows because the
+  loopback buffers more than they assumed, or because a close with unread
+  data resets the connection, now pass there.
 
 ## [0.32.1] - 2026-10-20
 

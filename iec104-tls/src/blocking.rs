@@ -2,7 +2,8 @@
 
 use std::io::{self, Read, Write};
 use std::net::{Shutdown, TcpStream, ToSocketAddrs};
-use std::time::Instant;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use rustls::pki_types::{CertificateDer, ServerName};
 use rustls::{ClientConnection, Connection, ProtocolVersion, ServerConnection};
@@ -228,18 +229,58 @@ impl TlsStream {
     }
 
     fn flush_tls(&mut self) -> io::Result<()> {
-        // The socket timeout bounds each send, and a send that moved any byte
-        // succeeds: this bounds the whole flush against a peer draining slowly.
-        let deadline = self
+        let Some(deadline) = self
             .sock
             .write_timeout()?
-            .and_then(|timeout| Instant::now().checked_add(timeout));
-        while self.conn.wants_write() {
-            if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
-                // The rest stays queued for the next write, flush or read.
-                return Err(io::ErrorKind::WouldBlock.into());
+            .and_then(|timeout| Instant::now().checked_add(timeout))
+        else {
+            while self.conn.wants_write() {
+                self.conn.write_tls(&mut self.sock)?;
             }
-            self.conn.write_tls(&mut self.sock)?;
+            return Ok(());
+        };
+        // The write timeout bounds the whole flush, not each send, against a
+        // peer draining slowly. It is not left to the socket: on Windows a send
+        // that times out may have sent part of its data all the same, and
+        // rustls would send that part again. A non-blocking send sends exactly
+        // what it reports.
+        self.sock.set_nonblocking(true)?;
+        let flushed = self.flush_until(deadline);
+        self.sock.set_nonblocking(false)?;
+        flushed
+    }
+
+    /// [`flush_tls`](Self::flush_tls) for the read: a send that only timed
+    /// out does not stop it, so two stations both stuck writing still drain
+    /// each other.
+    fn send_queued(&mut self) -> io::Result<()> {
+        match self.flush_tls() {
+            Err(e)
+                if !matches!(
+                    e.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                ) =>
+            {
+                Err(e)
+            }
+            _ => Ok(()),
+        }
+    }
+
+    fn flush_until(&mut self, deadline: Instant) -> io::Result<()> {
+        while self.conn.wants_write() {
+            match self.conn.write_tls(&mut self.sock) {
+                Ok(_) => {}
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    if Instant::now() >= deadline {
+                        // The rest stays queued for the next write, flush or
+                        // read.
+                        return Err(e);
+                    }
+                    thread::sleep(Duration::from_millis(1));
+                }
+                Err(e) => return Err(e),
+            }
         }
         Ok(())
     }
@@ -248,31 +289,27 @@ impl TlsStream {
 impl Read for TlsStream {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         // Whatever the session queued (a KeyUpdate the peer asked for) first.
-        // A send that only timed out does not stop the read: two stations
-        // both stuck writing must still drain each other.
-        match self.flush_tls() {
-            Err(e)
-                if !matches!(
-                    e.kind(),
-                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
-                ) =>
-            {
-                return Err(e);
-            }
-            _ => {}
-        }
+        self.send_queued()?;
         // The socket timeout bounds each pass; this bounds the whole read, so a
         // peer trickling a record one octet at a time cannot hold it forever.
         let deadline = self
             .sock
             .read_timeout()?
             .and_then(|timeout| Instant::now().checked_add(timeout));
+        // Not `complete_io`: it sends what is queued with a blocking send,
+        // which the write timeout would cut short in the middle on Windows.
         while self.conn.wants_read() {
-            // Only a pass that neither read nor wrote ends the wait: one that
-            // only wrote (an alert rustls queued) still owes a read.
-            if self.conn.complete_io(&mut self.sock)? == (0, 0) {
+            if self.conn.read_tls(&mut self.sock)? == 0 {
                 break;
             }
+            if let Err(e) = self.conn.process_new_packets() {
+                // The alert rustls queued goes to the peer, as `complete_io`
+                // would send it.
+                let _ = self.flush_tls();
+                return Err(io::Error::new(io::ErrorKind::InvalidData, e));
+            }
+            // An answer rustls queued (a KeyUpdate) goes out as above.
+            self.send_queued()?;
             if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
                 // No plaintext yet: the reader reports `WouldBlock`, as the
                 // socket's own timeout does on Unix.
