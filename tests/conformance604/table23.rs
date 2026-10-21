@@ -88,7 +88,7 @@
 
 use std::collections::VecDeque;
 use std::io::{Read, Write};
-use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -835,9 +835,7 @@ impl Mock {
 
     /// Closes the connection, which ends the station under test.
     pub fn close(&self) -> Result<(), String> {
-        self.stream
-            .shutdown(Shutdown::Both)
-            .map_err(|e| format!("shutdown: {e}"))
+        crate::conformance604::close_gracefully(&self.stream)
     }
 }
 

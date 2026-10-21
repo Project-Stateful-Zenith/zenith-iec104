@@ -910,10 +910,25 @@ impl Peer {
 
     /// Closes the socket, which ends the station's thread.
     pub fn close(&self) -> Result<(), String> {
-        self.stream
-            .shutdown(Shutdown::Both)
-            .map_err(|e| format!("shutdown: {e}"))
+        close_gracefully(&self.stream)
     }
+}
+
+/// Closes a test peer's socket so the other end reads EOF, not a reset: sends
+/// FIN, then reads and drops whatever is still in flight until the other end
+/// closes. Windows resets a connection shut down with unread data, and the
+/// station under test would then end on a read error (os error 10054).
+pub fn close_gracefully(stream: &TcpStream) -> Result<(), String> {
+    stream
+        .shutdown(Shutdown::Write)
+        .map_err(|e| format!("shutdown: {e}"))?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .map_err(|e| format!("set read timeout: {e}"))?;
+    let mut buf = [0u8; 1024];
+    // EOF, a timeout or a reset all mean there is nothing left to drain.
+    while matches!((&*stream).read(&mut buf), Ok(n) if n > 0) {}
+    Ok(())
 }
 
 /// One exchange's outcome: the I-frame the station answered with, if any, and
