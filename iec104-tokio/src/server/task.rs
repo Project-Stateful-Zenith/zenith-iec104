@@ -13,6 +13,9 @@ use iec104::ci::{self, CounterInterrogation};
 use iec104::cs::{self, ClockSynchronisation, TimeValidity};
 use iec104::ct::{self, Command, CommandTransmission, Family};
 use iec104::dispatch::{Route, not_implemented, route};
+use iec104::ft::provide::{Provider, directory};
+use iec104::ft::receive::Progress;
+use iec104::ft::{self, FileTransferProcedure, Frame, Selection};
 use iec104::gi::{self, Interrogation};
 use iec104::init::end_of_initialisation_with;
 use iec104::link::State;
@@ -24,7 +27,7 @@ use tokio::sync::mpsc;
 
 use super::image::{Addressing, Entry, Image, ReadSource, Sample, is_tagged, same_kind};
 use super::queue::{Item, Queue};
-use super::{Application, Clock, Request, ServerConfig, ServerError};
+use super::{Application, Clock, Request, ServedFile, ServerConfig, ServerError};
 use crate::{Event, Events, Handle};
 
 /// Every ASDU goes to the group, which sends it on its started connection.
@@ -95,6 +98,10 @@ struct Task<A> {
     /// The logical links gone so far: an operation outliving its link
     /// (104 cl.10.2) is told apart by it.
     link: u64,
+    files: BTreeMap<u32, ServedFile>,
+    ft: FileTransferProcedure,
+    /// The transfers under way, by the file's address.
+    providers: BTreeMap<u32, Provider>,
 }
 
 fn now() -> std::time::Instant {
@@ -185,6 +192,9 @@ pub(super) async fn run<A: Application>(
         operated,
         overrun: BTreeMap::new(),
         link: 0,
+        files: config.files.clone(),
+        ft: FileTransferProcedure::controlled(Selection::MONITOR, ca, 0).with_address_sizes(sizes),
+        providers: BTreeMap::new(),
     };
     if let Some(max) = config.max_command_delay {
         task.ct = task.ct.with_max_command_delay(max);
@@ -418,6 +428,7 @@ impl<A: Application> Task<A> {
                 }
             }
             Route::Command => self.on_command(asdu, &header, known),
+            Route::FileTransfer if !self.files.is_empty() => self.on_file(asdu, &header, known),
             Route::Parameter | Route::FileTransfer | Route::NotImplemented => {
                 if let Some(mirror) =
                     not_implemented(&header, asdu, self.common_address, self.sizes)
@@ -456,6 +467,119 @@ impl<A: Application> Task<A> {
             }
             _ => {}
         }
+    }
+
+    /// 5-101 cl.7.4.11 in the monitor direction, for the declared files.
+    fn on_file(&mut self, asdu: &[u8], header: &Header, known: Known) {
+        let Ok(outcome) = self.ft.on_asdu(asdu, &known) else {
+            return;
+        };
+        let ft::Reaction::Requested { frame } = outcome.reaction else {
+            // The procedure's own refusals (a broadcast, an unknown field).
+            for mirror in outcome.send {
+                self.queue.frame(mirror);
+            }
+            return;
+        };
+        if let Frame::Sc { scq, .. } = &frame
+            && scq.action == ft::SCQ_CALL_DIRECTORY
+        {
+            for asdu in self.directory() {
+                self.queue.frame(asdu);
+            }
+            return;
+        }
+        let ioa = frame.ioa();
+        let Some(file) = self.files.get(&ioa) else {
+            // 5-101 cl.7.2.3: no file at that address.
+            self.queue.frame(mirror_frame(
+                header,
+                asdu,
+                Unspecified::InformationObjectAddress,
+                self.common_address,
+                self.sizes,
+            ));
+            return;
+        };
+        let opens = matches!(&frame, Frame::Sc { scq, .. }
+            if scq.action == iec104::asdu::Scq::SELECT_FILE || scq.action == iec104::asdu::Scq::REQUEST_FILE);
+        if opens {
+            if let Frame::Sc { nof, .. } = &frame
+                && *nof != file.nof
+            {
+                // 7.2.6.28: a negative file ready, the file asked for is not here.
+                let refusal = Frame::FileReady {
+                    ioa,
+                    nof: *nof,
+                    lof: iec104::asdu::Lof { value: 0 },
+                    frq: iec104::asdu::Frq {
+                        value: 0,
+                        negative_confirm: true,
+                    },
+                };
+                if let Ok(asdu) = self.ft.build(&refusal) {
+                    self.queue.frame(asdu);
+                }
+                return;
+            }
+            if let Some(provider) = Provider::new(self.ft, ioa, file.nof, file.content.to_vec()) {
+                self.providers.insert(ioa, provider);
+            }
+        }
+        let Some(provider) = self.providers.get_mut(&ioa) else {
+            return;
+        };
+        let Ok(step) = provider.on_asdu(asdu, &known) else {
+            return;
+        };
+        if step.progress != Progress::Running {
+            self.providers.remove(&ioa);
+        }
+        for asdu in step.send {
+            self.queue.frame(asdu);
+        }
+    }
+
+    /// The declared files as `F_DR_TA_1` frames: one run of frames per run of
+    /// consecutive addresses (figure 89 numbers a frame's files from its base
+    /// address), with `LFD` on the last file of all (7.2.6.38).
+    fn directory(&self) -> Vec<Vec<u8>> {
+        let time = (self.clock)();
+        let mut runs: Vec<(u32, Vec<ft::DirectoryEntry>)> = Vec::new();
+        for (&ioa, file) in &self.files {
+            let entry = ft::DirectoryEntry {
+                nof: file.nof,
+                lof: iec104::asdu::Lof {
+                    value: u32::try_from(file.content.len()).unwrap_or(iec104::asdu::Lof::MAX),
+                },
+                sof: iec104::asdu::Sof::default(),
+                time,
+            };
+            let next = runs
+                .last()
+                .and_then(|(base, entries)| base.checked_add(u32::try_from(entries.len()).ok()?));
+            match runs.last_mut() {
+                Some((_, entries)) if next == Some(ioa) => entries.push(entry),
+                _ => runs.push((ioa, vec![entry])),
+            }
+        }
+        let mut frames: Vec<Frame> = runs
+            .iter()
+            .flat_map(|(base, entries)| directory(&self.ft, *base, entries))
+            .collect();
+        let count = frames.len();
+        for (i, frame) in frames.iter_mut().enumerate() {
+            if let Frame::Directory { files, .. } = frame
+                && i.saturating_add(1) < count
+                && let Some(last) = files.last_mut()
+            {
+                last.sof.last_file_of_directory = false;
+            }
+        }
+        frames
+            .iter()
+            .filter_map(|frame| self.ft.build(frame).ok())
+            .collect()
     }
 
     fn on_counter(&mut self, asdu: &[u8], header: &Header, known: Known) {

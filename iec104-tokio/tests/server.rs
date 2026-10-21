@@ -1825,3 +1825,133 @@ async fn a_common_address_too_large_for_the_address_sizes_is_refused_at_spawn() 
         )))
     );
 }
+
+// ----------------------------------------------------------- file transfer
+
+/// The file `iec104::ft::receive` downloads in these tests: 1000 octets.
+fn served_file() -> Vec<u8> {
+    (0..1000u32).map(|i| (i * 3) as u8).collect()
+}
+
+const fn ft_master() -> iec104::ft::FileTransferProcedure {
+    iec104::ft::FileTransferProcedure::controlling(iec104::ft::Selection::MONITOR, 1, 0)
+}
+
+/// 5-101 cl.7.4.11 in the monitor direction: a declared file goes to the
+/// controlling station section by section, and both checksums add up.
+#[tokio::test(start_paused = true)]
+async fn clause_7_4_11_a_declared_file_is_transferred() {
+    use iec104::asdu::{Known, Nof};
+    use iec104::ft::receive::{Progress, Receiver};
+    let config = config().file(30000, Nof { value: 1 }, served_file());
+    let (_server, _side, mut master) = started(config).await;
+    let mut receiver = Receiver::new(ft_master(), 30000, Nof { value: 1 });
+    master.send(&receiver.start().unwrap());
+    let file = loop {
+        let asdu = master.next().await;
+        let step = receiver.on_asdu(&asdu, &Known::EVERYTHING).unwrap();
+        for out in &step.send {
+            master.send(out);
+        }
+        match step.progress {
+            Progress::Running => {}
+            Progress::Complete(file) => break file,
+            Progress::Failed(failure) => panic!("{failure:?}"),
+        }
+    };
+    assert_eq!(file, served_file());
+}
+
+/// Figure 89: the directory lists the declared files, each run of
+/// consecutive addresses in its own `F_DR_TA_1`, `LFD` on the last file only.
+#[tokio::test(start_paused = true)]
+async fn clause_7_4_11_the_directory_lists_the_declared_files() {
+    use iec104::asdu::{Known, Nof};
+    use iec104::ft::receive::{DirectoryCall, Progress};
+    let config = config()
+        .file(30000, Nof { value: 1 }, served_file())
+        .file(30001, Nof { value: 2 }, vec![1, 2, 3])
+        .file(31000, Nof { value: 3 }, vec![4]);
+    let (_server, _side, mut master) = started(config).await;
+    let mut call = DirectoryCall::new(ft_master());
+    master.send(&call.start(0).unwrap());
+    let listed = loop {
+        let step = call
+            .on_asdu(&master.next().await, &Known::EVERYTHING)
+            .unwrap();
+        if let Progress::Complete(files) = step.progress {
+            break files;
+        }
+    };
+    let shape: Vec<(u32, u16, u32, bool)> = listed
+        .iter()
+        .map(|f| {
+            (
+                f.ioa,
+                f.entry.nof.value,
+                f.entry.lof.value,
+                f.entry.sof.last_file_of_directory,
+            )
+        })
+        .collect();
+    assert_eq!(
+        shape,
+        [
+            (30000, 1, 1000, false),
+            (30001, 2, 3, false),
+            (31000, 3, 1, true)
+        ]
+    );
+}
+
+/// 5-101 cl.7.2.3 and 7.2.6.28: a select at an address with no file comes
+/// back as the cause 47 mirror; one for another name at a file's address gets
+/// a negative file ready.
+#[tokio::test(start_paused = true)]
+async fn clause_7_4_11_an_unknown_file_is_refused() {
+    use iec104::asdu::{Nof, Nos};
+    use iec104::ft::{Frame, decode_frame, select_file};
+    let config = config().file(30000, Nof { value: 1 }, served_file());
+    let (_server, _side, mut master) = started(config).await;
+
+    let select = select_file(1, 0, 30005, Nof { value: 1 }, Nos { value: 0 }).unwrap();
+    master.send(&select);
+    let mut mirror = select.clone();
+    mirror[2] = UNKNOWN_IOA;
+    assert_eq!(master.next().await, mirror);
+
+    master.send(&select_file(1, 0, 30000, Nof { value: 9 }, Nos { value: 0 }).unwrap());
+    match decode_frame(&master.next().await).unwrap() {
+        Frame::FileReady { nof, frq, .. } => {
+            assert_eq!(nof.value, 9);
+            assert!(frq.negative_confirm, "not this file");
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+/// Without declared files, file transfer is not used: the cause 44 mirror,
+/// as before.
+#[tokio::test(start_paused = true)]
+async fn without_files_a_call_directory_is_an_unknown_type() {
+    use iec104::asdu::Nof;
+    use iec104::ft::call_directory;
+    let (_server, _side, mut master) = started(config()).await;
+    let call = call_directory(1, 0, 0, Nof { value: 0 }).unwrap();
+    master.send(&call);
+    let mut mirror = call.clone();
+    mirror[2] = UNKNOWN_TYPE;
+    assert_eq!(master.next().await, mirror);
+}
+
+/// 5-101 cl.7.2.5: a file at address 0 names no object.
+#[tokio::test(start_paused = true)]
+async fn a_file_at_address_0_is_refused() {
+    use iec104::asdu::Nof;
+    let (app, _side) = app();
+    let config = config().file(0, Nof { value: 1 }, vec![1]);
+    assert_eq!(
+        Server::spawn(config, app).err(),
+        Some(ServerError::IrrelevantAddress)
+    );
+}

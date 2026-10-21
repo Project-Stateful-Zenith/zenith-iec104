@@ -47,7 +47,8 @@
 //! | `C_RD_NA_1` read (104 cl.7.2) | the point in its untagged type with cause 5, or cause 47 |
 //! | `C_CS_NA_1` clock synchronisation (104 cl.7.6) | the station's time before the synchronisation, then [`Application::synchronise`] |
 //! | `C_TS_TA_1` test command (104 cl.7.10) | its confirmation |
-//! | parameter loading, reset process, file transfer and any other type | the cause 44 mirror (5-101 cl.7.2.3) |
+//! | file transfer (5-101 cl.7.4.11), with files declared by [`ServerConfig::file`] | a call directory with the declared files; select and call file with the file, through [`iec104::ft::provide::Provider`]; another address with the cause 47 mirror |
+//! | parameter loading, reset process, file transfer without declared files and any other type | the cause 44 mirror (5-101 cl.7.2.3) |
 //!
 //! Every answer is decided by the core's procedure for the request
 //! ([`iec104::gi`], [`iec104::ci`], [`iec104::rd`], [`iec104::cs`],
@@ -154,7 +155,8 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use iec104::asdu::{
-    AddressSizes, AsduError, Cause, Coi, Cp56Time2a, LayoutError, MAX_IOA, Point, Quality, Value,
+    AddressSizes, AsduError, Cause, Coi, Cp56Time2a, LayoutError, Lof, MAX_IOA, Nof, Point,
+    Quality, Value,
 };
 use iec104::ci::{self, CounterMode};
 use iec104::ct::{Command, CommandMode, CommandSet, Family, Termination};
@@ -380,6 +382,15 @@ pub struct ServerConfig {
     pub trace: bool,
     points: BTreeMap<u32, PointConfig>,
     commands: BTreeMap<u32, Family>,
+    files: BTreeMap<u32, ServedFile>,
+}
+
+/// A file a server provides in the monitor direction (5-104 cl.9.6's first
+/// checkbox), declared with [`ServerConfig::file`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ServedFile {
+    pub(crate) nof: Nof,
+    pub(crate) content: Arc<[u8]>,
 }
 
 impl ServerConfig {
@@ -411,6 +422,7 @@ impl ServerConfig {
             trace: false,
             points: BTreeMap::new(),
             commands: BTreeMap::new(),
+            files: BTreeMap::new(),
         }
     }
 
@@ -427,6 +439,22 @@ impl ServerConfig {
     #[must_use]
     pub fn command(mut self, ioa: u32, family: Family) -> Self {
         self.commands.insert(ioa, family);
+        self
+    }
+
+    /// Serves the file `nof` holding `content` at `ioa` (replacing one there):
+    /// it is listed in the directory and transferred on request (5-101
+    /// cl.7.4.11). `ioa` must not be `0`, which [`Server::spawn`] refuses, nor
+    /// `content` longer than `LOF` can state ([`iec104::asdu::Lof::MAX`]).
+    #[must_use]
+    pub fn file(mut self, ioa: u32, nof: Nof, content: impl Into<Arc<[u8]>>) -> Self {
+        self.files.insert(
+            ioa,
+            ServedFile {
+                nof,
+                content: content.into(),
+            },
+        );
         self
     }
 }
@@ -474,6 +502,9 @@ pub enum ServerError {
     /// A point or a command at address `<0>`, which 5-101 cl.7.2.5 defines as
     /// irrelevant: it names no object, so a point there could never be read.
     IrrelevantAddress,
+    /// The file at this address is longer than `LOF` can state (5-101
+    /// cl.7.2.6.35).
+    FileTooLong(u32),
     /// The value cannot be encoded.
     Layout(LayoutError),
     /// The driver refused or has stopped.
@@ -491,6 +522,7 @@ impl fmt::Display for ServerError {
                 write!(f, "cause {} is not an event's (3, 11 or 12)", cause.to_u8())
             }
             Self::IrrelevantAddress => f.write_str("address 0 is irrelevant and names no object"),
+            Self::FileTooLong(ioa) => write!(f, "the file at {ioa} is longer than LOF can state"),
             Self::Layout(e) => write!(f, "layout: {e:?}"),
             Self::Driver(e) => write!(f, "driver: {e}"),
         }
@@ -537,8 +569,9 @@ impl Server {
     ///
     /// # Errors
     ///
-    /// [`ServerError::IrrelevantAddress`] when a point or a command is at
-    /// address `<0>`, [`ServerError::Layout`] when the common address, or a
+    /// [`ServerError::IrrelevantAddress`] when a point, a command or a file is
+    /// at address `<0>`, [`ServerError::FileTooLong`] for a file longer than
+    /// `LOF` can state, [`ServerError::Layout`] when the common address, or a
     /// point's or a command's address, does not fit [`ServerConfig::sizes`], and
     /// [`ServerError::Driver`] when the redundancy group cannot be built from
     /// the configuration (no member, say).
@@ -556,14 +589,25 @@ impl Server {
         }
         // 5-101 cl.7.2.5: `<0>` is "irrelevant", so a point there could be
         // interrogated but never read.
-        if config.points.contains_key(&0) || config.commands.contains_key(&0) {
+        if config.points.contains_key(&0)
+            || config.commands.contains_key(&0)
+            || config.files.contains_key(&0)
+        {
             return Err(ServerError::IrrelevantAddress);
+        }
+        if let Some((&ioa, _)) = config
+            .files
+            .iter()
+            .find(|(_, file)| u32::try_from(file.content.len()).map_or(true, |l| l > Lof::MAX))
+        {
+            return Err(ServerError::FileTooLong(ioa));
         }
         let max = config.sizes.max_ioa();
         if let Some(&ioa) = config
             .points
             .keys()
             .chain(config.commands.keys())
+            .chain(config.files.keys())
             .find(|&&ioa| ioa > max)
         {
             let e = if max == MAX_IOA {
