@@ -60,7 +60,7 @@
 //! | [`pm`] | Parameter loading |
 //! | [`ts`] | Test procedure |
 //! | [`tx`] | Cyclic transmission, background scan and acquisition of events; the send order of 5-101 Table 16 ([`tx::respond_priority`]) |
-//! | [`ft`] | File transfer |
+//! | [`ft`] | File transfer; [`ft::receive`] keeps the receiving side's session |
 //! | [`interop`] | The interoperability profile of clause 9: which options a system uses |
 //! | [`diag`] | One-line, human-readable descriptions of frames for logs |
 //!

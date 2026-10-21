@@ -44,6 +44,10 @@
 //! [`crate::ts::TestProcedure::on_response`] takes the sent command. There is
 //! no clock, timer, queue or schedule in this module.
 //!
+//! A receiving side that wants the state kept for it has [`receive`]: a
+//! [`receive::Receiver`] for one file and a [`receive::DirectoryCall`] for a
+//! directory, built on this procedure, still without a clock.
+//!
 //! # Two directions, selected per station
 //!
 //! 5-104 clause **9.6** (index 114, printed page 113) carries the row *"File
@@ -194,6 +198,8 @@
 //! assert_eq!(controlled.role(), Role::Controlled);
 //! assert_eq!(Selection::MONITOR.count(), 1);
 //! ```
+
+pub mod receive;
 
 use crate::asdu::{
     AddressSizes, Afq, AsduError, AsduLayout, Cause, Chs, Cp56Time2a, Discard, FAfNa1, FDrTa1,
