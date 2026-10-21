@@ -7,6 +7,8 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-10-21
+
 ### Added
 
 - `iec104-tokio`'s `Server` receives uploaded files: with
@@ -103,7 +105,8 @@ The first tagged release of the public repository.
 - `iec104-tokio` passes clippy 1.99 with the `log` and `tracing` features
   off.
 
-[Unreleased]: https://github.com/Project-Stateful-Zenith/zenith-iec104/compare/v0.35.0...HEAD
+[Unreleased]: https://github.com/Project-Stateful-Zenith/zenith-iec104/compare/v0.36.0...HEAD
+[0.36.0]: https://github.com/Project-Stateful-Zenith/zenith-iec104/compare/v0.35.0...v0.36.0
 [0.35.0]: https://github.com/Project-Stateful-Zenith/zenith-iec104/compare/v0.34.0...v0.35.0
 [0.34.0]: https://github.com/Project-Stateful-Zenith/zenith-iec104/compare/v0.33.0...v0.34.0
 [0.33.0]: https://github.com/Project-Stateful-Zenith/zenith-iec104/compare/v0.32.1...v0.33.0

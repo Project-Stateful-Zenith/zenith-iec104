@@ -1,6 +1,6 @@
 [package]
 name = "iec104-tokio"
-version = "0.35.0"
+version = "0.36.0"
 edition = "2024"
 rust-version = "1.88"
 description = "Tokio transport for the iec104 crate: async master and outstation drivers, and a client and a server that run the procedures"
