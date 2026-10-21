@@ -48,7 +48,8 @@
 //! | `C_CS_NA_1` clock synchronisation (104 cl.7.6) | the station's time before the synchronisation, then [`Application::synchronise`] |
 //! | `C_TS_TA_1` test command (104 cl.7.10) | its confirmation |
 //! | file transfer (5-101 cl.7.4.11), with files declared by [`ServerConfig::file`] | a call directory with the declared files; select and call file with the file, through [`iec104::ft::provide::Provider`]; another address with the cause 47 mirror |
-//! | parameter loading, reset process, file transfer without declared files and any other type | the cause 44 mirror (5-101 cl.7.2.3) |
+//! | file transfer in the control direction (5-101 cl.7.4.11), with [`ServerConfig::accept_uploads`] | an offered file is called and acknowledged through [`iec104::ft::receive::Receiver`], then [`Application::received_file`] |
+//! | parameter loading, reset process, file transfer in a direction not served and any other type | the cause 44 mirror (5-101 cl.7.2.3) |
 //!
 //! Every answer is decided by the core's procedure for the request
 //! ([`iec104::gi`], [`iec104::ci`], [`iec104::rd`], [`iec104::cs`],
@@ -229,6 +230,15 @@ pub trait Application: Send + Sync + 'static {
     fn reset_counters(&self, request: ci::Request) {
         let _ = request;
     }
+
+    /// The controlling station uploaded the file `nof` at `ioa` holding
+    /// `content` (5-101 cl.7.4.11 in the control direction), and the
+    /// section and file checksums added up (7.2.6.37). Called in the server's
+    /// task after the positive file acknowledgement is queued: it must not
+    /// block. Only with [`ServerConfig::accept_uploads`]. Default: nothing.
+    fn received_file(&self, ioa: u32, nof: Nof, content: Vec<u8>) {
+        let _ = (ioa, nof, content);
+    }
 }
 
 /// One point of the image.
@@ -380,6 +390,11 @@ pub struct ServerConfig {
     pub request_buffer: usize,
     /// Report every APDU in the driver's events ([`Options::trace`]).
     pub trace: bool,
+    /// Receive files in the control direction (104 cl.9.6's second
+    /// checkbox, 604 5.4.23.10): a file the controlling station offers with
+    /// a file ready, at any address, is called and handed to
+    /// [`Application::received_file`]. Default `false`: the cause 44 mirror.
+    pub accept_uploads: bool,
     points: BTreeMap<u32, PointConfig>,
     commands: BTreeMap<u32, Family>,
     files: BTreeMap<u32, ServedFile>,
@@ -420,6 +435,7 @@ impl ServerConfig {
             event_buffer: DEFAULT_EVENT_BUFFER,
             request_buffer: DEFAULT_REQUEST_BUFFER,
             trace: false,
+            accept_uploads: false,
             points: BTreeMap::new(),
             commands: BTreeMap::new(),
             files: BTreeMap::new(),
@@ -484,6 +500,7 @@ impl fmt::Debug for ServerConfig {
             .field("event_buffer", &self.event_buffer)
             .field("request_buffer", &self.request_buffer)
             .field("trace", &self.trace)
+            .field("accept_uploads", &self.accept_uploads)
             .field("points", &self.points)
             .field("commands", &self.commands)
             .finish_non_exhaustive()

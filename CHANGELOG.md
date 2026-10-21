@@ -7,6 +7,14 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `iec104-tokio`'s `Server` receives uploaded files: with
+  `ServerConfig::accept_uploads`, a file the controlling station offers with
+  a file ready is called and acknowledged through `ft::receive`, and handed
+  to the new `Application::received_file` once its checksums add up.
+  Without it nothing changes: the cause 44 mirror.
+
 ## [0.35.0] - 2026-10-21
 
 ### Added
