@@ -16,7 +16,7 @@ use iec104::asdu::{
     Afq, Cause, Chs, Cp56Time2a, Frq, Header, Known, Lof, Los, Lsq, Nof, Nos, Scq, Segment, Sof,
     Srq,
 };
-use iec104::ft::receive::{DirectoryCall, Failure, Progress, Receiver};
+use iec104::ft::receive::{DirectoryCall, DirectoryFile, Failure, Progress, Receiver};
 use iec104::ft::{
     DirectoryEntry, FileTransferProcedure, Frame, FtError, Selection, checksum, decode_frame,
 };
@@ -338,15 +338,21 @@ fn a_directory_spans_asdus_until_the_last_file() {
     let step = call.on_asdu(&first, &Known::EVERYTHING).unwrap();
     assert_eq!(step.progress, Progress::Running);
 
-    // SOF's LFD (7.2.6.38) marks the directory's last entry.
+    // SOF's LFD (7.2.6.38) marks the directory's last entry. This ASDU's
+    // first file is at IOA + 2: figure 89 numbers from each ASDU's own base.
     let second = send(&Frame::Directory {
         ioa: IOA + 2,
         cause: Cause::Request,
         files: vec![entry(3, true)],
     });
     let step = call.on_asdu(&second, &Known::EVERYTHING).unwrap();
+    let at = |ioa, entry| DirectoryFile { ioa, entry };
     assert_eq!(
         step.progress,
-        Progress::Complete(vec![entry(1, false), entry(2, false), entry(3, true)])
+        Progress::Complete(vec![
+            at(IOA, entry(1, false)),
+            at(IOA + 1, entry(2, false)),
+            at(IOA + 2, entry(3, true)),
+        ])
     );
 }

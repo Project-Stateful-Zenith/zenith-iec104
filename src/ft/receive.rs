@@ -266,6 +266,17 @@ impl Receiver {
     }
 }
 
+/// One file of a directory and the information object address it is at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DirectoryFile {
+    /// The file's information object address: `A + i − 1` for file *i* of an
+    /// `F_DR_TA_1` whose first file is at `A` (figure 89, index 120). A
+    /// [`Receiver`] for the file takes it.
+    pub ioa: u32,
+    /// The file's name, length, status and time.
+    pub entry: DirectoryEntry,
+}
+
 /// A call directory (`F_SC_NA_1`, `SCQ` `<0>`, cause `<5>`) and its answer.
 ///
 /// The directory may span several `F_DR_TA_1` ASDUs, since at most
@@ -275,7 +286,7 @@ impl Receiver {
 pub struct DirectoryCall {
     procedure: FileTransferProcedure,
     sent: Option<Frame>,
-    files: Vec<DirectoryEntry>,
+    files: Vec<DirectoryFile>,
     done: bool,
 }
 
@@ -321,7 +332,7 @@ impl DirectoryCall {
         &mut self,
         asdu: &[u8],
         known: &Known,
-    ) -> Result<Step<Vec<DirectoryEntry>>, FtError> {
+    ) -> Result<Step<Vec<DirectoryFile>>, FtError> {
         if self.sent.is_none() || self.done {
             return Ok(Step::running(Vec::new()));
         }
@@ -330,10 +341,16 @@ impl DirectoryCall {
         let outcome = self.procedure.on_asdu(asdu, known)?;
         match outcome.reaction {
             Reaction::Answered {
-                frame: Frame::Directory { files, .. },
+                frame: Frame::Directory { ioa, files, .. },
             } => {
                 let last = files.iter().any(|f| f.sof.last_file_of_directory);
-                self.files.extend(files);
+                // At most `max_directory_files` entries from a 24-bit address:
+                // the range cannot reach `u32::MAX`.
+                self.files.extend(
+                    (ioa..)
+                        .zip(files)
+                        .map(|(ioa, entry)| DirectoryFile { ioa, entry }),
+                );
                 if !last {
                     return Ok(Step::running(outcome.send));
                 }

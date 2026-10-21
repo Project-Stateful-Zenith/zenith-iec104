@@ -7,6 +7,18 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- `ft::receive::DirectoryCall` completes with `DirectoryFile`s: each entry
+  with the information object address of its file, which a `Receiver` for
+  that file needs. It completed with bare `DirectoryEntry`s, which dropped
+  the address.
+
+### Added
+
+- An interop test runs `ft::receive::Receiver` against lib60870's file
+  server.
+
 ## [0.33.0] - 2026-10-21
 
 ### Added

@@ -499,6 +499,37 @@ fn file_transfer() {
     assert_eq!(file, expected, "all 800 octets, in order");
 }
 
+/// The same file through `ft::receive::Receiver`, which keeps the session
+/// the test above keeps by hand.
+#[test]
+#[ignore = "needs the lib60870 peer (see this file's module doc)"]
+fn file_transfer_receiver() {
+    use iec104::ft::receive::{Progress, Receiver};
+    use iec104::ft::{FileTransferProcedure, Selection};
+    let _peer = spawn(24108);
+    let mut master = Master::start(24108);
+    let procedure = FileTransferProcedure::controlling(Selection::MONITOR, CA, 0);
+    let mut receiver = Receiver::new(procedure, 30000, Nof { value: 1 });
+    master.send(&receiver.start().unwrap());
+    let file = loop {
+        let asdu = master.until(|_| true).pop().unwrap();
+        let step = receiver.on_asdu(&asdu, &Known::EVERYTHING).unwrap();
+        for out in &step.send {
+            master.send(out);
+        }
+        match step.progress {
+            Progress::Running => {}
+            Progress::Complete(file) => break file,
+            Progress::Failed(failure) => panic!("transfer failed: {failure:?}"),
+        }
+    };
+    let expected: Vec<u8> = (0..2u32)
+        .flat_map(|n| (0..400u32).map(move |i| (i * (n + 1)) as u8))
+        .collect();
+    assert_eq!(file, expected, "all 800 octets, in order");
+    assert_eq!(receiver.length(), Some(800));
+}
+
 /// 104 clause 10 against lib60870's single redundancy group: two connections,
 /// one started; a manual switchover (stop 0, start 1) moves the data to 1.
 #[test]
