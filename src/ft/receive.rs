@@ -21,7 +21,7 @@ use super::{
 };
 use crate::asdu::{Afq, Cause, Chs, Frq, Known, Lsq, Nof, Nos, Scq, Srq};
 
-/// Why a transfer ended without the file.
+/// Why a transfer ended before it completed, on either side.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Failure {
     /// The provider answered the select or the call with a negative file ready
@@ -54,6 +54,18 @@ pub enum Failure {
     /// A last section or segment frame whose `LSQ` (7.2.6.31) is none of the
     /// four values the clause defines.
     UnknownLsq(Lsq),
+    /// Providing side: the receiver deactivated or deleted the file, or
+    /// deactivated the section (`SCQ` `<3>`, `<4>` or `<7>`, 7.2.6.30).
+    Deactivated {
+        /// The request it sent.
+        scq: Scq,
+    },
+    /// Providing side: the receiver acknowledged the file negatively (`AFQ`
+    /// `<2>`, 7.2.6.32).
+    FileRejected {
+        /// The acknowledgement it sent.
+        afq: Afq,
+    },
 }
 
 /// Where a session stands after a received ASDU.
@@ -155,14 +167,29 @@ impl Receiver {
     /// [`super::FileTransferProcedure::on_answer`]'s error; one that arrives
     /// after the transfer ended changes nothing.
     ///
+    /// Before [`Receiver::start`], the session waits for the provider to offer
+    /// the file: a file ready for this file opens the transfer as an answer to
+    /// a select would. That is how the control direction starts, with the
+    /// controlling station providing (604 `5.4.23.10`, index 85).
+    ///
     /// # Errors
     ///
     /// [`FileTransferProcedure::on_answer`]'s and
     /// [`FileTransferProcedure::build`]'s errors.
     pub fn on_asdu(&mut self, asdu: &[u8], known: &Known) -> Result<Step<Vec<u8>>, FtError> {
-        let (Some(sent), false) = (&self.sent, self.done) else {
+        if self.done {
             return Ok(Step::running(Vec::new()));
+        }
+        let offered = Frame::Sc {
+            ioa: self.ioa,
+            nof: self.nof,
+            nos: Nos { value: 0 },
+            scq: Scq {
+                action: Scq::SELECT_FILE,
+                error: 0,
+            },
         };
+        let sent = self.sent.as_ref().unwrap_or(&offered);
         let outcome = self.procedure.on_answer(asdu, known, sent)?;
         let frame = match outcome.reaction {
             Reaction::Answered { frame } => frame,
