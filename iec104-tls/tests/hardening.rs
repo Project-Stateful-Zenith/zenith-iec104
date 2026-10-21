@@ -163,20 +163,29 @@ fn narrow_client(port: u16, client: &TlsConfig, timeout: Duration) -> iec104_tls
     tls
 }
 
-/// Writes until a flush stalls, and returns what the writes took. A peer that
-/// reads nothing does not stall a single 64 KiB write everywhere: Windows'
-/// loopback takes it in whole despite the small socket buffers.
+/// Writes 64 KiB at a time until a flush stalls, and returns what the writes
+/// took. A peer that reads slowly or not at all does not stall a single 64 KiB
+/// write everywhere: Windows' loopback takes it in whole despite the small
+/// socket buffers. Every write and flush must end well inside 900 ms, so the
+/// write timeout (150 ms at most) bounds each one as a whole.
 fn write_until_stalled(tls: &mut iec104_tls::TlsStream) -> Vec<u8> {
     let data: Vec<u8> = (0..=250u8).cycle().take(65536).collect();
     let mut written = Vec::new();
     loop {
+        let started = Instant::now();
         let n = tls.write(&data).unwrap();
         assert!(n > 0);
         written.extend(data.iter().take(n));
-        match tls.flush() {
+        let r = tls.flush();
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed < Duration::from_millis(900),
+            "write and flush took {elapsed:?} ({r:?})"
+        );
+        match r {
             Ok(()) => assert!(
                 written.len() < 64 << 20,
-                "64 MiB went out to a peer that reads nothing"
+                "64 MiB went out without a flush stalling"
             ),
             Err(e) => {
                 let kind = e.kind();
@@ -191,8 +200,9 @@ fn write_until_stalled(tls: &mut iec104_tls::TlsStream) -> Vec<u8> {
 }
 
 /// The write timeout bounds the whole flush, not each send: a peer draining
-/// 2 KiB every 50 ms keeps every send moving, yet a flush of 64 KiB with a
-/// 150 ms write timeout gives up after a few timeouts.
+/// 2 KiB every 50 ms keeps every send moving, yet once the socket buffers are
+/// full, a flush of 64 KiB with a 150 ms write timeout gives up after a few
+/// timeouts.
 #[test]
 fn the_blocking_write_timeout_holds_against_a_slow_reader() {
     let ca = Ca::new("test CA");
@@ -217,20 +227,9 @@ fn the_blocking_write_timeout_holds_against_a_slow_reader() {
         }
     });
     let mut tls = narrow_client(port, &client, Duration::from_millis(150));
-    let started = Instant::now();
-    let r = tls.write(&vec![0u8; 65536]).and_then(|_| tls.flush());
-    let elapsed = started.elapsed();
+    write_until_stalled(&mut tls);
     done.store(true, Ordering::Relaxed);
     srv.join().unwrap();
-    assert!(
-        elapsed < Duration::from_millis(900),
-        "write and flush took {elapsed:?} with a 150 ms write timeout ({r:?})"
-    );
-    let kind = r.unwrap_err().kind();
-    assert!(
-        matches!(kind, io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut),
-        "{kind:?}"
-    );
 }
 
 /// A write whose data is queued succeeds even when sending it times out, so
