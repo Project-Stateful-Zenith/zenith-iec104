@@ -14,7 +14,7 @@ use iec104::cs::{self, ClockSynchronisation, TimeValidity};
 use iec104::ct::{self, Command, CommandTransmission, Family};
 use iec104::dispatch::{Route, not_implemented, route};
 use iec104::ft::provide::{Provider, directory};
-use iec104::ft::receive::Progress;
+use iec104::ft::receive::{Progress, Receiver};
 use iec104::ft::{self, FileTransferProcedure, Frame, Selection};
 use iec104::gi::{self, Interrogation};
 use iec104::init::end_of_initialisation_with;
@@ -102,10 +102,21 @@ struct Task<A> {
     ft: FileTransferProcedure,
     /// The transfers under way, by the file's address.
     providers: BTreeMap<u32, Provider>,
+    /// The files being uploaded, by address, with their names.
+    receivers: BTreeMap<u32, (iec104::asdu::Nof, Receiver)>,
 }
 
 fn now() -> std::time::Instant {
     tokio::time::Instant::now().into_std()
+}
+
+/// 104 cl.9.6's two file-transfer boxes: the monitor direction with declared
+/// files, the control direction with uploads accepted.
+fn selection(config: &ServerConfig) -> Selection {
+    Selection {
+        monitor: !config.files.is_empty(),
+        control: config.accept_uploads,
+    }
 }
 
 pub(super) async fn run<A: Application>(
@@ -193,8 +204,9 @@ pub(super) async fn run<A: Application>(
         overrun: BTreeMap::new(),
         link: 0,
         files: config.files.clone(),
-        ft: FileTransferProcedure::controlled(Selection::MONITOR, ca, 0).with_address_sizes(sizes),
+        ft: FileTransferProcedure::controlled(selection(&config), ca, 0).with_address_sizes(sizes),
         providers: BTreeMap::new(),
+        receivers: BTreeMap::new(),
     };
     if let Some(max) = config.max_command_delay {
         task.ct = task.ct.with_max_command_delay(max);
@@ -428,7 +440,9 @@ impl<A: Application> Task<A> {
                 }
             }
             Route::Command => self.on_command(asdu, &header, known),
-            Route::FileTransfer if !self.files.is_empty() => self.on_file(asdu, &header, known),
+            Route::FileTransfer if !self.files.is_empty() || self.ft.selection().control => {
+                self.on_file(asdu, &header, known);
+            }
             Route::Parameter | Route::FileTransfer | Route::NotImplemented => {
                 if let Some(mirror) =
                     not_implemented(&header, asdu, self.common_address, self.sizes)
@@ -469,17 +483,23 @@ impl<A: Application> Task<A> {
         }
     }
 
-    /// 5-101 cl.7.4.11 in the monitor direction, for the declared files.
+    /// 5-101 cl.7.4.11 in the monitor direction, for the declared files, and
+    /// in the control direction, for uploads.
     fn on_file(&mut self, asdu: &[u8], header: &Header, known: Known) {
         let Ok(outcome) = self.ft.on_asdu(asdu, &known) else {
             return;
         };
-        let ft::Reaction::Requested { frame } = outcome.reaction else {
-            // The procedure's own refusals (a broadcast, an unknown field).
-            for mirror in outcome.send {
-                self.queue.frame(mirror);
+        let frame = match outcome.reaction {
+            ft::Reaction::Requested { frame } => frame,
+            ft::Reaction::Answered { frame } => return self.on_upload(asdu, &frame, known),
+            _ => {
+                // The procedure's own refusals (a broadcast, an unknown field,
+                // a direction not served).
+                for mirror in outcome.send {
+                    self.queue.frame(mirror);
+                }
+                return;
             }
-            return;
         };
         if let Frame::Sc { scq, .. } = &frame
             && scq.action == ft::SCQ_CALL_DIRECTORY
@@ -537,6 +557,40 @@ impl<A: Application> Task<A> {
         }
         for asdu in step.send {
             self.queue.frame(asdu);
+        }
+    }
+
+    /// 5-101 cl.7.4.11 in the control direction (604 5.4.23.10): the
+    /// controlling station offers a file with a file ready, the server calls
+    /// it through [`Receiver`] and hands it to [`Application::received_file`]
+    /// once the sections' and the file's checksums add up (7.2.6.37). A frame
+    /// for an address with no offer is dropped.
+    fn on_upload(&mut self, asdu: &[u8], frame: &Frame, known: Known) {
+        let ioa = frame.ioa();
+        if let Frame::FileReady { nof, .. } = frame {
+            // A new offer at an address replaces a transfer left there.
+            self.receivers
+                .insert(ioa, (*nof, Receiver::new(self.ft, ioa, *nof)));
+        }
+        let Some((nof, receiver)) = self.receivers.get_mut(&ioa) else {
+            return;
+        };
+        let nof = *nof;
+        let Ok(step) = receiver.on_asdu(asdu, &known) else {
+            return;
+        };
+        for asdu in step.send {
+            self.queue.frame(asdu);
+        }
+        match step.progress {
+            Progress::Running => {}
+            Progress::Complete(content) => {
+                self.receivers.remove(&ioa);
+                self.app.received_file(ioa, nof, content);
+            }
+            Progress::Failed(_) => {
+                self.receivers.remove(&ioa);
+            }
         }
     }
 

@@ -180,6 +180,7 @@ struct App {
     operations: mpsc::UnboundedSender<(Command, oneshot::Sender<bool>)>,
     synchronised: mpsc::UnboundedSender<Cp56Time2a>,
     resets: mpsc::UnboundedSender<ci::Request>,
+    received: mpsc::UnboundedSender<(u32, iec104::asdu::Nof, Vec<u8>)>,
 }
 
 struct AppSide {
@@ -187,6 +188,7 @@ struct AppSide {
     operations: mpsc::UnboundedReceiver<(Command, oneshot::Sender<bool>)>,
     synchronised: mpsc::UnboundedReceiver<Cp56Time2a>,
     resets: mpsc::UnboundedReceiver<ci::Request>,
+    received: mpsc::UnboundedReceiver<(u32, iec104::asdu::Nof, Vec<u8>)>,
 }
 
 fn app() -> (App, AppSide) {
@@ -194,18 +196,21 @@ fn app() -> (App, AppSide) {
     let (operations, operations_rx) = mpsc::unbounded_channel();
     let (synchronised, synchronised_rx) = mpsc::unbounded_channel();
     let (resets, resets_rx) = mpsc::unbounded_channel();
+    let (received, received_rx) = mpsc::unbounded_channel();
     (
         App {
             accept: Arc::clone(&accept),
             operations,
             synchronised,
             resets,
+            received,
         },
         AppSide {
             accept,
             operations: operations_rx,
             synchronised: synchronised_rx,
             resets: resets_rx,
+            received: received_rx,
         },
     )
 }
@@ -227,6 +232,10 @@ impl Application for App {
 
     fn reset_counters(&self, request: ci::Request) {
         let _ = self.resets.send(request);
+    }
+
+    fn received_file(&self, ioa: u32, nof: iec104::asdu::Nof, content: Vec<u8>) {
+        let _ = self.received.send((ioa, nof, content));
     }
 }
 
@@ -1954,4 +1963,96 @@ async fn a_file_at_address_0_is_refused() {
         Server::spawn(config, app).err(),
         Some(ServerError::IrrelevantAddress)
     );
+}
+
+/// The controlling station's side of an upload: the providing side in the
+/// control direction (604 5.4.23.10).
+fn uploader(content: Vec<u8>) -> iec104::ft::provide::Provider {
+    use iec104::asdu::Nof;
+    use iec104::ft::{FileTransferProcedure, Selection};
+    let procedure = FileTransferProcedure::controlling(Selection::CONTROL, 1, 0);
+    iec104::ft::provide::Provider::new(procedure, 40000, Nof { value: 7 }, content).unwrap()
+}
+
+/// Offers `provider`'s file and answers the server until the transfer ends.
+/// With `corrupt`, the file's `CHS` in the last section is off by one.
+async fn upload(
+    master: &mut Master,
+    provider: &mut iec104::ft::provide::Provider,
+    corrupt: bool,
+) -> iec104::ft::receive::Progress<()> {
+    use iec104::asdu::{Known, Lsq};
+    use iec104::ft::receive::Progress;
+    use iec104::ft::{Frame, decode_frame};
+    master.send(&provider.announce().unwrap());
+    loop {
+        let step = provider
+            .on_asdu(&master.next().await, &Known::EVERYTHING)
+            .unwrap();
+        for mut out in step.send {
+            if corrupt
+                && let Ok(Frame::LastSection { lsq, .. }) = decode_frame(&out)
+                && lsq.value == Lsq::FILE_WITHOUT_DEACTIVATION
+            {
+                let chs = out.last_mut().unwrap();
+                *chs = chs.wrapping_add(1);
+            }
+            master.send(&out);
+        }
+        if step.progress != Progress::Running {
+            return step.progress;
+        }
+    }
+}
+
+/// 5-101 cl.7.4.11 in the control direction: the controlling station offers
+/// a file with a file ready, the server calls it section by section, and the
+/// file reaches the application once both checksums add up (7.2.6.37).
+#[tokio::test(start_paused = true)]
+async fn clause_7_4_11_an_uploaded_file_reaches_the_application() {
+    use iec104::asdu::Nof;
+    use iec104::ft::receive::Progress;
+    let mut config = config();
+    config.accept_uploads = true;
+    let (_server, mut side, mut master) = started(config).await;
+    let mut provider = uploader(served_file());
+    assert_eq!(
+        upload(&mut master, &mut provider, false).await,
+        Progress::Complete(())
+    );
+    assert_eq!(
+        side.received.try_recv().unwrap(),
+        (40000, Nof { value: 7 }, served_file())
+    );
+}
+
+/// 7.2.6.37 and 7.2.6.32: a file whose `CHS` does not add up is acknowledged
+/// negatively and never reaches the application.
+#[tokio::test(start_paused = true)]
+async fn clause_7_4_11_an_upload_with_a_bad_checksum_is_rejected() {
+    use iec104::ft::receive::{Failure, Progress};
+    let mut config = config();
+    config.accept_uploads = true;
+    let (_server, mut side, mut master) = started(config).await;
+    let mut provider = uploader(served_file());
+    let progress = upload(&mut master, &mut provider, true).await;
+    assert!(
+        matches!(progress, Progress::Failed(Failure::FileRejected { .. })),
+        "{progress:?}"
+    );
+    assert!(side.received.try_recv().is_err());
+}
+
+/// Without `accept_uploads` the control direction is not served, declared
+/// files or not: an offered file gets the cause 44 mirror (5-101 cl.7.2.3).
+#[tokio::test(start_paused = true)]
+async fn without_accept_uploads_an_offered_file_is_an_unknown_type() {
+    use iec104::asdu::Nof;
+    let config = config().file(30000, Nof { value: 1 }, served_file());
+    let (_server, _side, mut master) = started(config).await;
+    let offer = uploader(vec![1, 2, 3]).announce().unwrap();
+    master.send(&offer);
+    let mut mirror = offer.clone();
+    mirror[2] = UNKNOWN_TYPE;
+    assert_eq!(master.next().await, mirror);
 }
