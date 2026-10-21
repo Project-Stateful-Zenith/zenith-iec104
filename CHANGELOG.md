@@ -7,17 +7,19 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-10-21
+
+### Added
+
+- An interop test runs `ft::receive::Receiver` against lib60870's file
+  server (#63).
+
 ### Changed
 
 - `ft::receive::DirectoryCall` completes with `DirectoryFile`s: each entry
   with the information object address of its file, which a `Receiver` for
   that file needs. It completed with bare `DirectoryEntry`s, which dropped
-  the address.
-
-### Added
-
-- An interop test runs `ft::receive::Receiver` against lib60870's file
-  server.
+  the address (#63).
 
 ## [0.33.0] - 2026-10-21
 
@@ -65,6 +67,7 @@ The first tagged release of the public repository.
 - `iec104-tokio` passes clippy 1.99 with the `log` and `tracing` features
   off.
 
-[Unreleased]: https://github.com/Project-Stateful-Zenith/zenith-iec104/compare/v0.33.0...HEAD
+[Unreleased]: https://github.com/Project-Stateful-Zenith/zenith-iec104/compare/v0.34.0...HEAD
+[0.34.0]: https://github.com/Project-Stateful-Zenith/zenith-iec104/compare/v0.33.0...v0.34.0
 [0.33.0]: https://github.com/Project-Stateful-Zenith/zenith-iec104/compare/v0.32.1...v0.33.0
 [0.32.1]: https://github.com/Project-Stateful-Zenith/zenith-iec104/releases/tag/v0.32.1
