@@ -7,31 +7,33 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-10-21
+
 ### Added
 
 - `iec104-tokio`'s `Server` serves files: `ServerConfig::file` declares one
   at an address, the directory lists the declared files, and select and
   call file transfer them through `ft::provide`. A request for an address
   without a file gets the cause 47 mirror, one for another name a negative
-  file ready. Without declared files nothing changes: the cause 44 mirror.
+  file ready. Without declared files nothing changes: the cause 44 mirror
+  (#66).
 - `ServerError::FileTooLong` for a declared file longer than `LOF` can
-  state; a file at address 0 is `ServerError::IrrelevantAddress`.
-
-### Added
-
+  state; a file at address 0 is `ServerError::IrrelevantAddress` (#66).
 - `ft::provide`: the providing side of a file transfer as a session.
   `Provider` holds one file and answers select file, call file and call
   section with its sections, segments and checksums, sends a section again
   after a negative acknowledgement, and opens the control direction with
   `announce`. `directory` builds the `F_DR_TA_1` frames that answer a call
-  directory, split by what an ASDU holds, with `LFD` on the last file.
+  directory, split by what an ASDU holds, with `LFD` on the last file
+  (#65).
 
 ### Changed
 
 - `ft::receive::Receiver` takes a file ready before `start`: the
-  controlling station's offer that opens the control direction.
+  controlling station's offer that opens the control direction (#65).
 - `ft::receive::Failure` has two more variants for the providing side,
-  `Deactivated` and `FileRejected`. A `match` on it needs arms for them.
+  `Deactivated` and `FileRejected`. A `match` on it needs arms for them
+  (#65).
 
 ## [0.34.0] - 2026-10-21
 
@@ -93,7 +95,8 @@ The first tagged release of the public repository.
 - `iec104-tokio` passes clippy 1.99 with the `log` and `tracing` features
   off.
 
-[Unreleased]: https://github.com/Project-Stateful-Zenith/zenith-iec104/compare/v0.34.0...HEAD
+[Unreleased]: https://github.com/Project-Stateful-Zenith/zenith-iec104/compare/v0.35.0...HEAD
+[0.35.0]: https://github.com/Project-Stateful-Zenith/zenith-iec104/compare/v0.34.0...v0.35.0
 [0.34.0]: https://github.com/Project-Stateful-Zenith/zenith-iec104/compare/v0.33.0...v0.34.0
 [0.33.0]: https://github.com/Project-Stateful-Zenith/zenith-iec104/compare/v0.32.1...v0.33.0
 [0.32.1]: https://github.com/Project-Stateful-Zenith/zenith-iec104/releases/tag/v0.32.1
