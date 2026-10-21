@@ -7,6 +7,22 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `ft::provide`: the providing side of a file transfer as a session.
+  `Provider` holds one file and answers select file, call file and call
+  section with its sections, segments and checksums, sends a section again
+  after a negative acknowledgement, and opens the control direction with
+  `announce`. `directory` builds the `F_DR_TA_1` frames that answer a call
+  directory, split by what an ASDU holds, with `LFD` on the last file.
+
+### Changed
+
+- `ft::receive::Receiver` takes a file ready before `start`: the
+  controlling station's offer that opens the control direction.
+- `ft::receive::Failure` has two more variants for the providing side,
+  `Deactivated` and `FileRejected`. A `match` on it needs arms for them.
+
 ## [0.34.0] - 2026-10-21
 
 ### Added
