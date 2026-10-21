@@ -7,13 +7,16 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-10-21
+
 ### Added
 
 - `ft::receive`: the receiving side of a file transfer as a session.
   `Receiver` runs one file from select file to the file acknowledgement,
   checks each section's and the file's checksum, and asks for a section
   again when its checksum does not add up. `DirectoryCall` collects a
-  directory over as many `F_DR_TA_1` ASDUs as it takes. Both stay sans-IO.
+  directory over as many `F_DR_TA_1` ASDUs as it takes. Both stay sans-IO
+  (#61).
 
 ### Changed
 
@@ -50,5 +53,6 @@ The first tagged release of the public repository.
 - `iec104-tokio` passes clippy 1.99 with the `log` and `tracing` features
   off.
 
-[Unreleased]: https://github.com/Project-Stateful-Zenith/zenith-iec104/compare/v0.32.1...HEAD
+[Unreleased]: https://github.com/Project-Stateful-Zenith/zenith-iec104/compare/v0.33.0...HEAD
+[0.33.0]: https://github.com/Project-Stateful-Zenith/zenith-iec104/compare/v0.32.1...v0.33.0
 [0.32.1]: https://github.com/Project-Stateful-Zenith/zenith-iec104/releases/tag/v0.32.1
