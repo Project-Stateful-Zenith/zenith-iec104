@@ -313,6 +313,13 @@ impl Core for RedundancyGroup {
     }
 
     fn unconfirmed(&mut self, conn: usize) -> usize {
+        let left = self
+            .members()
+            .get(conn)
+            .map_or(0, |member| member.left_behind().len());
+        if left > 0 {
+            return left;
+        }
         // `Leave` only counts: it records no decision, so the application's
         // own replay or discard still follows.
         match self.retransmit_unconfirmed(conn, Replay::Leave) {

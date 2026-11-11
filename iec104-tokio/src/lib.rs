@@ -229,7 +229,11 @@ pub enum Event {
     /// manual switchover) has not failed and is not reported. The
     /// application's own [`Handle::close`], and its [`Handle::start`] of
     /// another connection, which closes the started one (10.7), are reported
-    /// only when the connection they ended left data behind.
+    /// only when the connection they ended left data behind. So is a
+    /// connection that ends when it is no longer the started one and still
+    /// has frames unconfirmed (one stopped by a manual switchover whose peer
+    /// never acknowledged them): whatever a connection leaves with the
+    /// group is reported once, here or as [`Event::Switchover`].
     StartedConnectionFailed {
         /// The connection: the station of a manager, or the member of a group.
         conn: usize,
