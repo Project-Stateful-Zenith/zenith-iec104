@@ -1119,6 +1119,99 @@ fn a_confirmed_test_act_does_not_postpone_the_t1_of_an_i_frame() {
     );
 }
 
+#[test]
+fn clause_9_a_confirmed_test_act_leaves_a_pending_start_act_its_own_t1() {
+    let start = Instant::now();
+    let t1 = LinkParams::default().t1;
+    let mut manager = ConnectionManager::new(Role::Controlling, vec![station()]).unwrap();
+    manager.tick(start);
+    manager.on_connection_established(0, start).unwrap();
+
+    let test_at = start + Duration::from_secs(20);
+    assert_eq!(
+        actions_of(&manager.tick(test_at)),
+        vec![Action::Send(Apci::U(UFunction::TestFrAct))]
+    );
+    let start_at = start + Duration::from_secs(34);
+    assert_eq!(
+        actions_of(&manager.request_start(0, start_at).unwrap()),
+        vec![Action::Send(Apci::U(UFunction::StartDtAct))]
+    );
+    assert_eq!(
+        manager.station(0).unwrap().timers().deadline(Timer::T1),
+        Some(test_at + t1),
+        "the later act does not postpone the test act's t1"
+    );
+    manager
+        .on_frame(0, Apci::U(UFunction::TestFrCon), start_at)
+        .unwrap();
+
+    assert_eq!(
+        manager.tick(start + Duration::from_secs(35)),
+        [] as [Directive; 0],
+        "the start act is one second old"
+    );
+    assert_eq!(manager.station(0).unwrap().state(), State::PendingStarted);
+    assert_eq!(
+        manager.station(0).unwrap().timers().deadline(Timer::T1),
+        Some(start_at + t1),
+        "t1 runs from the start act's own send"
+    );
+    assert_eq!(
+        actions_of(&manager.tick(start_at + t1)),
+        vec![Action::ActiveClose("t1 expired with no confirmation")],
+        "the start act was never confirmed"
+    );
+    assert_eq!(manager.station(0).unwrap().state(), State::Terminated);
+}
+
+#[test]
+fn clause_9_a_confirmed_start_act_leaves_a_pending_test_act_its_own_t1() {
+    let start = Instant::now();
+    let t1 = LinkParams::default().t1;
+    let mut manager = ConnectionManager::new(Role::Controlling, vec![station()]).unwrap();
+    manager.tick(start);
+    manager.on_connection_established(0, start).unwrap();
+
+    let start_at = start + Duration::from_secs(10);
+    manager.request_start(0, start_at).unwrap();
+    let test_at = start + Duration::from_secs(20);
+    assert_eq!(
+        actions_of(&manager.tick(test_at)),
+        vec![Action::Send(Apci::U(UFunction::TestFrAct))]
+    );
+    assert_eq!(
+        manager.station(0).unwrap().timers().deadline(Timer::T1),
+        Some(start_at + t1),
+        "the later act does not postpone the start act's t1"
+    );
+    manager
+        .on_frame(
+            0,
+            Apci::U(UFunction::StartDtCon),
+            start + Duration::from_secs(21),
+        )
+        .unwrap();
+    assert_eq!(manager.station(0).unwrap().state(), State::Started);
+
+    assert_eq!(
+        manager.tick(start_at + t1),
+        [] as [Directive; 0],
+        "the test act is five seconds old"
+    );
+    assert_eq!(
+        manager.station(0).unwrap().timers().deadline(Timer::T1),
+        Some(test_at + t1),
+        "t1 runs from the test act's own send"
+    );
+    assert_eq!(
+        actions_of(&manager.tick(test_at + t1)),
+        vec![Action::ActiveClose("t1 expired with no confirmation")],
+        "the test act was never confirmed"
+    );
+    assert_eq!(manager.station(0).unwrap().state(), State::Terminated);
+}
+
 /// A t0 expiry with no word from the caller is an attempt still in flight,
 /// which the caller must abandon; a refused dial is not.
 #[test]
