@@ -410,10 +410,11 @@
 //!   application's replay decision, the held data waits behind it, and so
 //!   does every ASDU handed over meanwhile, also when another connection is
 //!   already started, and what was queued on a connection before the Start
-//!   that closed the failed one, so the replay goes out first (10.6). That
-//!   order holds for a replay decided after the connection is started: one
-//!   decided between a `select` and the Start queues behind what already
-//!   waits on the named connection.
+//!   that closed the failed one, so the replay goes out first (10.6). The
+//!   group numbers every ASDU as it is handed over, and wherever held data,
+//!   a connection's waiting queue and a replay come together they are put in
+//!   that order, whichever of them the naming or the decision reached first.
+//!   Only what is already on the wire of a running connection stays ahead.
 //!
 //! # What stays the caller's
 //!
@@ -469,6 +470,7 @@ use crate::init::{FollowUp, end_of_initialisation};
 use crate::link::{Action, MAX_PENDING_USER_DATA, QueueError, Role, Session, State, Timer};
 use crate::params::{LinkParams, ParamError};
 use crate::timers::{Supervision, Supervisor, Timers};
+use std::collections::VecDeque;
 use std::time::Instant;
 
 /// One logical connection of a redundancy group: its session and its own
@@ -497,7 +499,8 @@ pub struct Member {
     /// mirror of it, kept so that a *lost* connection's queued data is not lost
     /// with the session's queue, which clause 5.1 clears (10.5, index 128:
     /// data must not be lost in a switchover).
-    queued: Vec<Vec<u8>>,
+    queued: Order,
+    sent: VecDeque<u64>,
     /// True once the application has decided on what this member's failed
     /// connection left behind ([`Replay::Retransmit`] or [`Replay::Discard`]),
     /// so that a repeated call is [`GroupError::AlreadyRetransmitted`] rather
@@ -521,7 +524,7 @@ pub struct Member {
     /// [`Replay::Retransmit`] or [`Replay::Discard`] (10.5: the application
     /// decides whether to retransmit). Several unhandled failures accumulate
     /// here.
-    left: Vec<Vec<u8>>,
+    left: Order,
     /// True from the capture of a failure until the member has a live
     /// connection again, so one failure is captured once.
     captured: bool,
@@ -545,10 +548,11 @@ impl Member {
             session: Session::with_params(role, params)?,
             timers: Timers::new(params)?,
             supervisor: Supervisor::default(),
-            queued: Vec::new(),
+            queued: Order::default(),
+            sent: VecDeque::new(),
             replayed: false,
             socket: false,
-            left: Vec::new(),
+            left: Order::default(),
             captured: false,
             attempt_began: None,
         })
@@ -619,7 +623,7 @@ impl Member {
     /// own queue still holds, which keeps them on a repeated `STARTDT_ACT`.
     #[must_use]
     pub fn queued_user_data(&self) -> &[Vec<u8>] {
-        &self.queued
+        &self.queued.asdus
     }
 
     /// True once the application has replayed or discarded what this member's
@@ -635,8 +639,34 @@ impl Member {
 
     /// Records that the group handed one ASDU to this connection's clause 5.3
     /// queue, so the mirror holds what the session holds.
-    fn note_queued(&mut self, asdu: &[u8]) {
-        self.queued.push(asdu.to_vec());
+    fn note_queued(&mut self, stamp: u64, asdu: &[u8]) {
+        self.queued.push(stamp, asdu.to_vec());
+    }
+
+    fn note_sent(&mut self, stamp: u64) {
+        self.sent.push_back(stamp);
+        let outstanding = self.session.outstanding_frames().len();
+        while self.sent.len() > outstanding {
+            self.sent.pop_front();
+        }
+    }
+
+    fn take_queue(&mut self) -> Order {
+        let asdus = self.session.take_pending_user_data();
+        let mut stamps = std::mem::take(&mut self.queued).stamps;
+        let surplus = stamps.len().saturating_sub(asdus.len());
+        stamps.drain(..surplus);
+        let unknown = asdus.len().saturating_sub(stamps.len());
+        let mut taken = Order::default();
+        for (at, asdu) in asdus.into_iter().enumerate() {
+            let stamp = at
+                .checked_sub(unknown)
+                .and_then(|known| stamps.get(known))
+                .copied()
+                .unwrap_or(0);
+            taken.push(stamp, asdu);
+        }
+        taken
     }
 
     /// Drops the mirror entries this connection's own session has just put on
@@ -644,10 +674,10 @@ impl Member {
     /// that has left the connection.
     fn note_wire(&mut self, actions: &[Action]) {
         for action in actions {
-            if let Action::SendI { asdu, .. } = action
-                && let Some(at) = self.queued.iter().position(|queued| queued == asdu)
-            {
-                self.queued.remove(at);
+            if let Action::SendI { asdu, .. } = action {
+                let at = self.queued.asdus.iter().position(|queued| queued == asdu);
+                let stamp = at.map_or(0, |at| self.queued.remove(at));
+                self.note_sent(stamp);
             }
         }
     }
@@ -674,7 +704,7 @@ impl Member {
         }
         let held = self.session.pending_user_data();
         let surplus = self.queued.len().saturating_sub(held);
-        self.queued.drain(..surplus);
+        self.queued.drain_front(surplus);
     }
 
     /// Records the application's decision (`Retransmit` or `Discard`) on what
@@ -710,9 +740,22 @@ impl Member {
         }
         self.captured = true;
         self.replayed = false;
-        let frames = self.session.outstanding_frames().iter();
-        self.left.extend(frames.map(|frame| frame.asdu.clone()));
-        self.left.extend(self.queued.iter().cloned());
+        let frames = self.session.outstanding_frames();
+        let unknown = frames.len().saturating_sub(self.sent.len());
+        let acknowledged = self.sent.len().saturating_sub(frames.len());
+        let mut captured = Order::default();
+        for (at, frame) in frames.iter().enumerate() {
+            let stamp = at
+                .checked_sub(unknown)
+                .and_then(|known| self.sent.get(known.saturating_add(acknowledged)))
+                .copied()
+                .unwrap_or(0);
+            captured.push(stamp, frame.asdu.clone());
+        }
+        for (stamp, asdu) in self.queued.stamps.iter().zip(&self.queued.asdus) {
+            captured.push(*stamp, asdu.clone());
+        }
+        self.left.merge(captured);
     }
 
     /// What this member's failed connections left behind and the application
@@ -720,7 +763,79 @@ impl Member {
     /// ([`RedundancyGroup::retransmit_unconfirmed`]).
     #[must_use]
     pub fn left_behind(&self) -> &[Vec<u8>] {
-        &self.left
+        &self.left.asdus
+    }
+}
+
+#[derive(Debug, Default)]
+struct Order {
+    asdus: Vec<Vec<u8>>,
+    stamps: Vec<u64>,
+}
+
+impl Order {
+    const fn len(&self) -> usize {
+        self.asdus.len()
+    }
+
+    const fn is_empty(&self) -> bool {
+        self.asdus.is_empty()
+    }
+
+    fn clear(&mut self) {
+        self.asdus.clear();
+        self.stamps.clear();
+    }
+
+    fn push(&mut self, stamp: u64, asdu: Vec<u8>) {
+        let stamp = self.stamps.last().map_or(stamp, |&last| last.max(stamp));
+        self.stamps.push(stamp);
+        self.asdus.push(asdu);
+    }
+
+    fn remove(&mut self, at: usize) -> u64 {
+        self.asdus.remove(at);
+        self.stamps.remove(at)
+    }
+
+    fn drain_front(&mut self, count: usize) {
+        let count = count.min(self.len());
+        self.asdus.drain(..count);
+        self.stamps.drain(..count);
+    }
+
+    fn pairs(self) -> impl Iterator<Item = (u64, Vec<u8>)> {
+        self.stamps.into_iter().zip(self.asdus)
+    }
+
+    fn merge(&mut self, other: Self) {
+        if other.is_empty() {
+            return;
+        }
+        if self.stamps.last() <= other.stamps.first() {
+            self.stamps.extend(other.stamps);
+            self.asdus.extend(other.asdus);
+            return;
+        }
+        let mut ours = std::mem::take(self).pairs().peekable();
+        let mut theirs = other.pairs().peekable();
+        loop {
+            let from_ours = match (ours.peek(), theirs.peek()) {
+                (Some((ours, _)), Some((theirs, _))) => ours <= theirs,
+                (Some(_), None) => true,
+                (None, Some(_)) => false,
+                (None, None) => break,
+            };
+            let next = if from_ours {
+                ours.next()
+            } else {
+                theirs.next()
+            };
+            if let Some((stamp, asdu)) = next {
+                self.stamps.push(stamp);
+                self.asdus.push(asdu);
+            }
+        }
     }
 }
 
@@ -748,7 +863,8 @@ pub struct RedundancyGroup {
     /// undecided, or moved off a stopped connection the naming left, held
     /// until a connection is named and that data is decided on (10.5: data
     /// must not be lost in a switchover).
-    held: Vec<Vec<u8>>,
+    held: Order,
+    stamp: u64,
     /// True from the failure of the started connection until the next one is
     /// named: the gap in which the group holds user data. Before the first
     /// Start there is no such gap, and user data is refused.
@@ -801,7 +917,8 @@ impl RedundancyGroup {
             role,
             members,
             started: None,
-            held: Vec::new(),
+            held: Order::default(),
+            stamp: 0,
             switching: false,
             log: None,
         })
@@ -999,15 +1116,22 @@ impl RedundancyGroup {
             // carry it; the group holds it for the next one named. Data the
             // group already holds (waiting for the replay decision) goes
             // first, so new data queues behind it.
-            self.held.push(asdu.to_vec());
+            let stamp = self.next_stamp();
+            self.held.push(stamp, asdu.to_vec());
             return Ok(None);
         }
         let index = self.route(index)?;
+        let stamp = self.next_stamp();
         if self.undecided() && self.member(index)?.session.is_connected() {
-            self.held.push(asdu.to_vec());
+            self.held.push(stamp, asdu.to_vec());
             return Ok(None);
         }
-        self.place(index, asdu)
+        self.place(index, stamp, asdu)
+    }
+
+    const fn next_stamp(&mut self) -> u64 {
+        self.stamp = self.stamp.saturating_add(1);
+        self.stamp
     }
 
     fn undecided(&self) -> bool {
@@ -1018,7 +1142,12 @@ impl RedundancyGroup {
     /// without its holding, for the replay of data the limit already counted:
     /// the ASDU goes to the started connection, onto the wire or into its
     /// clause 5.3 queue.
-    fn place(&mut self, index: usize, asdu: &[u8]) -> Result<Option<Action>, GroupError> {
+    fn place(
+        &mut self,
+        index: usize,
+        stamp: u64,
+        asdu: &[u8],
+    ) -> Result<Option<Action>, GroupError> {
         let member = self.member_mut(index)?;
         // Clause 5.3's queue is older than this ASDU: while it holds anything
         // the ASDU queues behind it, so nothing overtakes it (10.6's order).
@@ -1028,6 +1157,7 @@ impl RedundancyGroup {
             member.session.send_i_frame(asdu)
         };
         if let Some(action) = sent {
+            member.note_sent(stamp);
             if let Some(log) = &mut self.log {
                 log.push((index, vec![action.clone()]));
             }
@@ -1039,7 +1169,7 @@ impl RedundancyGroup {
                 .session
                 .queue_i_frame(asdu)
                 .map_err(GroupError::Queue)?;
-            member.note_queued(asdu);
+            member.note_queued(stamp, asdu);
             Ok(None)
         }
     }
@@ -1146,7 +1276,7 @@ impl RedundancyGroup {
     /// session still holds. The held data then goes into the named
     /// connection's queue, unless a failed connection's data still waits for
     /// the replay decision: then it stays held, and what already waits on the
-    /// named connection, stopped until now, joins it at the front, so
+    /// named connection, stopped until now, joins it in handover order, so
     /// the Start that follows carries nothing ahead of the replay (10.6).
     fn name(&mut self, index: usize) {
         self.sweep_stopped(index);
@@ -1159,16 +1289,16 @@ impl RedundancyGroup {
             && let Some(member) = self.members.get_mut(index)
             && member.state() == State::Stopped
         {
-            let waiting = member.session.take_pending_user_data();
-            member.queued.clear();
-            self.held.splice(0..0, waiting);
+            let waiting = member.take_queue();
+            self.held.merge(waiting);
         }
         self.release_held();
     }
 
     /// Moves the group's held data into the started connection's clause 5.3
-    /// queue, which sends it once data transfer is on. A connection that
-    /// cannot take it leaves it held.
+    /// queue, in handover order with what already waits there, which sends
+    /// it once data transfer is on. A connection that cannot take it leaves
+    /// it held.
     ///
     /// Not while any member still has data left behind that the application
     /// has not decided on: that data is older than what the group holds, and
@@ -1177,25 +1307,28 @@ impl RedundancyGroup {
     /// ([`RedundancyGroup::retransmit_unconfirmed`]) releases the held data
     /// behind it.
     fn release_held(&mut self) {
-        if self.undecided() {
+        if self.undecided() || self.held.is_empty() {
             return;
         }
         let Some(member) = self.started.and_then(|index| self.members.get_mut(index)) else {
             return;
         };
-        let mut kept = Vec::new();
-        for asdu in std::mem::take(&mut self.held) {
+        if !member.session.is_connected() {
+            return;
+        }
+        let mut all = member.take_queue();
+        all.merge(std::mem::take(&mut self.held));
+        for (stamp, asdu) in all.pairs() {
             if member.session.queue_i_frame(&asdu).is_ok() {
-                member.note_queued(&asdu);
+                member.queued.push(stamp, asdu);
             } else {
-                kept.push(asdu);
+                self.held.push(stamp, asdu);
             }
         }
-        self.held = kept;
     }
 
     /// Moves the queued data of every other established, stopped connection
-    /// into the front of the group's held data.
+    /// into the group's held data, in handover order.
     ///
     /// User data is only ever queued on the connection the group names, so a
     /// stopped connection with data waiting was left behind by a naming that
@@ -1210,18 +1343,18 @@ impl RedundancyGroup {
     /// 10.7 instead, and its queue is captured behind its unconfirmed frames,
     /// in order ([`Member::left_behind`]).
     fn sweep_stopped(&mut self, next: usize) {
-        let mut moved = Vec::new();
+        let mut moved = Order::default();
         for (m, member) in self.members.iter_mut().enumerate() {
             if m != next
                 && member.session.is_connected()
                 && member.state() == State::Stopped
                 && member.session.pending_user_data() > 0
             {
-                moved.extend(member.session.take_pending_user_data());
-                member.queued.clear();
+                moved.merge(member.take_queue());
             }
         }
-        self.held.splice(0..0, moved);
+        moved.merge(std::mem::take(&mut self.held));
+        self.held = moved;
     }
 
     /// User data held by the group because no connection is started, or
@@ -1234,7 +1367,7 @@ impl RedundancyGroup {
     /// here too ([`Replay::Leave`] decides nothing).
     #[must_use]
     pub fn held_user_data(&self) -> &[Vec<u8>] {
-        &self.held
+        &self.held.asdus
     }
 
     /// 10.4's controlled-station procedure, figure 33's (index 126, printed
@@ -1428,7 +1561,7 @@ impl RedundancyGroup {
     /// failure, the I-frames its send buffer had not confirmed followed by the
     /// ASDUs of the group's mirror of its clause 5.3 queue.
     fn held_by(&self, index: usize) -> Result<Vec<Vec<u8>>, GroupError> {
-        Ok(self.member(index)?.left.clone())
+        Ok(self.member(index)?.left.asdus.clone())
     }
 
     /// Reports one timer expiry of one connection and, on the started
@@ -1631,7 +1764,7 @@ impl RedundancyGroup {
             // is a no-op.
             member.capture();
         }
-        let held = member.left.clone();
+        let held = member.left.asdus.clone();
         if member.replayed() && held.is_empty() {
             return Err(GroupError::AlreadyRetransmitted { index: failed });
         }
@@ -1665,23 +1798,64 @@ impl RedundancyGroup {
                     return Err(GroupError::StillStartedConnection { index: failed });
                 }
                 let index = self.started()?;
+                if !held.is_empty() && !self.member(index)?.session.is_connected() {
+                    return Err(GroupError::Queue(QueueError::NotConnected));
+                }
                 let mut actions = Vec::new();
                 let mut queued = 0_usize;
-                // What the group holds is newer than the replay: set aside so
-                // the replay does not queue behind it, and released after it
-                // (10.6).
-                let newer = std::mem::take(&mut self.held);
-                for asdu in &held {
-                    match self.place(index, asdu) {
+                let others = self
+                    .members
+                    .iter()
+                    .enumerate()
+                    .any(|(other, member)| other != failed && !member.left.is_empty());
+                let replay = std::mem::take(&mut self.member_mut(failed)?.left);
+                let mut merged: Vec<(u64, bool, Vec<u8>)> = replay
+                    .pairs()
+                    .map(|(stamp, asdu)| (stamp, true, asdu))
+                    .collect();
+                if !held.is_empty() {
+                    let waiting = self.member_mut(index)?.take_queue();
+                    merged.extend(waiting.pairs().map(|(stamp, asdu)| (stamp, false, asdu)));
+                    if !others {
+                        let older = std::mem::take(&mut self.held);
+                        merged.extend(older.pairs().map(|(stamp, asdu)| (stamp, false, asdu)));
+                    }
+                }
+                merged.sort_by_key(|(stamp, ..)| *stamp);
+                let mut kept = Order::default();
+                let mut refused = None;
+                for (stamp, replayed, asdu) in merged {
+                    let placed = match refused {
+                        None => self.place(index, stamp, &asdu),
+                        Some(_) => Ok(None),
+                    };
+                    match placed {
                         Ok(Some(action)) => actions.push(action),
-                        Ok(None) => queued = queued.saturating_add(1),
-                        Err(error) => {
-                            self.held = newer;
-                            return Err(error);
+                        Ok(None) if refused.is_none() => {
+                            if replayed {
+                                queued = queued.saturating_add(1);
+                            }
+                        }
+                        Ok(None) | Err(_) => {
+                            if let Err(error) = placed
+                                && refused.is_none()
+                            {
+                                refused = Some(error);
+                            }
+                            if replayed {
+                                kept.push(stamp, asdu);
+                            } else {
+                                let mut one = Order::default();
+                                one.push(stamp, asdu);
+                                self.held.merge(one);
+                            }
                         }
                     }
                 }
-                self.held = newer;
+                if let Some(error) = refused {
+                    self.member_mut(failed)?.left = kept;
+                    return Err(error);
+                }
                 self.member_mut(failed)?.mark_replayed();
                 self.release_held();
                 let member = self.member_mut(index)?;
@@ -2343,6 +2517,7 @@ impl RedundancyGroup {
         member.capture();
         member.captured = false;
         member.queued.clear();
+        member.sent.clear();
         member.session.on_connection_established();
         // Nothing of an earlier connection is supervised on this one, also
         // when that connection's own session closed it and its timers were
