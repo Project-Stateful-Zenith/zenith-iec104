@@ -423,7 +423,8 @@ impl Model {
         let routed = match self.rng.below(3) {
             0 => self.group.start_at(member, self.now),
             1 => {
-                let _ = self.group.select(member);
+                let named = self.group.select_at(member, self.now);
+                self.perform(named.unwrap_or_default());
                 self.group.start_at(member, self.now)
             }
             _ => match self.group.started_index() {
@@ -579,7 +580,8 @@ impl Model {
                         Ok(Vec::new())
                     }
                     Ok(State::Stopped) => {
-                        let _ = self.group.select(target);
+                        let named = self.group.select_at(target, self.now);
+                        self.perform(named.unwrap_or_default());
                         self.group.start_at(target, self.now)
                     }
                     Ok(State::PendingStarted) => {
@@ -656,7 +658,8 @@ impl Model {
             if running {
                 // Running, but not the one the group names (a `select`):
                 // name it again.
-                let _ = self.group.select(target);
+                let named = self.group.select_at(target, self.now);
+                self.perform(named.unwrap_or_default());
             } else {
                 let routed = self.group.start_at(target, self.now).unwrap_or_default();
                 self.perform(routed);

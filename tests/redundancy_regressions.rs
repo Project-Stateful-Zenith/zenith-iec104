@@ -10,7 +10,7 @@
 use std::time::{Duration, Instant};
 
 use iec104::apci::{Apci, SeqNo, UFunction};
-use iec104::link::{Action, Role, State};
+use iec104::link::{Action, Role, State, Timer};
 use iec104::params::LinkParams;
 use iec104::redundancy::{
     CLOSED_BY_START, RedundancyGroup, Replay, ReplayOutcome, Routed, Switchover,
@@ -407,4 +407,72 @@ fn clause_10_7_an_event_queued_before_the_act_waits_behind_the_replay() {
         .retransmit_unconfirmed_at(0, Replay::Retransmit, t)
         .unwrap();
     assert_eq!(on_wire(&routed, 1), vec![asdu(1), asdu(2)]);
+}
+
+#[test]
+fn rule_4_selecting_a_running_connection_again_puts_the_held_data_on_the_wire() {
+    let t = Instant::now();
+    let mut group = RedundancyGroup::uniform(Role::Controlling, LinkParams::default(), 2).unwrap();
+    group.on_connection_established(0, t).unwrap();
+    group.on_connection_established(1, t).unwrap();
+    group.start_at(1, t).unwrap();
+    group
+        .on_frame_at(1, Apci::U(UFunction::StartDtCon), t)
+        .unwrap();
+
+    assert_eq!(group.select_at(0, t).unwrap(), Vec::new());
+    assert_eq!(group.state(1), Ok(State::Started), "still running");
+    group.on_connection_lost(0).unwrap();
+    assert_eq!(group.started_index(), None);
+    assert_eq!(group.send_user_data_at(0, &asdu(1), t).unwrap(), Vec::new());
+    assert_eq!(group.held_user_data(), &[asdu(1)]);
+
+    let later = t + Duration::from_secs(3);
+    let routed = group.select_at(1, later).unwrap();
+    assert_eq!(
+        routed,
+        vec![Routed {
+            member: 1,
+            actions: vec![Action::SendI {
+                ns: SeqNo::new(0),
+                nr: SeqNo::new(0),
+                asdu: asdu(1),
+            }],
+        }]
+    );
+    assert_eq!(group.started_index(), Some(1));
+    assert_eq!(group.held_user_data(), [] as [Vec<u8>; 0]);
+    assert_eq!(
+        group.member(1).unwrap().timers().deadline(Timer::T1),
+        Some(later + Duration::from_secs(15)),
+        "t1 supervises the released frame"
+    );
+
+    assert_eq!(
+        on_wire(&group.send_user_data_at(1, &asdu(2), later).unwrap(), 1),
+        vec![asdu(2)],
+        "later user data goes straight out"
+    );
+}
+
+#[test]
+fn rule_4_selecting_a_stopped_connection_sends_nothing() {
+    let t = Instant::now();
+    let mut group = RedundancyGroup::uniform(Role::Controlling, LinkParams::default(), 2).unwrap();
+    group.on_connection_established(0, t).unwrap();
+    group.on_connection_established(1, t).unwrap();
+    group.start_at(0, t).unwrap();
+    group
+        .on_frame_at(0, Apci::U(UFunction::StartDtCon), t)
+        .unwrap();
+    group.on_connection_lost(0).unwrap();
+    group.send_user_data_at(0, &asdu(1), t).unwrap();
+
+    assert_eq!(group.select(1), Ok(Vec::new()));
+    assert_eq!(
+        group.held_user_data(),
+        &[asdu(1)],
+        "held for the Start that carries the selection out"
+    );
+    assert_eq!(on_wire(&group.start_at(1, t).unwrap(), 1), vec![asdu(1)]);
 }
