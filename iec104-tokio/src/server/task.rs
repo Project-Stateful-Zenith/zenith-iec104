@@ -20,7 +20,7 @@ use iec104::gi::{self, Interrogation};
 use iec104::init::end_of_initialisation_with;
 use iec104::link::State;
 use iec104::rd::Read;
-use iec104::redundancy::{Replay, Switchover};
+use iec104::redundancy::{GroupError, Replay, Switchover};
 use iec104::ts::{self, TestProcedure};
 use iec104::tx::Priority;
 use tokio::sync::mpsc;
@@ -341,11 +341,22 @@ impl<A: Application> Task<A> {
     /// out again on the next started connection (104 cl.10.6).
     async fn on_failed(&mut self, conn: usize) {
         if self.started {
-            let _ = self
-                .handle
-                .retransmit_unconfirmed(conn, Replay::Retransmit)
-                .await;
+            self.replay(conn).await;
         } else if !self.failed.contains(&conn) {
+            self.failed.push(conn);
+        }
+    }
+
+    async fn replay(&mut self, conn: usize) {
+        let refused = self
+            .handle
+            .retransmit_unconfirmed(conn, Replay::Retransmit)
+            .await;
+        if matches!(
+            refused,
+            Err(crate::Error::Group(GroupError::NoStartedConnection))
+        ) && !self.failed.contains(&conn)
+        {
             self.failed.push(conn);
         }
     }
@@ -365,10 +376,7 @@ impl<A: Application> Task<A> {
         if started {
             // The replayed frames first, then the queue (104 cl.10.6).
             for failed in std::mem::take(&mut self.failed) {
-                let _ = self
-                    .handle
-                    .retransmit_unconfirmed(failed, Replay::Retransmit)
-                    .await;
+                self.replay(failed).await;
             }
         }
     }

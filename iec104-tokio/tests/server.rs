@@ -1583,6 +1583,37 @@ async fn clause_10_6_unconfirmed_data_goes_out_on_the_next_started_connection() 
     first.close().await;
 }
 
+#[tokio::test(start_paused = true)]
+async fn clause_10_6_a_replay_refused_without_a_started_connection_is_made_on_the_next_one() {
+    let mut config = config();
+    config.members = 2;
+    let (server, _side, peer0) = server(config).await;
+    let (near1, mut peer1) = Peer::pipe();
+    server.attach(near1).await.unwrap();
+
+    let mut first = Master::start(peer0, false).await;
+    server
+        .report(100, Value::Scaled(3), Quality::default(), None)
+        .await
+        .unwrap();
+    assert_eq!(first.next().await, scaled(SPONT, 3));
+
+    peer1.send(&STARTDT_ACT).await;
+    drop(peer1);
+    settle().await;
+
+    let (near2, peer2) = Peer::pipe();
+    server.attach(near2).await.unwrap();
+    let mut third = Master::start(peer2, true).await;
+    assert_eq!(third.next().await, scaled(SPONT, 3));
+    server
+        .report(100, Value::Scaled(4), Quality::default(), None)
+        .await
+        .unwrap();
+    assert_eq!(third.next().await, scaled(SPONT, 4));
+    first.close().await;
+}
+
 /// The value kind of a point is fixed, and an unknown address is refused.
 #[tokio::test(start_paused = true)]
 async fn writes_are_checked() {

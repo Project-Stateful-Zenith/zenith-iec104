@@ -171,6 +171,12 @@ impl Handle {
     /// discard it; see
     /// [`RedundancyGroup::retransmit_unconfirmed`](iec104::redundancy::RedundancyGroup::retransmit_unconfirmed).
     ///
+    /// A replay refused with
+    /// [`GroupError::NoStartedConnection`](iec104::redundancy::GroupError::NoStartedConnection)
+    /// (the connection that took over is gone again) decides nothing: the
+    /// data stays with the group, which sends no user data until it is
+    /// decided on. Make the call again once a connection is started.
+    ///
     /// # Errors
     ///
     /// [`Error::NotARedundancyGroup`] on a connection manager,

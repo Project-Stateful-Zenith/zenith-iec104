@@ -1579,6 +1579,43 @@ async fn a_group_replays_on_the_next_started_connection() {
     assert!(switched, "the switchover is reported");
 }
 
+#[tokio::test(start_paused = true)]
+async fn a_replay_refused_without_a_started_connection_is_made_on_the_next_one() {
+    let config = ClientConfig {
+        retransmit_on_switchover: true,
+        timeouts: iec104_tokio::client::Timeouts {
+            confirmation: Duration::from_secs(120),
+            ..Default::default()
+        },
+        ..config()
+    };
+    let (client, mut station, mut peer1, mut dials) = started_group(config, false).await;
+    let first = spawn_command(&client, Command::single(4001, true));
+    assert_eq!(station.next().await, single_command(ACT, 0x01));
+    station.close().await;
+
+    assert_eq!(peer1.frame().await.unwrap(), STARTDT_ACT);
+    peer1.send(&STARTDT_CON).await;
+    drop(peer1);
+
+    let dial = next_dial(&mut dials).await;
+    let _other = next_dial(&mut dials).await;
+    let mut peer = dial.accept();
+    assert_eq!(peer.frame().await.unwrap(), STARTDT_ACT);
+    peer.send(&STARTDT_CON).await;
+    let mut station = Station::run(peer);
+    assert_eq!(station.next().await, single_command(ACT, 0x01));
+    station.send(&single_command(ACTCON, 0x01));
+    station.send(&single_command(ACTTERM, 0x01));
+    assert_eq!(first.await.unwrap(), Ok(CommandOutcome::Terminated));
+
+    let second = spawn_command(&client, Command::single(4001, false));
+    assert_eq!(station.next().await, single_command(ACT, 0x00));
+    station.send(&single_command(ACTCON, 0x00));
+    station.send(&single_command(ACTTERM, 0x00));
+    assert_eq!(second.await.unwrap(), Ok(CommandOutcome::Terminated));
+}
+
 // --------------------------------------------------------- process image
 
 /// `M_ME_NB_1` `<11>` (5-101 cl.7.3.1.11) at address 100 with `SVA` `sva`

@@ -26,8 +26,8 @@ use iec104::dispatch::{Route, not_implemented, route};
 use iec104::gi::{DataSource, Interrogation, ReActivation, Reaction, Scope};
 use iec104::link::{Role, State};
 use iec104::params::LinkParams;
-use iec104::redundancy::{RedundancyGroup, Replay, Switchover};
-use iec104_tokio::{Event, Handle, Options, outstation};
+use iec104::redundancy::{GroupError, RedundancyGroup, Replay, Switchover};
+use iec104_tokio::{Error, Event, Handle, Options, outstation};
 use tokio::net::TcpListener;
 
 /// This station's common address.
@@ -151,13 +151,13 @@ async fn main() -> Result<(), String> {
                     // connection; the group keeps it until it is replayed or
                     // discarded, so every failure is decided on.
                     for failed in std::mem::take(&mut to_replay) {
-                        match handle
+                        let outcome = handle
                             .retransmit_unconfirmed(failed, Replay::Retransmit)
-                            .await
-                        {
-                            Ok(outcome) => println!("   replayed {failed}: {outcome:?}"),
-                            Err(e) => println!("   replay of {failed}: {e}"),
+                            .await;
+                        if matches!(outcome, Err(Error::Group(GroupError::NoStartedConnection))) {
+                            to_replay.push(failed);
                         }
+                        println!("   replay of {failed}: {outcome:?}");
                     }
                 } else if started == Some(conn) {
                     started = None;
