@@ -7,6 +7,8 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-11-11
+
 ### Changed
 
 - `RedundancyGroup::send_user_data` holds user data while a failed
@@ -191,7 +193,8 @@ The first tagged release of the public repository.
 - `iec104-tokio` passes clippy 1.99 with the `log` and `tracing` features
   off.
 
-[Unreleased]: https://github.com/Project-Stateful-Zenith/zenith-iec104/compare/v0.36.0...HEAD
+[Unreleased]: https://github.com/Project-Stateful-Zenith/zenith-iec104/compare/v0.37.0...HEAD
+[0.37.0]: https://github.com/Project-Stateful-Zenith/zenith-iec104/compare/v0.36.0...v0.37.0
 [0.36.0]: https://github.com/Project-Stateful-Zenith/zenith-iec104/compare/v0.35.0...v0.36.0
 [0.35.0]: https://github.com/Project-Stateful-Zenith/zenith-iec104/compare/v0.34.0...v0.35.0
 [0.34.0]: https://github.com/Project-Stateful-Zenith/zenith-iec104/compare/v0.33.0...v0.34.0

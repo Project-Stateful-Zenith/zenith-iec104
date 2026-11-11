@@ -26,7 +26,7 @@ a fix ships in a new release, not as a backport to an older one.
 
 | Version | Supported |
 | --- | --- |
-| 0.32.x | yes |
+| 0.37.x | yes |
 | older | no |
 
 ## Scope
