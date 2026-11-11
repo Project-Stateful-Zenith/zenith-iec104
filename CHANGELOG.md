@@ -15,50 +15,51 @@ follow [Semantic Versioning](https://semver.org/).
   the master's STARTDT act or a Start on another connection it went out
   ahead of that older data. An application that sent without deciding now
   calls `retransmit_unconfirmed` with `Retransmit` or `Discard` first, as
-  the documentation already required.
+  the documentation already required (#71).
 - `iec104-tokio`: `Event::StartedConnectionFailed` is also reported when
   the application's own `Handle::start` of another connection or
   `Handle::close` ended the started connection and it left data
   unconfirmed, and when a connection that is no longer the started one
   ends with frames unconfirmed. `Handle::window` is 0 until that data is
-  decided on.
+  decided on (#72, #85).
 - `RedundancyGroup::select` returns the frames to put on the wire
   (`Result<Vec<Action>, GroupError>`, was `Result<(), GroupError>`): empty
-  unless the connection named is already running.
+  unless the connection named is already running (#75).
 - `RedundancyGroup::observe_startdt_act` returns the frames to put on the
   wire (`Result<Vec<Action>, GroupError>`, was `Result<(), GroupError>`),
-  as `select` does.
+  as `select` does (#88).
 - `RedundancyGroup::new`/`uniform` and `ConnectionManager::new`/`uniform`
   refuse a count whose memory cannot be reserved with the new
   `GroupError::TooManyMembers` and `ManagerError::TooManyStations` instead
   of panicking with "capacity overflow" (`uniform(.., usize::MAX)`). An
   exhaustive match on either enum needs a new arm. `iec104-tokio`'s
   `Client::spawn_redundant` and `Server::spawn` return it as their
-  `Driver` error.
+  `Driver` error (#79).
 
 ### Added
 
 - `RedundancyGroup::select_at` and `observe_startdt_act_at`: `select` and
   `observe_startdt_act` with the caller's clock and routed actions, like
-  the other `_at` entry points.
+  the other `_at` entry points (#75, #88).
 - `ConnectionManager::on_attempt_failed(index, attempt)` reports a refused
   or abandoned dial by the attempt number of its `Directive::Connect`. A
   late report of an abandoned attempt no longer has to go through
   `on_connection_lost`, where it was taken for the loss of the connection
-  that replaced it.
+  that replaced it (#78).
 - `RedundancyGroup::on_attempt_failed(index, attempt)` and
   `Member::attempt` do the same for a group's dials: `tick` numbers each
-  dial it asks for, and a late report of an abandoned one changes nothing.
+  dial it asks for, and a late report of an abandoned one changes nothing
+  (#90).
 
 ### Fixed
 
 - `RedundancyGroup::on_startdt_act` applies 10.7's close rule also when
   `observe_startdt_act` has named the connection beforehand; that pair left
-  two connections of a controlled group started.
+  two connections of a controlled group started (#73).
 - User data queued on a connection between `RedundancyGroup::select` (or
   `observe_startdt_act`) and its Start no longer goes out with the Start
   ahead of the data the connection closed by that Start leaves behind; it
-  waits in the group for the replay decision.
+  waits in the group for the replay decision (#74).
 - `RedundancyGroup` keeps user data in the order it was handed over
   wherever held data, a connection's waiting queue and a replay come
   together. A replay decided between a `select` (or `observe_startdt_act`)
@@ -66,31 +67,31 @@ follow [Semantic Versioning](https://semver.org/).
   and data left waiting on a connection that was still stopping went out
   behind newer data queued on the next one. Data a caller queued through
   `Member::session_mut` keeps its place, and is in the group's mirror once
-  the group has reordered the queue it is in.
+  the group has reordered the queue it is in (#87).
 - A Start closes a stopped connection that still has I-frames unconfirmed
   (its peer confirmed the stop without acknowledging them), as 10.7 closes
   one that is not stopped. Those frames used to surface at that
-  connection's t1, after newer data had gone out on the new connection.
+  connection's t1, after newer data had gone out on the new connection (#92).
 - `RedundancyGroup::retransmit_unconfirmed` checks that the started
   connection is connected and has room before it moves anything, so a
   replay refused with `GroupError::Queue` moves no data. It used to stop
   part-way, with frames numbered on the connection that no caller was
-  handed.
+  handed (#93).
 - `RedundancyGroup::select` onto a connection that is still running ends
   the gap after a failure and sends the data the group held. It used to
   leave that data, and everything sent after it, held for good, with
-  `start` refused as `AlreadyInState`.
+  `start` refused as `AlreadyInState` (#75).
 - `iec104-tokio`: `Client` and `Server` make a replay again on the next
   started connection when it was refused because the connection that took
   over was gone again. They dropped the refusal, and the data was never
-  sent again.
+  sent again (#84).
 - `RedundancyGroup::observe_startdt_act` onto a connection that is already
   running sends the data it moves there. That data, and everything sent
-  after it, stayed in the connection's queue for good.
+  after it, stayed in the connection's queue for good (#88).
 - `timers`: a TESTFR act and a STARTDT or STOPDT act pending together are
   each timed by t1 from their own send. The con of one left t1 at the
   confirmed act's deadline, which closed a healthy connection whose other
-  act was a second old.
+  act was a second old (#77).
 
 ## [0.36.0] - 2026-10-21
 
