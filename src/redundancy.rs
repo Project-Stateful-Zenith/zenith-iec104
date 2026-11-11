@@ -867,7 +867,8 @@ pub const CLOSED_BY_APPLICATION: &str = "closed by the application (connection c
 /// no process image, no socket and no clock (see the module doc); the only user
 /// data it holds itself is what it is handed while no connection is started
 /// after a failure, or while a failed connection's data waits for the replay
-/// decision ([`RedundancyGroup::held_user_data`]).
+/// decision, and what a naming took back from a stopped connection's queue
+/// meanwhile ([`RedundancyGroup::held_user_data`]).
 #[derive(Debug)]
 pub struct RedundancyGroup {
     role: Role,
@@ -1079,9 +1080,10 @@ impl RedundancyGroup {
     ///   older, and nothing handed over later goes out ahead of it (10.6).
     ///
     /// A terminated connection that is still named refuses with
-    /// [`GroupError::Queue`], and so does the group once it holds
+    /// [`GroupError::Queue`], unless the group already holds data, which the
+    /// ASDU then joins. The group refuses with it too once it holds
     /// [`MAX_PENDING_USER_DATA`] ASDUs not yet confirmed or decided on (its held
-    /// data, every member's queue mirror, unconfirmed frames and
+    /// data, every connection's waiting queue, unconfirmed frames and
     /// [`Member::left_behind`], a failed connection's data counted once): a
     /// STARTDT act or a replay decision may never come, so the data is refused
     /// rather than piled up or dropped.
@@ -1104,7 +1106,9 @@ impl RedundancyGroup {
     /// [`GroupError::NoStartedConnection`] or
     /// [`GroupError::NotStartedConnection`] when it may not carry user data
     /// (rule 3), and [`GroupError::Queue`] when the connection refuses to queue
-    /// the ASDU or the group is full ([`QueueError::Full`]).
+    /// the ASDU or the group is full ([`QueueError::Full`]). While the group
+    /// holds data the ASDU joins it whatever member `index` names, and only
+    /// the first of these and the full group are refused.
     pub fn send_user_data(
         &mut self,
         index: usize,
@@ -1386,7 +1390,8 @@ impl RedundancyGroup {
     /// User data held by the group because no connection is started, or
     /// because what a failed connection left behind, which is older, still
     /// waits for [`RedundancyGroup::retransmit_unconfirmed`]'s `Retransmit` or
-    /// `Discard`.
+    /// `Discard`. A naming moves here what waited on a stopped connection,
+    /// until that decision is made and the connection named can take it.
     ///
     /// That decision is required for user data to flow again: while a failure
     /// is undecided, every later [`RedundancyGroup::send_user_data`] is held
@@ -2096,7 +2101,8 @@ impl RedundancyGroup {
     /// crate's one `M_EI_NA_1`. The frame travels the way any other user ASDU of
     /// the group travels ([`RedundancyGroup::send_user_data`], rule 3): out on
     /// the started connection when its session may carry data, into that
-    /// connection's own clause 5.3 queue when it may not.
+    /// connection's own clause 5.3 queue when it may not, and into the
+    /// group's held data while a failed connection's data is undecided.
     ///
     /// `Ok(None)` when [`EndInit::reverse_direction_data`] is false: nothing is
     /// issued, on any connection, and the group does not look for a started one.
@@ -2308,7 +2314,8 @@ pub enum Replay {
     /// [`GroupError::AlreadyRetransmitted`].
     Retransmit,
     /// Only count them: the call decides nothing, and the ASDUs stay kept for
-    /// a later `Retransmit` or `Discard`, so it may be repeated.
+    /// a later `Retransmit` or `Discard`, so it may be repeated. Until one of
+    /// those the group holds all later user data.
     Leave,
     /// Drop them: ending the application function in progress and running it
     /// again on the new connection (10.5) is the caller's own step, and the group forgets the failed connection's data so that no
@@ -2405,8 +2412,8 @@ pub enum GroupError {
         index: usize,
     },
     /// The connection refused the data: see [`QueueError`]. A terminated member
-    /// cannot carry an ASDU, so the group does not hold it either; a full
-    /// connection or group refuses it with [`QueueError::Full`].
+    /// cannot carry an ASDU, so a group that holds no data does not hold it
+    /// either; a full connection or group refuses it with [`QueueError::Full`].
     Queue(QueueError),
     /// 10.5's retransmission (index 128, printed 127): the connection the data
     /// came from is still the group's started one, so there is no new connection
