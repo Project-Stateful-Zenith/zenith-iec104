@@ -28,6 +28,11 @@ follow [Semantic Versioning](https://semver.org/).
 
 - `RedundancyGroup::select_at`: `select` with the caller's clock and routed
   actions, like the other `_at` entry points.
+- `ConnectionManager::on_attempt_failed(index, attempt)` reports a refused
+  or abandoned dial by the attempt number of its `Directive::Connect`. A
+  late report of an abandoned attempt no longer has to go through
+  `on_connection_lost`, where it was taken for the loss of the connection
+  that replaced it.
 
 ### Fixed
 
