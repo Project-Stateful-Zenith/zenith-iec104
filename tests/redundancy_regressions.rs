@@ -559,3 +559,105 @@ fn figure_37_a_closed_started_connection_leaves_the_next_start_to_the_caller() {
         vec![asdu(1)]
     );
 }
+
+fn established(role: Role, k: u16) -> Result<RedundancyGroup, GroupError> {
+    let t = Instant::now();
+    let params = LinkParams {
+        k,
+        w: 1,
+        ..LinkParams::default()
+    };
+    let mut group = RedundancyGroup::uniform(role, params, 2)?;
+    group.on_connection_established(0, t)?;
+    group.on_connection_established(1, t)?;
+    Ok(group)
+}
+
+#[test]
+fn clause_10_6_a_replay_decided_before_the_start_goes_out_ahead_of_newer_data() {
+    let mut group = established(Role::Controlling, 12).unwrap();
+    group.start(0).unwrap();
+    group.on_frame(0, Apci::U(UFunction::StartDtCon)).unwrap();
+    assert!(group.send_user_data(0, &asdu(1)).unwrap().is_some());
+    assert_eq!(group.select(1), Ok(Vec::new()));
+    assert_eq!(group.send_user_data(1, &asdu(2)), Ok(None));
+    group.on_connection_lost(0).unwrap();
+    assert_eq!(group.send_user_data(1, &asdu(3)), Ok(None));
+
+    assert_eq!(
+        group.retransmit_unconfirmed(0, Replay::Retransmit),
+        Ok(ReplayOutcome::Retransmitted {
+            actions: Vec::new(),
+            queued: 1,
+        })
+    );
+    assert_eq!(
+        i_asdus(&group.start(1).unwrap()),
+        vec![asdu(1), asdu(2), asdu(3)]
+    );
+}
+
+#[test]
+fn clause_10_6_a_replay_decided_before_the_act_goes_out_ahead_of_newer_data() {
+    let mut group = established(Role::Controlled, 12).unwrap();
+    group.on_startdt_act(0).unwrap();
+    assert!(group.send_user_data(0, &asdu(1)).unwrap().is_some());
+    group.observe_startdt_act(1).unwrap();
+    assert_eq!(group.send_user_data(1, &asdu(2)), Ok(None));
+    group.on_connection_lost(0).unwrap();
+
+    assert_eq!(
+        group.retransmit_unconfirmed(0, Replay::Retransmit),
+        Ok(ReplayOutcome::Retransmitted {
+            actions: Vec::new(),
+            queued: 1,
+        })
+    );
+    assert_eq!(
+        i_asdus(&group.on_startdt_act(1).unwrap()),
+        vec![asdu(1), asdu(2)]
+    );
+}
+
+#[test]
+fn clause_10_5_data_left_on_a_stopping_connection_goes_out_ahead_of_newer_data() {
+    let mut group = established(Role::Controlling, 12).unwrap();
+    group.start(0).unwrap();
+    group.on_frame(0, Apci::U(UFunction::StartDtCon)).unwrap();
+    group.stop(0).unwrap();
+    assert_eq!(group.send_user_data(0, &asdu(1)), Ok(None));
+    assert_eq!(group.select(1), Ok(Vec::new()));
+    assert_eq!(group.send_user_data(1, &asdu(2)), Ok(None));
+    group.on_frame(0, Apci::U(UFunction::StopDtCon)).unwrap();
+
+    assert_eq!(i_asdus(&group.start(1).unwrap()), vec![asdu(1), asdu(2)]);
+}
+
+#[test]
+fn clause_10_6_a_replay_newer_than_the_named_connections_queue_goes_out_behind_it() {
+    let mut group = established(Role::Controlling, 1).unwrap();
+    group.start(1).unwrap();
+    group.on_frame(1, Apci::U(UFunction::StartDtCon)).unwrap();
+    assert!(group.send_user_data(1, &asdu(1)).unwrap().is_some());
+    assert_eq!(group.send_user_data(1, &asdu(2)), Ok(None));
+    assert_eq!(group.select(0), Ok(Vec::new()));
+    assert_eq!(group.send_user_data(0, &asdu(3)), Ok(None));
+    group.on_connection_lost(0).unwrap();
+    assert_eq!(group.select(1), Ok(Vec::new()));
+    group.stop(1).unwrap();
+    group.on_frame(1, Apci::S { nr: SeqNo::new(1) }).unwrap();
+    group.on_frame(1, Apci::U(UFunction::StopDtCon)).unwrap();
+
+    let mut wire = i_asdus(&group.start(1).unwrap());
+    let Ok(ReplayOutcome::Retransmitted { actions, .. }) =
+        group.retransmit_unconfirmed(0, Replay::Retransmit)
+    else {
+        panic!("the replay is refused");
+    };
+    wire.extend(i_asdus(&actions));
+    group.on_frame(1, Apci::U(UFunction::StartDtCon)).unwrap();
+    wire.extend(i_asdus(
+        &group.on_frame(1, Apci::S { nr: SeqNo::new(2) }).unwrap(),
+    ));
+    assert_eq!(wire, vec![asdu(2), asdu(3)]);
+}

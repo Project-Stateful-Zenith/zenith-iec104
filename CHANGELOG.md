@@ -50,6 +50,12 @@ follow [Semantic Versioning](https://semver.org/).
   `observe_startdt_act`) and its Start no longer goes out with the Start
   ahead of the data the connection closed by that Start leaves behind; it
   waits in the group for the replay decision.
+- `RedundancyGroup` keeps user data in the order it was handed over
+  wherever held data, a connection's waiting queue and a replay come
+  together. A replay decided between a `select` (or `observe_startdt_act`)
+  and the Start went out behind newer data queued on the named connection,
+  and data left waiting on a connection that was still stopping went out
+  behind newer data queued on the next one.
 - `RedundancyGroup::select` onto a connection that is still running ends
   the gap after a failure and sends the data the group held. It used to
   leave that data, and everything sent after it, held for good, with
