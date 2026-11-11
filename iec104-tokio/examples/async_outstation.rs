@@ -118,7 +118,7 @@ async fn main() -> Result<(), String> {
     let mut gi = Interrogation::controlled(ReActivation::Continue, CA, 0).with_address_sizes(sizes);
     // The member the master started, if any (10.2, rule 4).
     let mut started: Option<usize> = None;
-    // Connections that failed while started, with data to replay once the
+    // Connections that left data with the group, to replay once the
     // master has started another (10.5, 10.6).
     let mut to_replay: Vec<usize> = Vec::new();
     let mut report = tokio::time::interval(Duration::from_secs(5));

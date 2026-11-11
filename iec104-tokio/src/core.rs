@@ -329,8 +329,8 @@ impl Core for RedundancyGroup {
     }
 
     fn carrier(&self, _conn: usize) -> Option<&Session> {
-        // During a switchover the group holds user data itself (10.5): there
-        // is no window until a connection is named.
+        // While the group holds user data or a failure is undecided (10.5)
+        // there is no window, whether or not a connection is named.
         let started = self.started_index()?;
         let undecided = self
             .members()

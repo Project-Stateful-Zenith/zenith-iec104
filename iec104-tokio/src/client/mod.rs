@@ -313,8 +313,8 @@ pub enum Update {
     Started,
     /// No connection is started any more.
     Stopped,
-    /// Redundancy group: the started connection's t1 expired and the group
-    /// moved on (104 cl.10.5).
+    /// Redundancy group: the started connection's t1 expired (104 cl.10.5);
+    /// the value says whether another connection took over.
     Switchover(Switchover),
     /// This many updates were dropped before this one because the
     /// subscriber's channel was full ([`ClientConfig::update_buffer`]): the

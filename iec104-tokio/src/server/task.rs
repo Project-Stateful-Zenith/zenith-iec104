@@ -86,8 +86,8 @@ struct Task<A> {
     /// The connections with a socket now.
     connected: Vec<usize>,
     started: bool,
-    /// Group members that failed while started, whose unconfirmed data goes
-    /// out again on the next started connection.
+    /// Group members that left data with the group, which goes out again
+    /// on the next started connection.
     failed: Vec<usize>,
     /// Each operation's reports with the logical link its execute arrived on.
     operated: mpsc::UnboundedSender<(u64, Report)>,

@@ -156,8 +156,8 @@ struct Task {
     started: bool,
     waiting: Vec<Reply<()>>,
     subscribers: Vec<Subscriber>,
-    /// Group members that failed while started, whose unconfirmed data waits
-    /// for the next started connection ([`ClientConfig::retransmit_on_switchover`]).
+    /// Group members that left data with the group, which waits for the
+    /// next started connection ([`ClientConfig::retransmit_on_switchover`]).
     failed: Vec<usize>,
     commands: Vec<PendingCommand>,
     interrogations: Vec<PendingInterrogation>,
