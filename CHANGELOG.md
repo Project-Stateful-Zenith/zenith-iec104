@@ -63,6 +63,10 @@ follow [Semantic Versioning](https://semver.org/).
   and the Start went out behind newer data queued on the named connection,
   and data left waiting on a connection that was still stopping went out
   behind newer data queued on the next one.
+- A Start closes a stopped connection that still has I-frames unconfirmed
+  (its peer confirmed the stop without acknowledging them), as 10.7 closes
+  one that is not stopped. Those frames used to surface at that
+  connection's t1, after newer data had gone out on the new connection.
 - `RedundancyGroup::select` onto a connection that is still running ends
   the gap after a failure and sends the data the group held. It used to
   leave that data, and everything sent after it, held for good, with

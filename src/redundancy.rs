@@ -1356,10 +1356,10 @@ impl RedundancyGroup {
     /// connection's queue instead of staying on a connection that no longer
     /// carries user data (10.5: data must not be lost in a switchover).
     ///
-    /// Only stopped connections: nothing of theirs is unconfirmed, so nothing
-    /// older can arrive later. A connection that is not stopped is closed by
-    /// 10.7 instead, and its queue is captured behind its unconfirmed frames,
-    /// in order ([`Member::left_behind`]).
+    /// Only stopped connections. A connection that is not stopped, or that
+    /// was stopped with frames still unconfirmed, is closed by the Start
+    /// instead (`close_others`), and its queue is captured behind its
+    /// unconfirmed frames, in order ([`Member::left_behind`]).
     fn sweep_stopped(&mut self, next: usize) {
         let mut moved = Order::default();
         for (m, member) in self.members.iter_mut().enumerate() {
@@ -1534,16 +1534,25 @@ impl RedundancyGroup {
     /// member order. Figure 36's transition (`STARTDT act[]/Close other not
     /// stopped connection(s)/Send STARTDT con`) prints that close before the
     /// confirmation, so the callers put these actions first.
+    ///
+    /// A stopped connection that still has I-frames unconfirmed is closed
+    /// too. Clause 5.3 has the stop confirmed only once everything is
+    /// acknowledged, so this is a peer that confirmed it early. Once the
+    /// naming has moved, the group refuses that connection's acknowledgements
+    /// and only its t1 would end it, after newer data went out elsewhere;
+    /// closed now, its frames are left behind before that data.
     fn close_others(&mut self, keep: usize) -> Vec<Action> {
         let mut actions = Vec::new();
         for index in 0..self.members.len() {
             if index == keep {
                 continue;
             }
-            let Ok(state) = self.state(index) else {
+            let Ok(member) = self.member(index) else {
                 continue;
             };
-            if state == State::Stopped || state == State::Terminated {
+            let state = member.state();
+            let clean = member.session.outstanding_frames().is_empty();
+            if state == State::Terminated || (state == State::Stopped && clean) {
                 continue;
             }
             actions.extend(self.close_member(index, CLOSED_BY_START));

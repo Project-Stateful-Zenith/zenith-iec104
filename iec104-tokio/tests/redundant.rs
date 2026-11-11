@@ -473,7 +473,7 @@ async fn a_closed_started_connection_that_left_nothing_is_not_reported() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_connection_that_fails_after_a_manual_switchover_reports_what_it_left_once() {
+async fn a_start_after_a_stop_confirmed_without_acknowledgement_reports_what_was_left_once() {
     let (handle, mut events, _dials, mut peer0, mut peer1) = started().await;
     handle.send_asdu(0, INTERROGATION).await.unwrap();
     assert_eq!(peer0.frame().await.unwrap(), i_frame(0, 0, &INTERROGATION));
@@ -488,22 +488,12 @@ async fn a_connection_that_fails_after_a_manual_switchover_reports_what_it_left_
         }
     })
     .await;
+    drain(&mut events);
+
     handle.start(1).await.unwrap();
+    assert_eq!(peer0.frame().await, None);
     assert_eq!(peer1.frame().await.unwrap(), STARTDT_ACT);
     peer1.send(&STARTDT_CON).await;
-    until(&mut events, |e| {
-        *e == Event::State {
-            conn: 1,
-            state: State::Started,
-        }
-    })
-    .await;
-    assert_eq!(handle.window(1).await.unwrap(), 12);
-
-    until(&mut events, |e| {
-        matches!(e, Event::Disconnected { conn: 0, .. })
-    })
-    .await;
     tokio::time::sleep(Duration::from_secs(1)).await;
     let reported: Vec<Event> = drain(&mut events)
         .into_iter()
@@ -524,7 +514,8 @@ async fn a_connection_that_fails_after_a_manual_switchover_reports_what_it_left_
         .unwrap();
     assert_eq!(peer1.frame().await.unwrap(), i_frame(0, 0, &INTERROGATION));
     assert_eq!(handle.window(1).await.unwrap(), 11);
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    peer1.send(&s_frame(1)).await;
+    tokio::time::sleep(Duration::from_secs(20)).await;
     assert!(
         !drain(&mut events)
             .iter()
