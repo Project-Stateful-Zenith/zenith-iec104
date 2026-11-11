@@ -57,7 +57,11 @@
 //!   through [`ConnectionManager::on_connection_established`].
 //! - **A refused dial keeps the attempt's t0.** Figure 21's peer refuses *every*
 //!   dial until it listens, so a caller that reports the refusal and polls
-//!   faster than t0 still gets one attempt per t0 expiry.
+//!   faster than t0 still gets one attempt per t0 expiry. The refusal is
+//!   reported with [`ConnectionManager::on_attempt_failed`] and the attempt
+//!   number of the directive that asked for the dial, so that the late
+//!   failure of a dial abandoned at its t0 is not taken for the loss of the
+//!   connection that replaced it.
 //! - **A lost connection is dialed again when its attempt's t0 runs out.** A
 //!   connection that lasted longer than t0 is dialed again at once (clause
 //!   10.5's regular retry of the open); one lost sooner waits for the
@@ -160,6 +164,11 @@
 //!     let _ = directive; // ... and put the STARTDT act on the wire
 //! }
 //! ```
+//!
+//! A dial that is refused instead is reported with
+//! [`ConnectionManager::on_attempt_failed`] and the `attempt` of its
+//! [`Directive::Connect`]; [`ConnectionManager::on_connection_lost`] is for a
+//! connection that had come up.
 
 use std::time::Instant;
 
@@ -392,7 +401,8 @@ pub enum Directive {
     /// the caller's socket performs) and tell the manager with
     /// [`ConnectionManager::on_connection_established`] when it is up.
     ///
-    /// An attempt that is never established is reported by the caller or is
+    /// An attempt that is never established is reported by the caller (with
+    /// [`ConnectionManager::on_attempt_failed`] and this `attempt`) or is
     /// noticed when the attempt's t0 expires; either way a station without a
     /// connection produces another `Connect` on a later tick. Only a controlling
     /// manager emits this directive at all: clause 7.1 makes the controlled
@@ -402,7 +412,8 @@ pub enum Directive {
         /// The station's index in [`ConnectionManager::stations`].
         station: usize,
         /// Which attempt this is for that station, 1 for the first. A label, not
-        /// a limit: the standard sets none.
+        /// a limit: the standard sets none. It names this dial when the caller
+        /// reports its failure ([`ConnectionManager::on_attempt_failed`]).
         attempt: u32,
         /// Why the attempt is being asked for.
         reason: ConnectReason,
@@ -426,14 +437,17 @@ pub enum ConnectReason {
     /// controlling station is the one that establishes the connection).
     FirstAttempt,
     /// An earlier attempt was refused (reported through
-    /// [`ConnectionManager::on_connection_lost`]) and its t0 has expired:
+    /// [`ConnectionManager::on_attempt_failed`]) and its t0 has expired:
     /// figure 21's repeated attempts (index 54).
     AttemptFailed,
     /// The previous attempt is still unanswered when its t0 expired: the
     /// caller has reported neither a connection nor a refusal. **Abandon that
     /// attempt** (close the socket still connecting) before dialing this
     /// one, or a slow first dial can complete after the second has started
-    /// and leave two connections to one station.
+    /// and leave two connections to one station. If the abandoned attempt
+    /// fails later, report that with its own attempt number
+    /// ([`ConnectionManager::on_attempt_failed`], which then ignores it) and
+    /// never as a lost connection.
     AttemptTimedOut,
     /// A connection that had been established was lost, and clause 10.5's
     /// regular retry of the open applies (index 128). This is the first
@@ -734,7 +748,11 @@ impl ConnectionManager {
     ///   **stays armed**: the next dial comes at that expiry, not on every tick.
     ///   Figure 21's peer refuses *every* dial until it listens, and clause
     ///   10.5's regular retry is one attempt per t0, not a busy loop.
-    ///   The retry's `reason` is [`ConnectReason::AttemptFailed`].
+    ///   The retry's `reason` is [`ConnectReason::AttemptFailed`]. Report a
+    ///   refused dial with [`ConnectionManager::on_attempt_failed`] instead,
+    ///   which names the attempt: this call cannot tell the late failure of a
+    ///   dial abandoned at its t0 from the loss of the connection that
+    ///   replaced it, and treats it as that loss.
     ///
     /// # Errors
     ///
@@ -758,6 +776,33 @@ impl ConnectionManager {
             }
         } else {
             // A refused dial: the attempt is over, only its t0 still runs.
+            station.dialing = false;
+        }
+        Ok(())
+    }
+
+    /// The caller's dial was refused, or given up, before it came up.
+    /// `attempt` is the number the [`Directive::Connect`] that asked for the
+    /// dial carried.
+    ///
+    /// The report counts only when `attempt` is the station's latest attempt
+    /// and the station has no connection. That attempt is then over and its
+    /// own t0 **stays armed**: the next dial comes at that expiry, not on
+    /// every tick (figure 21's peer refuses *every* dial until it listens),
+    /// and its `reason` is [`ConnectReason::AttemptFailed`].
+    ///
+    /// A report that names another attempt, or one that arrives while a
+    /// connection is up, changes nothing: a dial abandoned at its t0
+    /// ([`ConnectReason::AttemptTimedOut`]) may fail long after the attempt
+    /// that replaced it, and that failure says nothing about the newer dial
+    /// or the connection it brought up.
+    ///
+    /// # Errors
+    ///
+    /// [`ManagerError::StationIndexOutOfRange`] when `index` names no station.
+    pub fn on_attempt_failed(&mut self, index: usize, attempt: u32) -> Result<(), ManagerError> {
+        let station = self.station_mut(index)?;
+        if !station.connected && attempt == station.attempts {
             station.dialing = false;
         }
         Ok(())

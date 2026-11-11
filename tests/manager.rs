@@ -1231,6 +1231,123 @@ fn an_unanswered_attempt_is_reported_as_timed_out() {
     );
 }
 
+#[test]
+fn a_late_failure_of_an_abandoned_attempt_is_not_the_loss_of_its_successor() {
+    let start = Instant::now();
+    let t0 = LinkParams::default().t0;
+    let mut manager = ConnectionManager::new(Role::Controlling, vec![station()]).unwrap();
+    assert_eq!(
+        connects(&manager.tick(start)),
+        vec![(0, 1, ConnectReason::FirstAttempt)]
+    );
+    assert_eq!(
+        connects(&manager.tick(start + t0)),
+        vec![(0, 2, ConnectReason::AttemptTimedOut)]
+    );
+    let up = start + t0 + Duration::from_secs(1);
+    manager.on_connection_established(0, up).unwrap();
+    manager.queue_i_frame(0, &asdu()).unwrap();
+
+    manager.on_attempt_failed(0, 1).unwrap();
+
+    let station = manager.station(0).unwrap();
+    assert!(station.is_connected(), "attempt 2's connection is still up");
+    assert_eq!(station.state(), State::Stopped);
+    assert_eq!(
+        station.session().pending_user_data(),
+        1,
+        "the queued ASDU is still queued"
+    );
+    assert_eq!(station.timers().deadline(Timer::T3), Some(up + T3));
+    assert_eq!(station.attempts(), 2);
+    assert_eq!(
+        manager.tick(up),
+        [] as [Directive; 0],
+        "nothing is dialed for a station that is connected"
+    );
+}
+
+#[test]
+fn a_failure_of_another_attempt_does_not_end_the_attempt_in_flight() {
+    let start = Instant::now();
+    let t0 = LinkParams::default().t0;
+    let mut manager = ConnectionManager::new(Role::Controlling, vec![station()]).unwrap();
+    manager.tick(start);
+    assert_eq!(
+        connects(&manager.tick(start + t0)),
+        vec![(0, 2, ConnectReason::AttemptTimedOut)]
+    );
+
+    manager.on_attempt_failed(0, 1).unwrap();
+    manager.on_attempt_failed(0, 3).unwrap();
+
+    assert_eq!(
+        manager.station(0).unwrap().timers().deadline(Timer::T0),
+        Some(start + t0 + t0)
+    );
+    assert!(
+        manager.tick(start + t0 + Duration::from_secs(1)).is_empty(),
+        "attempt 2 is in flight and its t0 has not expired"
+    );
+    assert_eq!(
+        connects(&manager.tick(start + t0 + t0)),
+        vec![(0, 3, ConnectReason::AttemptTimedOut)],
+        "attempt 2 was never reported, so it timed out"
+    );
+}
+
+#[test]
+fn figure_21_a_failed_attempt_is_retried_at_its_own_t0() {
+    let start = Instant::now();
+    let t0 = LinkParams::default().t0;
+    let mut manager = ConnectionManager::new(Role::Controlling, vec![station()]).unwrap();
+    assert_eq!(
+        connects(&manager.tick(start)),
+        vec![(0, 1, ConnectReason::FirstAttempt)]
+    );
+
+    manager.on_attempt_failed(0, 1).unwrap();
+
+    assert!(!manager.station(0).unwrap().is_connected());
+    assert_eq!(manager.station(0).unwrap().state(), State::Stopped);
+    assert_eq!(
+        manager.station(0).unwrap().timers().deadline(Timer::T0),
+        Some(start + t0),
+        "the failed attempt keeps its t0"
+    );
+    assert!(
+        manager.tick(start).is_empty(),
+        "a failed attempt does not restart t0"
+    );
+    assert_eq!(
+        manager.tick((start + t0).checked_sub(Duration::from_millis(1)).unwrap()),
+        [] as [Directive; 0]
+    );
+    assert_eq!(
+        connects(&manager.tick(start + t0)),
+        vec![(0, 2, ConnectReason::AttemptFailed)]
+    );
+    assert_eq!(
+        connects(&manager.tick(start + t0 + t0)),
+        vec![(0, 3, ConnectReason::AttemptTimedOut)],
+        "attempt 2 was never reported"
+    );
+}
+
+#[test]
+fn a_failed_attempt_of_a_station_out_of_range_is_refused() {
+    let mut manager = ConnectionManager::new(Role::Controlling, vec![station()]).unwrap();
+    manager.tick(Instant::now());
+    assert_eq!(
+        manager.on_attempt_failed(1, 1).unwrap_err(),
+        ManagerError::StationIndexOutOfRange {
+            index: 1,
+            stations: 1
+        }
+    );
+    assert_eq!(manager.station(0).unwrap().attempts(), 1);
+}
+
 // ---------------------------------------------------------------------------
 // next_deadline: what an event loop sleeps until
 // ---------------------------------------------------------------------------
