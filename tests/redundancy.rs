@@ -2399,10 +2399,22 @@ fn the_group_limit_ignores_the_stale_mirror_of_a_reestablished_connection() {
         .on_connection_established();
 
     let mut accepted = 0;
-    while group.send_user_data(1, &asdu).is_ok() {
-        accepted += 1;
+    let mut refusal = None;
+    for _ in 0..=MAX_PENDING_USER_DATA {
+        match group.send_user_data(1, &asdu) {
+            Ok(_) => accepted += 1,
+            Err(error) => {
+                refusal = Some(error);
+                break;
+            }
+        }
     }
     assert_eq!(accepted, MAX_PENDING_USER_DATA - sent);
+    assert_eq!(
+        refusal,
+        Some(GroupError::Queue(QueueError::Full)),
+        "the group refuses once it holds MAX_PENDING_USER_DATA"
+    );
 }
 
 /// The mirror is dropped entry by entry as the data goes out, so the replay of a
