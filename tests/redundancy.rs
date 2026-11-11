@@ -4383,3 +4383,299 @@ fn clause_10_5_a_connection_re_established_by_hand_is_captured_once() {
         "each ASDU replayed once"
     );
 }
+
+const fn routed(member: usize, actions: Vec<Action>) -> iec104::redundancy::Routed {
+    iec104::redundancy::Routed { member, actions }
+}
+
+fn group_established_at(role: Role, count: usize, now: Instant) -> RedundancyGroup {
+    let mut group = RedundancyGroup::uniform(role, LinkParams::default(), count).expect("group");
+    for index in 0..count {
+        group
+            .on_connection_established(index, now)
+            .expect("a member");
+    }
+    group
+}
+
+fn start_through_the_group(group: &mut RedundancyGroup, index: usize, now: Instant) {
+    assert_eq!(
+        group.start_at(index, now),
+        Ok(vec![routed(
+            index,
+            vec![Action::Send(Apci::U(UFunction::StartDtAct))]
+        )])
+    );
+    assert_eq!(
+        group.on_frame_at(index, Apci::U(UFunction::StartDtCon), now),
+        Ok(Vec::new())
+    );
+    assert_eq!(group.state(index), Ok(State::Started));
+}
+
+fn deadline_of(group: &RedundancyGroup, index: usize, timer: Timer) -> Option<Instant> {
+    group
+        .member(index)
+        .expect("a member")
+        .timers()
+        .deadline(timer)
+}
+
+#[test]
+fn clause_5_1_the_tick_acknowledges_a_received_i_frame_when_t2_runs_out() {
+    let start = Instant::now();
+    let mut group = group_established_at(Role::Controlling, 2, start);
+    start_through_the_group(&mut group, 0, start);
+
+    let at = start + Duration::from_secs(2);
+    assert_eq!(
+        group.on_frame_at(
+            0,
+            Apci::I {
+                ns: SeqNo::new(0),
+                nr: SeqNo::new(0),
+            },
+            at
+        ),
+        Ok(vec![routed(
+            0,
+            vec![Action::DeliverData {
+                ns: SeqNo::new(0),
+                nr: SeqNo::new(0),
+            }]
+        )]),
+        "one received I-frame is fewer than w = 8: no S-frame yet"
+    );
+    assert_eq!(
+        deadline_of(&group, 0, Timer::T2),
+        Some(at + Duration::from_secs(10)),
+        "t2 = 10 s from the received I-frame"
+    );
+    assert_eq!(deadline_of(&group, 1, Timer::T2), None);
+    assert_eq!(group.next_deadline(), Some(at + Duration::from_secs(10)));
+
+    assert_eq!(
+        group.tick(at + Duration::from_millis(9_999)),
+        TickOutcome::default(),
+        "nothing is due before t2"
+    );
+    assert_eq!(
+        group.tick(at + Duration::from_secs(10)),
+        TickOutcome {
+            routed: vec![routed(0, vec![Action::Send(Apci::S { nr: SeqNo::new(1) })])],
+            switchovers: Vec::new(),
+            connect: Vec::new(),
+        },
+        "t2 acknowledges the one received I-frame with N(R) = 1"
+    );
+    assert_eq!(
+        deadline_of(&group, 0, Timer::T2),
+        None,
+        "the acknowledgement stops t2"
+    );
+    assert_eq!(
+        group.tick(at + Duration::from_secs(10)),
+        TickOutcome::default(),
+        "the acknowledgement is sent once"
+    );
+}
+
+#[test]
+fn rule_5_a_received_frame_retriggers_t3_of_its_own_connection_only() {
+    let start = Instant::now();
+    let mut group = group_established_at(Role::Controlled, 2, start);
+    assert_eq!(
+        deadline_of(&group, 0, Timer::T3),
+        Some(start + Duration::from_secs(20))
+    );
+    assert_eq!(
+        deadline_of(&group, 1, Timer::T3),
+        Some(start + Duration::from_secs(20))
+    );
+
+    assert_eq!(
+        group.on_frame_at(
+            1,
+            Apci::U(UFunction::TestFrAct),
+            start + Duration::from_secs(5)
+        ),
+        Ok(vec![routed(
+            1,
+            vec![Action::Send(Apci::U(UFunction::TestFrCon))]
+        )])
+    );
+    assert_eq!(
+        deadline_of(&group, 0, Timer::T3),
+        Some(start + Duration::from_secs(20)),
+        "a frame on connection 1 says nothing about connection 0"
+    );
+    assert_eq!(
+        deadline_of(&group, 1, Timer::T3),
+        Some(start + Duration::from_secs(25)),
+        "t3 = 20 s from the frame received on connection 1"
+    );
+    assert_eq!(group.next_deadline(), Some(start + Duration::from_secs(20)));
+
+    assert_eq!(
+        group.tick(start + Duration::from_millis(19_999)),
+        TickOutcome::default()
+    );
+    assert_eq!(
+        group.tick(start + Duration::from_secs(20)),
+        TickOutcome {
+            routed: vec![routed(0, vec![Action::Send(Apci::U(UFunction::TestFrAct))])],
+            switchovers: Vec::new(),
+            connect: Vec::new(),
+        },
+        "only the idle connection 0 is tested at 20 s"
+    );
+    assert_eq!(
+        group.tick(start + Duration::from_millis(24_999)),
+        TickOutcome::default()
+    );
+    assert_eq!(
+        group.tick(start + Duration::from_secs(25)),
+        TickOutcome {
+            routed: vec![routed(1, vec![Action::Send(Apci::U(UFunction::TestFrAct))])],
+            switchovers: Vec::new(),
+            connect: Vec::new(),
+        },
+        "connection 1 is tested 20 s after its last frame"
+    );
+}
+
+#[test]
+fn ts_604_5_4_13_1_the_tick_tests_the_started_and_every_stopped_connection() {
+    let start = Instant::now();
+    let mut group = group_established_at(Role::Controlling, 3, start);
+    start_through_the_group(&mut group, 0, start);
+    for index in 0..3 {
+        assert_eq!(
+            deadline_of(&group, index, Timer::T3),
+            Some(start + Duration::from_secs(20)),
+            "t3 of connection {index}"
+        );
+        assert_eq!(
+            deadline_of(&group, index, Timer::T1),
+            None,
+            "nothing of connection {index} awaits a confirmation"
+        );
+    }
+
+    assert_eq!(
+        group.tick(start + Duration::from_millis(19_999)),
+        TickOutcome::default()
+    );
+    let due = start + Duration::from_secs(20);
+    assert_eq!(
+        group.tick(due),
+        TickOutcome {
+            routed: vec![
+                routed(0, vec![Action::Send(Apci::U(UFunction::TestFrAct))]),
+                routed(1, vec![Action::Send(Apci::U(UFunction::TestFrAct))]),
+                routed(2, vec![Action::Send(Apci::U(UFunction::TestFrAct))]),
+            ],
+            switchovers: Vec::new(),
+            connect: Vec::new(),
+        },
+        "one TESTFR act per connection, each on its own connection"
+    );
+    assert_eq!(group.state(0), Ok(State::Started));
+    assert_eq!(group.state(1), Ok(State::Stopped));
+    assert_eq!(group.state(2), Ok(State::Stopped));
+    assert_eq!(group.started(), Ok(0));
+    for index in 0..3 {
+        assert_eq!(
+            deadline_of(&group, index, Timer::T1),
+            Some(due + Duration::from_secs(15)),
+            "t1 = 15 s supervises the TESTFR act of connection {index}"
+        );
+    }
+
+    let answered = due + Duration::from_secs(1);
+    for index in 0..3 {
+        assert_eq!(
+            group.on_frame_at(index, Apci::U(UFunction::TestFrCon), answered),
+            Ok(Vec::new())
+        );
+        assert_eq!(
+            deadline_of(&group, index, Timer::T1),
+            None,
+            "the TESTFR con of connection {index} stops its t1"
+        );
+        assert_eq!(
+            deadline_of(&group, index, Timer::T3),
+            Some(answered + Duration::from_secs(20))
+        );
+    }
+    assert_eq!(
+        group.tick(due + Duration::from_secs(15)),
+        TickOutcome::default(),
+        "a confirmed test closes no connection"
+    );
+}
+
+#[test]
+fn clause_10_5_the_tick_switches_over_to_the_first_stopped_connection() {
+    let start = Instant::now();
+    let mut group = group_established_at(Role::Controlling, 3, start);
+    start_through_the_group(&mut group, 0, start);
+
+    let sent = start + Duration::from_secs(2);
+    let asdu = station_interrogation();
+    assert_eq!(
+        group.send_user_data_at(0, &asdu, sent),
+        Ok(vec![routed(
+            0,
+            vec![Action::SendI {
+                ns: SeqNo::new(0),
+                nr: SeqNo::new(0),
+                asdu: asdu.clone(),
+            }]
+        )])
+    );
+    assert_eq!(
+        deadline_of(&group, 0, Timer::T1),
+        Some(sent + Duration::from_secs(15)),
+        "t1 = 15 s supervises the I-frame"
+    );
+    assert_eq!(
+        group.tick(sent + Duration::from_millis(14_999)),
+        TickOutcome::default()
+    );
+
+    let due = sent + Duration::from_secs(15);
+    let outcome = group.tick(due);
+    assert_eq!(
+        outcome.switchovers,
+        vec![Switchover::Automatic {
+            failed: 0,
+            started: 1,
+            unconfirmed: 1,
+        }],
+        "connection 1 takes over, not connection 2"
+    );
+    assert_eq!(outcome.connect, Vec::<usize>::new());
+    assert_eq!(outcome.routed.len(), 2, "{:?}", outcome.routed);
+    assert_eq!(outcome.routed[0].member, 0);
+    assert!(
+        matches!(outcome.routed[0].actions[..], [Action::ActiveClose(_)]),
+        "the failed connection is closed: {:?}",
+        outcome.routed[0]
+    );
+    assert_eq!(
+        outcome.routed[1],
+        routed(1, vec![Action::Send(Apci::U(UFunction::StartDtAct))]),
+        "the STARTDT act goes out on connection 1"
+    );
+    assert_eq!(group.started(), Ok(1));
+    assert_eq!(group.state(0), Ok(State::Terminated));
+    assert_eq!(group.state(1), Ok(State::PendingStarted));
+    assert_eq!(group.state(2), Ok(State::Stopped));
+    assert_eq!(
+        deadline_of(&group, 1, Timer::T1),
+        Some(due + Duration::from_secs(15)),
+        "t1 = 15 s supervises the STARTDT act"
+    );
+    assert_eq!(deadline_of(&group, 2, Timer::T1), None);
+}
