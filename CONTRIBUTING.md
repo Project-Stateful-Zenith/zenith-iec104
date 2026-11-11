@@ -9,10 +9,10 @@ Run what CI runs:
 
 ```sh
 cargo fmt --all --check
-cargo clippy --workspace --all-targets
-cargo clippy --workspace --all-targets --all-features
-RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features
-cargo test --workspace --all-features
+cargo clippy --workspace --all-targets --locked
+cargo clippy --workspace --all-targets --all-features --locked
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features --locked
+cargo test --workspace --all-features --locked
 ```
 
 CI pins clippy to Rust 1.99.0 (`.github/workflows/ci.yml`). The workspace
