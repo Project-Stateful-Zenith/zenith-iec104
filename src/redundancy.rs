@@ -410,7 +410,10 @@
 //!   application's replay decision, the held data waits behind it, and so
 //!   does every ASDU handed over meanwhile, also when another connection is
 //!   already started, and what was queued on a connection before the Start
-//!   that closed the failed one, so the replay goes out first (10.6).
+//!   that closed the failed one, so the replay goes out first (10.6). That
+//!   order holds for a replay decided after the connection is started: one
+//!   decided between a `select` and the Start queues behind what already
+//!   waits on the named connection.
 //!
 //! # What stays the caller's
 //!
@@ -733,16 +736,18 @@ pub const CLOSED_BY_APPLICATION: &str = "closed by the application (connection c
 /// The group owns its members and the name of the started connection. It holds
 /// no process image, no socket and no clock (see the module doc); the only user
 /// data it holds itself is what it is handed while no connection is started
-/// after a failure ([`RedundancyGroup::held_user_data`]).
+/// after a failure, or while a failed connection's data waits for the replay
+/// decision ([`RedundancyGroup::held_user_data`]).
 #[derive(Debug)]
 pub struct RedundancyGroup {
     role: Role,
     members: Vec<Member>,
     started: Option<usize>,
     /// User data handed over while no connection was started (between a
-    /// failure and the next naming), or moved off a stopped connection the
-    /// naming left, held until a connection is named (10.5: data must not be
-    /// lost in a switchover).
+    /// failure and the next naming) or while a failed connection's data was
+    /// undecided, or moved off a stopped connection the naming left, held
+    /// until a connection is named and that data is decided on (10.5: data
+    /// must not be lost in a switchover).
     held: Vec<Vec<u8>>,
     /// True from the failure of the started connection until the next one is
     /// named: the gap in which the group holds user data. Before the first
@@ -1059,7 +1064,9 @@ impl RedundancyGroup {
     /// the gap after a failure ends, the data the group holds goes into that
     /// connection's queue, as a Start would put it there, and the frames the
     /// connection can send now are returned for the caller to put on the wire.
-    /// For every other member the list is empty.
+    /// While a failed connection's data waits for the replay decision the
+    /// held data stays held, and that decision sends it. For every other
+    /// member the list is empty.
     ///
     /// # Errors
     ///
@@ -1104,7 +1111,9 @@ impl RedundancyGroup {
     ///
     /// This sends nothing and closes nothing: it names the connection and
     /// moves the group's held data (and data waiting on other stopped
-    /// connections) into that connection's clause 5.3 queue. 10.7's close of
+    /// connections) into that connection's clause 5.3 queue, or, while a
+    /// failed connection's data waits for the replay decision, keeps it held
+    /// and adds what waits on the named connection. 10.7's close of
     /// every other connection that is not stopped comes with the frame.
     /// [`RedundancyGroup::on_startdt_act`] is the same naming with the
     /// received frame wired into the member's session (10.4, index 124), and
@@ -1236,8 +1245,9 @@ impl RedundancyGroup {
     /// The frame is fed to the named member's own [`Session::on_frame`], which
     /// answers clause 5.3's `STARTDT_CON` and moves that connection to
     /// [`State::Started`], and the member is named the group's started
-    /// connection through [`RedundancyGroup::observe_startdt_act`] (10.2: the
-    /// connection the last `STARTDT_ACT` arrived on). The session's actions are
+    /// connection as [`RedundancyGroup::observe_startdt_act`] names one, after
+    /// the other connections are closed (10.2: the connection the last
+    /// `STARTDT_ACT` arrived on). The session's actions are
     /// returned unchanged: the `STARTDT_CON`, followed by any monitoring data the
     /// connection held, because clause 5.3 (index 38, printed 37) holds a
     /// controlled station's pending user data until the STARTDT con.
