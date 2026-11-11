@@ -418,7 +418,8 @@ pub struct Supervision {
     /// ours is never pending.
     test_pending: bool,
     /// A `STARTDT act` or `STOPDT act` of ours awaits the peer's con
-    /// (figures 15/16).
+    /// (figures 15/16), or the peer's `STOPDT act` awaits our con until our
+    /// I-frames are acknowledged.
     transfer_pending: bool,
 }
 
