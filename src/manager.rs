@@ -47,7 +47,7 @@
 //! [`ConnectionManager::tick`]. The attempt counter labels the directive and is
 //! never a limit.
 //!
-//! Three consequences of that policy:
+//! Four consequences of that policy:
 //!
 //! - **Only a controlling manager dials.** Clause 7.1's other half (index 54,
 //!   printed 53) maps the roles onto TCP: the controlling station is the
@@ -101,7 +101,7 @@
 //! | a sent U-frame *act* or I-frame was handed out | [`Timers::frame_sent`] (arm t1) |
 //! | an S-frame or an I-frame was handed out | [`Timers::acknowledgement_sent`] (cancel t2) |
 //! | nothing awaits confirmation any more | [`Timers::confirmation_received`] (cancel t1) |
-//! | an acknowledgement advanced the send buffer | [`Timers::confirmation_received`] then [`Timers::frame_sent`] (t1 moves to the frame that is now the oldest unconfirmed one) |
+//! | an acknowledgement advanced the send buffer, or an act was confirmed while another act or a frame still waits | [`Timers::confirmation_received`] then [`Timers::frame_sent`] (t1 moves to the act or frame that is now the oldest unconfirmed one) |
 //! | the caller's clock advanced | [`Timers::expired`], then [`Session::on_timeout`] per due timer |
 //!
 //! The manager hands out exactly the action lists the session produced, and the
@@ -120,10 +120,11 @@
 //! - **t1 follows the *oldest* unconfirmed frame.** Figures 17/18 NOTE 2 make t1
 //!   the timeout of one sent U-frame or I-frame, singular. An acknowledgement
 //!   that advances the clause 5.1 send buffer while frames remain re-arms t1
-//!   from the instant of the acknowledgement (or from when a still pending act
-//!   was sent). A peer that confirms every frame shortly after it arrives is
-//!   therefore never closed, while a peer that stops confirming is closed one
-//!   t1 after the last progress.
+//!   from when the oldest frame left in the buffer was sent (or a still
+//!   pending act, if that went out first). A peer that confirms every frame
+//!   within t1 of its send is therefore never closed, while a peer that
+//!   stops confirming is closed t1 after the oldest unconfirmed frame went
+//!   out.
 //!
 //! A caller that drives a station's session and scheduler by hand, through
 //! [`Station::session_mut`] and [`Station::timers_mut`], owns the wiring again.
