@@ -735,14 +735,16 @@ fn clause_10_5_a_refused_dial_reported_by_its_number_is_retried_at_t0() {
 
     group.on_attempt_failed(1, 7).unwrap();
     assert_eq!(group.started_index(), Some(1), "not the latest attempt");
-    group
-        .on_attempt_failed(1, group.member(1).unwrap().attempt())
-        .unwrap();
-    assert_eq!(group.started_index(), None, "the naming goes with the dial");
-
     assert_eq!(group.tick(t + Duration::from_secs(29)).connect, Vec::new());
     assert_eq!(group.tick(t + Duration::from_secs(30)).connect, vec![1]);
     assert_eq!(group.member(1).unwrap().attempt(), 2);
+    group.on_attempt_failed(1, 1).unwrap();
+    assert_eq!(group.started_index(), Some(1), "an abandoned attempt");
+    group.on_attempt_failed(1, 2).unwrap();
+    assert_eq!(group.started_index(), None, "the naming goes with the dial");
+
+    assert_eq!(group.tick(t + Duration::from_secs(59)).connect, Vec::new());
+    assert_eq!(group.tick(t + Duration::from_secs(60)).connect, vec![1]);
     assert_eq!(
         group.on_attempt_failed(2, 1),
         Err(GroupError::MemberIndexOutOfRange {
@@ -893,4 +895,17 @@ fn data_queued_by_hand_keeps_its_place_when_older_held_data_is_merged_in() {
         i_asdus(&group.start(1).unwrap()),
         vec![asdu(1), asdu(2), asdu(9), asdu(3)]
     );
+}
+
+#[test]
+fn a_member_that_was_never_dialed_has_no_attempt_to_fail() {
+    let t = Instant::now();
+    let mut group = RedundancyGroup::uniform(Role::Controlled, LinkParams::default(), 2).unwrap();
+    group.on_connection_established(0, t).unwrap();
+    group.on_startdt_act(0).unwrap();
+    assert_eq!(group.observe_startdt_act(1), Ok(Vec::new()));
+    assert_eq!(group.member(1).unwrap().attempt(), 0);
+
+    group.on_attempt_failed(1, 0).unwrap();
+    assert_eq!(group.started_index(), Some(1));
 }

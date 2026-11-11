@@ -2767,14 +2767,16 @@ impl RedundancyGroup {
     /// earlier attempt, or one that arrives while a connection is up, changes
     /// nothing: a dial abandoned at its t0 may fail long after the attempt
     /// that replaced it, and that failure says nothing about the connection
-    /// the newer dial brought up.
+    /// the newer dial brought up. Neither does attempt 0: no dial has that
+    /// number, so a member [`RedundancyGroup::tick`] never asked for (every
+    /// member of a controlled group) has none to fail.
     ///
     /// # Errors
     ///
     /// [`GroupError::MemberIndexOutOfRange`] when `index` names no member.
     pub fn on_attempt_failed(&mut self, index: usize, attempt: u32) -> Result<(), GroupError> {
         let member = self.member(index)?;
-        if member.link_up() || attempt != member.attempts {
+        if attempt == 0 || member.link_up() || attempt != member.attempts {
             return Ok(());
         }
         self.on_connection_lost(index)
