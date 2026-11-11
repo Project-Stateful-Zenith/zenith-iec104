@@ -909,3 +909,86 @@ fn a_member_that_was_never_dialed_has_no_attempt_to_fail() {
     group.on_attempt_failed(1, 0).unwrap();
     assert_eq!(group.started_index(), Some(1));
 }
+
+fn three_controlled(k: u16) -> Result<RedundancyGroup, GroupError> {
+    let t = Instant::now();
+    let params = LinkParams {
+        k,
+        w: 1,
+        ..LinkParams::default()
+    };
+    let mut group = RedundancyGroup::uniform(Role::Controlled, params, 3)?;
+    for member in 0..3 {
+        group.on_connection_established(member, t)?;
+    }
+    Ok(group)
+}
+
+#[test]
+fn a_replayed_frame_sent_at_once_keeps_its_handover_number_on_the_wire() {
+    let mut group = three_controlled(12).unwrap();
+    group.on_startdt_act(0).unwrap();
+    assert!(group.send_user_data(0, &asdu(1)).unwrap().is_some());
+    assert_eq!(group.observe_startdt_act(1), Ok(Vec::new()));
+    assert_eq!(group.send_user_data(1, &asdu(2)), Ok(None));
+    group.on_connection_lost(1).unwrap();
+    group.on_connection_lost(0).unwrap();
+
+    group.on_startdt_act(2).unwrap();
+    let Ok(ReplayOutcome::Retransmitted { actions, queued }) =
+        group.retransmit_unconfirmed(1, Replay::Retransmit)
+    else {
+        panic!("the replay is refused");
+    };
+    assert_eq!((i_asdus(&actions), queued), (vec![asdu(2)], 0));
+    group.on_connection_lost(2).unwrap();
+    assert_eq!(group.member(2).unwrap().left_behind(), &[asdu(2)]);
+
+    group.on_connection_established(1, Instant::now()).unwrap();
+    assert_eq!(group.observe_startdt_act(1), Ok(Vec::new()));
+    group.retransmit_unconfirmed(0, Replay::Retransmit).unwrap();
+    group.retransmit_unconfirmed(2, Replay::Retransmit).unwrap();
+    assert_eq!(
+        group.member(1).unwrap().queued_user_data(),
+        &[asdu(1), asdu(2)]
+    );
+    assert_eq!(
+        i_asdus(&group.on_startdt_act(1).unwrap()),
+        vec![asdu(1), asdu(2)]
+    );
+}
+
+#[test]
+fn a_replayed_frame_sent_from_the_queue_keeps_its_handover_number_on_the_wire() {
+    let mut group = three_controlled(1).unwrap();
+    group.on_startdt_act(0).unwrap();
+    assert!(group.send_user_data(0, &asdu(1)).unwrap().is_some());
+    assert_eq!(group.observe_startdt_act(1), Ok(Vec::new()));
+    assert_eq!(group.send_user_data(1, &asdu(2)), Ok(None));
+    assert_eq!(group.send_user_data(1, &asdu(3)), Ok(None));
+    group.on_connection_lost(1).unwrap();
+    group.on_connection_lost(0).unwrap();
+
+    group.on_startdt_act(2).unwrap();
+    let Ok(ReplayOutcome::Retransmitted { actions, queued }) =
+        group.retransmit_unconfirmed(1, Replay::Retransmit)
+    else {
+        panic!("the replay is refused");
+    };
+    assert_eq!((i_asdus(&actions), queued), (vec![asdu(2)], 1));
+    assert_eq!(
+        i_asdus(&group.on_frame(2, Apci::S { nr: SeqNo::new(1) }).unwrap()),
+        vec![asdu(3)]
+    );
+    group.on_connection_lost(2).unwrap();
+    assert_eq!(group.member(2).unwrap().left_behind(), &[asdu(3)]);
+
+    group.on_connection_established(1, Instant::now()).unwrap();
+    assert_eq!(group.observe_startdt_act(1), Ok(Vec::new()));
+    group.retransmit_unconfirmed(0, Replay::Retransmit).unwrap();
+    group.retransmit_unconfirmed(2, Replay::Retransmit).unwrap();
+    assert_eq!(
+        group.member(1).unwrap().queued_user_data(),
+        &[asdu(1), asdu(3)]
+    );
+}

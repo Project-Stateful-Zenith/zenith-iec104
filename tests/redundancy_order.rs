@@ -191,6 +191,7 @@ impl Model {
                             .min();
                         if let Some(older) = older
                             && !replaying
+                            && !self.replays.contains_key(&id)
                             && older < id
                         {
                             self.violate(
@@ -383,11 +384,17 @@ impl Model {
         if self.peers[member].closed {
             return;
         }
-        let nr = self.peers[member].received.len();
-        let newly: Vec<u32> = self.peers[member].received[self.peers[member].acked..].to_vec();
-        if newly.is_empty() {
+        let received = self.peers[member].received.len();
+        let acked = self.peers[member].acked;
+        if received == acked {
             return;
         }
+        let nr = if self.settling {
+            received
+        } else {
+            acked + 1 + self.rng.below((received - acked) as u64) as usize
+        };
+        let newly: Vec<u32> = self.peers[member].received[acked..nr].to_vec();
         let alive = matches!(
             self.group.state(member),
             Ok(State::Started | State::PendingStopped | State::PendingUnconfirmedStopped)
