@@ -402,7 +402,10 @@
 //!   fails. The mirror is filled only by the group's own queueing, drops an
 //!   entry as that ASDU goes out, and is trimmed to what the connection's queue
 //!   still holds when the member is named again. A caller that queues into a
-//!   member's own session is outside it. Between a failure of the started
+//!   member's own session is outside it, until the group has to reorder that
+//!   connection's queue (a replay, or held data older than what waits
+//!   there): the queue is then taken back whole, and what the caller queued
+//!   is mirrored from then on, in its place. Between a failure of the started
 //!   connection and the next naming, the group itself holds the user data it
 //!   is handed ([`RedundancyGroup::held_user_data`]) and queues it on the next
 //!   connection named; data still waiting on another stopped connection when
@@ -617,7 +620,9 @@ impl Member {
     /// The queue itself is the session's ([`Session::pending_user_data`]); this
     /// is only what the group put there (through
     /// [`RedundancyGroup::send_user_data`], or the data it held during a
-    /// switchover). When the connection fails, the mirror is captured with the
+    /// switchover), and what a caller queued into the session itself once
+    /// the group has had to reorder that queue. When the connection fails,
+    /// the mirror is captured with the
     /// connection's unconfirmed frames into [`Member::left_behind`]. An entry is
     /// dropped as that ASDU goes out; a re-established connection (clause 5.1)
     /// starts with an empty mirror; and when the member is named the started
@@ -664,17 +669,14 @@ impl Member {
 
     fn take_queue(&mut self) -> Order {
         let asdus = self.session.take_pending_user_data();
-        let mut stamps = std::mem::take(&mut self.queued).stamps;
-        let surplus = stamps.len().saturating_sub(asdus.len());
-        stamps.drain(..surplus);
-        let unknown = asdus.len().saturating_sub(stamps.len());
+        let mut mirror = std::mem::take(&mut self.queued);
+        mirror.drain_front(mirror.len().saturating_sub(asdus.len()));
+        let mut known = mirror.pairs().peekable();
         let mut taken = Order::default();
-        for (at, asdu) in asdus.into_iter().enumerate() {
-            let stamp = at
-                .checked_sub(unknown)
-                .and_then(|known| stamps.get(known))
-                .copied()
-                .unwrap_or(0);
+        for asdu in asdus {
+            let stamp = known
+                .next_if(|(_, mirrored)| *mirrored == asdu)
+                .map_or(0, |(stamp, _)| stamp);
             taken.push(stamp, asdu);
         }
         taken
@@ -1334,7 +1336,11 @@ impl RedundancyGroup {
         if !member.session.is_connected() {
             return;
         }
-        let mut all = member.take_queue();
+        let mut all = if member.queued.stamps.last() <= self.held.stamps.first() {
+            Order::default()
+        } else {
+            member.take_queue()
+        };
         all.merge(std::mem::take(&mut self.held));
         for (stamp, asdu) in all.pairs() {
             if member.session.queue_i_frame(&asdu).is_ok() {

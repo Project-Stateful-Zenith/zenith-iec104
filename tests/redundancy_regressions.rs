@@ -855,3 +855,42 @@ fn a_replay_the_started_connections_queue_has_no_room_for_changes_nothing() {
     assert_eq!(session.outstanding_frames().len(), 0);
     assert!(!group.member(0).unwrap().replayed());
 }
+
+#[test]
+fn data_queued_by_hand_stays_outside_the_mirror_when_held_data_is_only_appended() {
+    let mut group = established(Role::Controlling, 1).unwrap();
+    group.start(0).unwrap();
+    group.on_frame(0, Apci::U(UFunction::StartDtCon)).unwrap();
+    assert!(group.send_user_data(0, &asdu(1)).unwrap().is_some());
+    assert_eq!(group.send_user_data(0, &asdu(2)), Ok(None));
+    let session = group.member_mut(0).unwrap().session_mut();
+    session.queue_i_frame(&asdu(9)).unwrap();
+    assert_eq!(group.send_user_data(0, &asdu(3)), Ok(None));
+    assert_eq!(group.select(1), Ok(Vec::new()));
+    assert_eq!(group.send_user_data(1, &asdu(4)), Ok(None));
+
+    assert_eq!(group.select(0), Ok(Vec::new()));
+    let member = group.member(0).unwrap();
+    assert_eq!(member.queued_user_data(), &[asdu(2), asdu(3), asdu(4)]);
+    assert_eq!(member.session().pending_user_data(), 4);
+}
+
+#[test]
+fn data_queued_by_hand_keeps_its_place_when_older_held_data_is_merged_in() {
+    let mut group = established(Role::Controlling, 12).unwrap();
+    group.start(0).unwrap();
+    group.on_frame(0, Apci::U(UFunction::StartDtCon)).unwrap();
+    group.stop(0).unwrap();
+    assert_eq!(group.send_user_data(0, &asdu(1)), Ok(None));
+    assert_eq!(group.select(1), Ok(Vec::new()));
+    assert_eq!(group.send_user_data(1, &asdu(2)), Ok(None));
+    let session = group.member_mut(1).unwrap().session_mut();
+    session.queue_i_frame(&asdu(9)).unwrap();
+    assert_eq!(group.send_user_data(1, &asdu(3)), Ok(None));
+    group.on_frame(0, Apci::U(UFunction::StopDtCon)).unwrap();
+
+    assert_eq!(
+        i_asdus(&group.start(1).unwrap()),
+        vec![asdu(1), asdu(2), asdu(9), asdu(3)]
+    );
+}

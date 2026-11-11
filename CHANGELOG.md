@@ -62,7 +62,9 @@ follow [Semantic Versioning](https://semver.org/).
   together. A replay decided between a `select` (or `observe_startdt_act`)
   and the Start went out behind newer data queued on the named connection,
   and data left waiting on a connection that was still stopping went out
-  behind newer data queued on the next one.
+  behind newer data queued on the next one. Data a caller queued through
+  `Member::session_mut` keeps its place, and is in the group's mirror once
+  the group has reordered the queue it is in.
 - A Start closes a stopped connection that still has I-frames unconfirmed
   (its peer confirmed the stop without acknowledging them), as 10.7 closes
   one that is not stopped. Those frames used to surface at that
