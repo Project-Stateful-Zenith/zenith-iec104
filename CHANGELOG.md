@@ -19,7 +19,9 @@ follow [Semantic Versioning](https://semver.org/).
 - `iec104-tokio`: `Event::StartedConnectionFailed` is also reported when
   the application's own `Handle::start` of another connection or
   `Handle::close` ended the started connection and it left data
-  unconfirmed, and `Handle::window` is 0 until that data is decided on.
+  unconfirmed, and when a connection that is no longer the started one
+  ends with frames unconfirmed. `Handle::window` is 0 until that data is
+  decided on.
 - `RedundancyGroup::select` returns the frames to put on the wire
   (`Result<Vec<Action>, GroupError>`, was `Result<(), GroupError>`): empty
   unless the connection named is already running.

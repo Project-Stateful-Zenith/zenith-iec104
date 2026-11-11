@@ -12,7 +12,7 @@ use std::sync::Arc;
 use iec104::apci::{self, Apci, Apdu, MAX_ASDU};
 use iec104::framed::{Decoder, FramingError};
 use iec104::link::{Action, State};
-use iec104::redundancy::{Replay, ReplayOutcome, Routed};
+use iec104::redundancy::{Replay, ReplayOutcome, Routed, Switchover};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -112,6 +112,7 @@ struct Slot {
     decoder: Decoder,
     /// The session state last reported as [`Event::State`].
     reported: State,
+    told: bool,
 }
 
 impl Slot {
@@ -123,6 +124,7 @@ impl Slot {
             generation: 0,
             decoder: Decoder::new(),
             reported: State::Stopped,
+            told: false,
         }
     }
 }
@@ -227,6 +229,12 @@ impl<C: Core, K: Connector> Engine<C, K> {
             }
             self.perform(tick.routed, None);
             for switchover in tick.switchovers {
+                let (Switchover::Automatic { failed, .. }
+                | Switchover::NoStoppedConnection { failed, .. }
+                | Switchover::LeftToTheControllingStation { failed, .. }) = switchover;
+                if let Some(slot) = self.slots.get_mut(failed) {
+                    slot.told = true;
+                }
                 self.emit(Event::Switchover(switchover));
             }
             self.settle(&[]);
@@ -243,6 +251,17 @@ impl<C: Core, K: Connector> Engine<C, K> {
         if self.options.auto_start {
             let starts = self.core.auto_start(established, now());
             self.perform(starts, None);
+        }
+        for conn in 0..self.slots.len() {
+            let unconfirmed = self.core.unconfirmed(conn);
+            let told = self.slots.get(conn).is_some_and(|slot| slot.told);
+            if unconfirmed > 0 && !told {
+                self.failed(conn, unconfirmed);
+            } else if unconfirmed == 0
+                && let Some(slot) = self.slots.get_mut(conn)
+            {
+                slot.told = false;
+            }
         }
         for conn in 0..self.slots.len() {
             let (Some(state), Some(slot)) = (self.core.state(conn), self.slots.get_mut(conn))
@@ -352,8 +371,15 @@ impl<C: Core, K: Connector> Engine<C, K> {
         self.emit(Event::Disconnected { conn, reason });
         if was_started {
             let unconfirmed = self.core.unconfirmed(conn);
-            self.emit(Event::StartedConnectionFailed { conn, unconfirmed });
+            self.failed(conn, unconfirmed);
         }
+    }
+
+    fn failed(&mut self, conn: usize, unconfirmed: usize) {
+        if let Some(slot) = self.slots.get_mut(conn) {
+            slot.told = unconfirmed > 0;
+        }
+        self.emit(Event::StartedConnectionFailed { conn, unconfirmed });
     }
 
     /// Queues `frames` on `conn`'s writer. A writer that has stopped reports
@@ -531,10 +557,7 @@ impl<C: Core, K: Connector> Engine<C, K> {
                         && self.core.state(displaced) == Some(State::Terminated)
                     {
                         let unconfirmed = self.core.unconfirmed(displaced);
-                        self.emit(Event::StartedConnectionFailed {
-                            conn: displaced,
-                            unconfirmed,
-                        });
+                        self.failed(displaced, unconfirmed);
                     }
                 }
                 Err(e) => {
@@ -588,24 +611,20 @@ impl<C: Core, K: Connector> Engine<C, K> {
                 self.answer(result, reply);
             }
             Command::Start { conn, reply } => {
-                let started = self.core.started();
                 let result = self.check(conn).and_then(|()| self.core.start(conn, now));
                 self.answer(result, reply);
-                self.report_left_behind(started);
             }
             Command::Stop { conn, reply } => {
                 let result = self.check(conn).and_then(|()| self.core.stop(conn, now));
                 self.answer(result, reply);
             }
             Command::Close { conn, reply } => {
-                let started = self.core.started();
                 let result = match self.slots.get(conn) {
                     None => Err(Error::NoSuchConnection(conn)),
                     Some(slot) if slot.writer.is_none() => Err(Error::NotConnected(conn)),
                     Some(_) => self.core.close(conn, now),
                 };
                 self.answer(result, reply);
-                self.report_left_behind(started);
             }
             Command::State { conn, reply } => {
                 let _ = reply.send(self.core.state(conn).ok_or(Error::NoSuchConnection(conn)));
@@ -650,19 +669,6 @@ impl<C: Core, K: Connector> Engine<C, K> {
             }
         }
         false
-    }
-
-    fn report_left_behind(&mut self, previous: Option<usize>) {
-        let Some(conn) = previous else {
-            return;
-        };
-        if self.core.started() == Some(conn) || self.core.state(conn) != Some(State::Terminated) {
-            return;
-        }
-        let unconfirmed = self.core.unconfirmed(conn);
-        if unconfirmed > 0 {
-            self.emit(Event::StartedConnectionFailed { conn, unconfirmed });
-        }
     }
 
     /// Performs a request's actions, then answers it.

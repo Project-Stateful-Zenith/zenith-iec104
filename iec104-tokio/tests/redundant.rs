@@ -471,3 +471,63 @@ async fn a_closed_started_connection_that_left_nothing_is_not_reported() {
     handle.send_asdu(1, MEASURAND).await.unwrap();
     assert_eq!(peer1.frame().await.unwrap(), i_frame(0, 0, &MEASURAND));
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_connection_that_fails_after_a_manual_switchover_reports_what_it_left_once() {
+    let (handle, mut events, _dials, mut peer0, mut peer1) = started().await;
+    handle.send_asdu(0, INTERROGATION).await.unwrap();
+    assert_eq!(peer0.frame().await.unwrap(), i_frame(0, 0, &INTERROGATION));
+
+    handle.stop(0).await.unwrap();
+    assert_eq!(peer0.frame().await.unwrap(), STOPDT_ACT);
+    peer0.send(&STOPDT_CON).await;
+    until(&mut events, |e| {
+        *e == Event::State {
+            conn: 0,
+            state: State::Stopped,
+        }
+    })
+    .await;
+    handle.start(1).await.unwrap();
+    assert_eq!(peer1.frame().await.unwrap(), STARTDT_ACT);
+    peer1.send(&STARTDT_CON).await;
+    until(&mut events, |e| {
+        *e == Event::State {
+            conn: 1,
+            state: State::Started,
+        }
+    })
+    .await;
+    assert_eq!(handle.window(1).await.unwrap(), 12);
+
+    until(&mut events, |e| {
+        matches!(e, Event::Disconnected { conn: 0, .. })
+    })
+    .await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let reported: Vec<Event> = drain(&mut events)
+        .into_iter()
+        .filter(|e| matches!(e, Event::StartedConnectionFailed { .. }))
+        .collect();
+    assert_eq!(
+        reported,
+        vec![Event::StartedConnectionFailed {
+            conn: 0,
+            unconfirmed: 1,
+        }]
+    );
+
+    assert_eq!(handle.window(1).await.unwrap(), 0);
+    handle
+        .retransmit_unconfirmed(0, Replay::Retransmit)
+        .await
+        .unwrap();
+    assert_eq!(peer1.frame().await.unwrap(), i_frame(0, 0, &INTERROGATION));
+    assert_eq!(handle.window(1).await.unwrap(), 11);
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert!(
+        !drain(&mut events)
+            .iter()
+            .any(|e| matches!(e, Event::StartedConnectionFailed { .. }))
+    );
+}
