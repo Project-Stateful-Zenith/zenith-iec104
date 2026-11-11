@@ -751,3 +751,41 @@ fn clause_10_5_a_refused_dial_reported_by_its_number_is_retried_at_t0() {
         })
     );
 }
+
+#[test]
+fn clause_10_7_a_start_closes_a_stopped_connection_that_has_frames_unconfirmed() {
+    let mut group = established(Role::Controlling, 12).unwrap();
+    let t = Instant::now();
+    group.start(0).unwrap();
+    group.on_frame(0, Apci::U(UFunction::StartDtCon)).unwrap();
+    assert!(group.send_user_data(0, &asdu(1)).unwrap().is_some());
+    group.stop(0).unwrap();
+    assert_eq!(group.send_user_data(0, &asdu(2)), Ok(None));
+    group.on_frame(0, Apci::U(UFunction::StopDtCon)).unwrap();
+    assert_eq!(group.state(0), Ok(State::Stopped));
+
+    assert_eq!(
+        group.start_at(1, t).unwrap(),
+        vec![
+            Routed {
+                member: 0,
+                actions: vec![Action::ActiveClose(CLOSED_BY_START)],
+            },
+            Routed {
+                member: 1,
+                actions: vec![Action::Send(Apci::U(UFunction::StartDtAct))],
+            },
+        ]
+    );
+    assert_eq!(group.member(0).unwrap().left_behind(), &[asdu(1), asdu(2)]);
+    group.on_frame(1, Apci::U(UFunction::StartDtCon)).unwrap();
+    assert_eq!(group.send_user_data(1, &asdu(3)), Ok(None));
+
+    let Ok(ReplayOutcome::Retransmitted { actions, queued }) =
+        group.retransmit_unconfirmed(0, Replay::Retransmit)
+    else {
+        panic!("the replay is refused");
+    };
+    assert_eq!(queued, 0);
+    assert_eq!(i_asdus(&actions), vec![asdu(1), asdu(2), asdu(3)]);
+}
