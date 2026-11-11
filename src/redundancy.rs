@@ -396,7 +396,8 @@
 //!   the naming moves joins it. While a failed connection's data waits for the
 //!   application's replay decision, the held data waits behind it, and so
 //!   does every ASDU handed over meanwhile, also when another connection is
-//!   already started, so the replay goes out first (10.6).
+//!   already started, and what was queued on a connection before the Start
+//!   that closed the failed one, so the replay goes out first (10.6).
 //!
 //! # What stays the caller's
 //!
@@ -1084,13 +1085,24 @@ impl RedundancyGroup {
     /// (`Member::reestablish`). A member that is named again while it is alive
     /// (a repeated `STARTDT_ACT` of clause 5.3) keeps the mirror entries its
     /// session still holds. The held data then goes into the named
-    /// connection's queue.
+    /// connection's queue, unless a failed connection's data still waits for
+    /// the replay decision: then it stays held, and what already waits on the
+    /// named connection, stopped until now, joins it at the front, so
+    /// the Start that follows carries nothing ahead of the replay (10.6).
     fn name(&mut self, index: usize) {
         self.sweep_stopped(index);
         self.started = Some(index);
         self.switching = false;
         if let Some(member) = self.members.get_mut(index) {
             member.reestablish();
+        }
+        if self.undecided()
+            && let Some(member) = self.members.get_mut(index)
+            && member.state() == State::Stopped
+        {
+            let waiting = member.session.take_pending_user_data();
+            member.queued.clear();
+            self.held.splice(0..0, waiting);
         }
         self.release_held();
     }
@@ -1202,7 +1214,10 @@ impl RedundancyGroup {
     /// then the connection's own answer. What waits in a closed connection's
     /// clause 5.3 queue is captured for the replay ([`Member::left_behind`]);
     /// what waits on a stopped one moves to the new connection's queue (10.5:
-    /// data must not be lost in a switchover).
+    /// data must not be lost in a switchover). While a closed connection's
+    /// data waits for the replay decision, that queue is held by the group
+    /// instead, with whatever was queued on the new connection before the
+    /// act, so the con carries nothing ahead of the replay.
     ///
     /// # Errors
     ///
@@ -1210,13 +1225,16 @@ impl RedundancyGroup {
     /// [`GroupError::NotConnected`] when a controlled group's member has no
     /// connection, and [`GroupError::CannotSelect`] for a controlling group.
     pub fn on_startdt_act(&mut self, index: usize) -> Result<Vec<Action>, GroupError> {
-        if self.role == Role::Controlled && !self.member(index)?.session.is_connected() {
+        if self.role != Role::Controlled {
+            return Err(GroupError::CannotSelect);
+        }
+        if !self.member(index)?.session.is_connected() {
             // An act on a connection that is already over (closed, its loss
             // not reported yet) starts nothing and names nothing.
             return Err(GroupError::NotConnected { index });
         }
-        self.observe_startdt_act(index)?;
         let mut actions = self.close_others(index);
+        self.name(index);
         let answered = self
             .member_mut(index)?
             .session_mut()
@@ -1626,7 +1644,11 @@ impl RedundancyGroup {
     /// the group names that connection as its started one (rule 3's one started
     /// connection and rule 4's decision, carried out). User data the group
     /// holds, or that still waits on another stopped connection, goes into the
-    /// new connection's queue and out behind the act.
+    /// new connection's queue and out behind the act. When a connection this
+    /// Start closes leaves data behind, or an earlier failure is still
+    /// undecided, that user data, and what was queued on the new connection
+    /// since [`RedundancyGroup::select`] named it, waits in the group for the
+    /// replay decision instead.
     ///
     /// Establishment stays the caller's (clause 7.1, index 54), and figure 32's
     /// NOTE leaves the order of the connections open, so whichever connection
