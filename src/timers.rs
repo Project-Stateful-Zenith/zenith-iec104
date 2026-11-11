@@ -278,9 +278,11 @@ impl Timers {
 /// I-frame) first.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Supervisor {
-    /// When our pending `STARTDT`/`STOPDT`/`TESTFR` act went out, so that
-    /// acknowledgement progress on I-frames cannot postpone that act's t1.
-    act_sent: Option<Instant>,
+    /// When our pending `TESTFR` act went out, so that acknowledgement
+    /// progress on anything else cannot postpone that act's t1.
+    test_act: Option<Instant>,
+    /// When our pending `STARTDT`/`STOPDT` act went out, for the same reason.
+    transfer_act: Option<Instant>,
     /// N(S) and send instant of each I-frame still in the clause 5.1 send
     /// buffer, oldest first, so that t1 is re-armed from when the oldest
     /// unconfirmed frame went out (figures 17/18 NOTE 2), not from when an
@@ -296,13 +298,16 @@ impl Supervisor {
     /// frame: it is cancelled once nothing awaits confirmation, and re-armed
     /// when part of what it supervised was acknowledged and something remains.
     /// It is re-armed from the send time of what is still pending: the oldest
-    /// I-frame left in the send buffer, or the pending act, whichever went out
-    /// first. Clause 9's t1 is the "Time-out of send or test APDUs", and
+    /// I-frame left in the send buffer, a pending `TESTFR` act or a pending
+    /// `STARTDT`/`STOPDT` act, whichever went out first. Clause 9's t1 is the
+    /// "Time-out of send or test APDUs", and
     /// figures 17/18 NOTE 2 make it the time-out of a sent U-frame or I-frame,
     /// so each frame is confirmed within t1 of being sent; a peer
     /// that acknowledges one frame at a time cannot keep the rest waiting
     /// longer. Acknowledgements of I-frames say nothing about an act, nor a
-    /// confirmed act about I-frames. A con never arms t1, because nothing
+    /// confirmed act about I-frames or about the act of the other procedure:
+    /// a test act and a start or stop act in flight together are each timed
+    /// from their own send. A con never arms t1, because nothing
     /// confirms a con ([`Timers::frame_sent`]).
     ///
     /// An I-frame is timed from the `apply` that carried its `SendI`; sending it
@@ -322,11 +327,13 @@ impl Supervisor {
     ) {
         for action in actions {
             match action {
-                Action::Send(Apci::U(
-                    UFunction::StartDtAct | UFunction::StopDtAct | UFunction::TestFrAct,
-                )) => {
+                Action::Send(Apci::U(UFunction::TestFrAct)) => {
                     timers.frame_sent(now);
-                    self.act_sent.get_or_insert(now);
+                    self.test_act.get_or_insert(now);
+                }
+                Action::Send(Apci::U(UFunction::StartDtAct | UFunction::StopDtAct)) => {
+                    timers.frame_sent(now);
+                    self.transfer_act.get_or_insert(now);
                 }
                 Action::SendI { ns, .. } => {
                     timers.frame_sent(now);
@@ -348,16 +355,20 @@ impl Supervisor {
             }
         }
         let after = Supervision::of(session);
-        if !after.act_pending {
-            self.act_sent = None;
+        if !after.test_pending {
+            self.test_act = None;
+        }
+        if !after.transfer_pending {
+            self.transfer_act = None;
         }
         self.track_outstanding(session, now);
         if !after.any() {
             timers.confirmation_received();
         } else if after.advanced_from(before) {
             let oldest = self
-                .act_sent
+                .test_act
                 .into_iter()
+                .chain(self.transfer_act)
                 .chain(self.frames_sent.front().map(|(_, sent)| *sent))
                 .min()
                 .unwrap_or(now);
@@ -390,12 +401,12 @@ impl Supervisor {
 }
 
 /// What t1 supervises at one instant: the frames this station sent that the peer
-/// has not confirmed, and whether one of its own U-frame *acts* is still waiting
-/// for the con that ends that procedure.
+/// has not confirmed, and which of its own U-frame *acts* are still waiting
+/// for the con that ends their procedure.
 ///
 /// Figures 17/18 NOTE 2: t1 times out a sent U-frame or I-frame.
-/// The oldest N(S) and the flag are both needed to tell an event that made
-/// acknowledgement progress from one that did not.
+/// The oldest N(S) and a flag per procedure are all needed to tell an event
+/// that made acknowledgement progress from one that did not.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Supervision {
     /// N(S) of the oldest I-frame held in the clause 5.1 send buffer. An N(R)
@@ -403,9 +414,12 @@ pub struct Supervision {
     /// that moves t1. A count would not do: clause 5.5's k window refills in
     /// the same event, so the number outstanding can stay the same.
     oldest: Option<SeqNo>,
-    /// A `TESTFR act`, `STARTDT act` or `STOPDT act` of ours awaits the peer's
-    /// con (figure 13, figures 15/16). A con of ours is never pending.
-    act_pending: bool,
+    /// A `TESTFR act` of ours awaits the peer's con (figure 13). A con of
+    /// ours is never pending.
+    test_pending: bool,
+    /// A `STARTDT act` or `STOPDT act` of ours awaits the peer's con
+    /// (figures 15/16).
+    transfer_pending: bool,
 }
 
 impl Supervision {
@@ -414,27 +428,28 @@ impl Supervision {
     pub fn of(session: &Session) -> Self {
         Self {
             oldest: session.outstanding_frames().first().map(|frame| frame.ns),
-            act_pending: session.test_pending()
-                || matches!(
-                    session.state(),
-                    State::PendingStarted
-                        | State::PendingStopped
-                        | State::PendingUnconfirmedStopped
-                ),
+            test_pending: session.test_pending(),
+            transfer_pending: matches!(
+                session.state(),
+                State::PendingStarted | State::PendingStopped | State::PendingUnconfirmedStopped
+            ),
         }
     }
 
     /// True while something this station sent awaits confirmation, the
-    /// condition t1 exists for. Either half is enough to keep t1 armed, and both
-    /// must be gone before it is cancelled.
+    /// condition t1 exists for. Any one of them is enough to keep t1 armed, and
+    /// all must be gone before it is cancelled.
     const fn any(self) -> bool {
-        self.oldest.is_some() || self.act_pending
+        self.oldest.is_some() || self.test_pending || self.transfer_pending
     }
 
     /// True when this station made acknowledgement progress relative to `before`:
-    /// an outstanding frame was acknowledged, or an act of ours was confirmed.
+    /// an outstanding frame was acknowledged, or an act of ours was confirmed,
+    /// also while the act of the other procedure still waits.
     fn advanced_from(self, before: Self) -> bool {
-        self.acknowledged_from(before) || (before.act_pending && !self.act_pending)
+        self.acknowledged_from(before)
+            || (before.test_pending && !self.test_pending)
+            || (before.transfer_pending && !self.transfer_pending)
     }
 
     /// True when an N(R) released the frame that was oldest in `before`.

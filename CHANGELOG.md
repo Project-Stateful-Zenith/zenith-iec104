@@ -42,6 +42,10 @@ follow [Semantic Versioning](https://semver.org/).
   the gap after a failure and sends the data the group held. It used to
   leave that data, and everything sent after it, held for good, with
   `start` refused as `AlreadyInState`.
+- `timers`: a TESTFR act and a STARTDT or STOPDT act pending together are
+  each timed by t1 from their own send. The con of one left t1 at the
+  confirmed act's deadline, which closed a healthy connection whose other
+  act was a second old.
 
 ## [0.36.0] - 2026-10-21
 

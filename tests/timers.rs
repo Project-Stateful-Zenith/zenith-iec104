@@ -28,7 +28,7 @@ use std::time::{Duration, Instant};
 use iec104::apci::{Apci, SeqNo, UFunction};
 use iec104::link::{Action, Role, Session, Timer};
 use iec104::params::{LinkParams, ParamError};
-use iec104::timers::Timers;
+use iec104::timers::{Supervision, Supervisor, Timers};
 
 /// A scheduler with the standard's defaults: t0 30 s, t1 15 s, t2 10 s, t3 20 s
 /// (clause 9).
@@ -405,6 +405,97 @@ fn a_confirmed_test_frame_cancels_t1_and_restarts_t3() {
     tm.frame_received(at(b, 25));
     assert_eq!(tm.deadline(Timer::T1), None);
     assert_eq!(tm.deadline(Timer::T3), Some(at(b, 45)));
+}
+
+#[test]
+fn clause_9_t1_follows_the_start_act_once_the_test_act_is_confirmed() {
+    let b = base();
+    let mut s = Session::new(Role::Controlling);
+    s.on_connection_established();
+    let mut tm = scheduler();
+    tm.connection_established(b);
+    let mut supervisor = Supervisor::default();
+
+    assert_eq!(tm.expired(at(b, 20)), vec![Timer::T3]);
+    let before = Supervision::of(&s);
+    let test_act = s.on_timeout(Timer::T3);
+    assert_eq!(test_act, vec![Action::Send(u(UFunction::TestFrAct))]);
+    supervisor.apply(&mut tm, &s, at(b, 20), &test_act, before);
+    assert_eq!(tm.deadline(Timer::T1), Some(at(b, 35)));
+
+    let before = Supervision::of(&s);
+    let start_act = s.request_start();
+    assert_eq!(start_act, vec![Action::Send(u(UFunction::StartDtAct))]);
+    supervisor.apply(&mut tm, &s, at(b, 34), &start_act, before);
+    assert_eq!(
+        tm.deadline(Timer::T1),
+        Some(at(b, 35)),
+        "the later act does not postpone the test act's t1"
+    );
+
+    tm.frame_received(at(b, 34));
+    let before = Supervision::of(&s);
+    let con = s.on_frame(u(UFunction::TestFrCon));
+    supervisor.apply(&mut tm, &s, at(b, 34), &con, before);
+    assert!(!s.test_pending());
+    assert_eq!(s.state(), iec104::link::State::PendingStarted);
+
+    assert_eq!(
+        tm.expired(at(b, 35)),
+        vec![],
+        "the start act is one second old"
+    );
+    assert_eq!(
+        tm.deadline(Timer::T1),
+        Some(at(b, 49)),
+        "t1 runs from the start act's own send"
+    );
+    assert_eq!(tm.expired(at(b, 49)), vec![Timer::T1]);
+}
+
+#[test]
+fn clause_9_t1_follows_the_test_act_once_the_start_act_is_confirmed() {
+    let b = base();
+    let mut s = Session::new(Role::Controlling);
+    s.on_connection_established();
+    let mut tm = scheduler();
+    tm.connection_established(b);
+    let mut supervisor = Supervisor::default();
+
+    let before = Supervision::of(&s);
+    let start_act = s.request_start();
+    supervisor.apply(&mut tm, &s, at(b, 10), &start_act, before);
+    assert_eq!(tm.deadline(Timer::T1), Some(at(b, 25)));
+
+    assert_eq!(tm.expired(at(b, 20)), vec![Timer::T3]);
+    let before = Supervision::of(&s);
+    let test_act = s.on_timeout(Timer::T3);
+    assert_eq!(test_act, vec![Action::Send(u(UFunction::TestFrAct))]);
+    supervisor.apply(&mut tm, &s, at(b, 20), &test_act, before);
+    assert_eq!(
+        tm.deadline(Timer::T1),
+        Some(at(b, 25)),
+        "the later act does not postpone the start act's t1"
+    );
+
+    tm.frame_received(at(b, 21));
+    let before = Supervision::of(&s);
+    let con = s.on_frame(u(UFunction::StartDtCon));
+    supervisor.apply(&mut tm, &s, at(b, 21), &con, before);
+    assert_eq!(s.state(), iec104::link::State::Started);
+    assert!(s.test_pending());
+
+    assert_eq!(
+        tm.expired(at(b, 25)),
+        vec![],
+        "the test act is five seconds old"
+    );
+    assert_eq!(
+        tm.deadline(Timer::T1),
+        Some(at(b, 35)),
+        "t1 runs from the test act's own send"
+    );
+    assert_eq!(tm.expired(at(b, 35)), vec![Timer::T1]);
 }
 
 #[test]
