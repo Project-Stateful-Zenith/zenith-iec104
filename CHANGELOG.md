@@ -39,6 +39,9 @@ follow [Semantic Versioning](https://semver.org/).
 - `RedundancyGroup::select_at` and `observe_startdt_act_at`: `select` and
   `observe_startdt_act` with the caller's clock and routed actions, like
   the other `_at` entry points.
+- `RedundancyGroup::on_attempt_failed(index, attempt)` and
+  `Member::attempt` do the same for a group's dials: `tick` numbers each
+  dial it asks for, and a late report of an abandoned one changes nothing.
 - `ConnectionManager::on_attempt_failed(index, attempt)` reports a refused
   or abandoned dial by the attempt number of its `Directive::Connect`. A
   late report of an abandoned attempt no longer has to go through

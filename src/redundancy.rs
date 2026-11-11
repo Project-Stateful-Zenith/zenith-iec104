@@ -531,6 +531,7 @@ pub struct Member {
     /// When a controlling group's latest attempt for this member began: a
     /// connection lost within its t0 is dialed again when that t0 runs out.
     attempt_began: Option<Instant>,
+    attempts: u32,
 }
 
 impl Member {
@@ -555,6 +556,7 @@ impl Member {
             left: Order::default(),
             captured: false,
             attempt_began: None,
+            attempts: 0,
         })
     }
 
@@ -624,6 +626,15 @@ impl Member {
     #[must_use]
     pub fn queued_user_data(&self) -> &[Vec<u8>] {
         &self.queued.asdus
+    }
+
+    /// The number of the latest dial [`RedundancyGroup::tick`] asked for
+    /// this member ([`TickOutcome::connect`]), counted from 1; 0 before the
+    /// first. Read it when the dial is begun and hand it back with
+    /// [`RedundancyGroup::on_attempt_failed`] if that dial fails.
+    #[must_use]
+    pub const fn attempt(&self) -> u32 {
+        self.attempts
     }
 
     /// True once the application has replayed or discarded what this member's
@@ -2444,7 +2455,8 @@ pub struct TickOutcome {
     /// with no attempt in flight or its t0 expired (clause 10.5's periodic
     /// reopening; clause 10.7's t0 per connection). Report the
     /// outcome with [`RedundancyGroup::on_connection_established`] or, for a
-    /// refused dial, [`RedundancyGroup::on_connection_lost`].
+    /// refused dial, [`RedundancyGroup::on_attempt_failed`] with the member's
+    /// [`Member::attempt`], read when the dial is begun.
     pub connect: Vec<usize>,
 }
 
@@ -2552,7 +2564,10 @@ impl RedundancyGroup {
     /// with [`RedundancyGroup::start_at`]; [`RedundancyGroup::tick`] will not.
     ///
     /// A refused dial had no connection to lose: its t0 stays armed, so the
-    /// retry comes at its expiry and not on every tick.
+    /// retry comes at its expiry and not on every tick. Report a dial that
+    /// can fail after the next one was asked for (one abandoned at its t0)
+    /// with [`RedundancyGroup::on_attempt_failed`] instead: here its late
+    /// failure is the loss of the connection that replaced it.
     ///
     /// # Errors
     ///
@@ -2733,6 +2748,29 @@ impl RedundancyGroup {
         self.supervised(now, |group| group.retransmit_unconfirmed(failed, replay))
     }
 
+    /// The caller's dial for member `index` was refused, or given up, before
+    /// it came up. `attempt` is [`Member::attempt`] as read when that dial
+    /// was begun.
+    ///
+    /// The report counts only when `attempt` is the member's latest attempt
+    /// and the member has no connection: it is then the refused dial of
+    /// [`RedundancyGroup::on_connection_lost`]. A report that names an
+    /// earlier attempt, or one that arrives while a connection is up, changes
+    /// nothing: a dial abandoned at its t0 may fail long after the attempt
+    /// that replaced it, and that failure says nothing about the connection
+    /// the newer dial brought up.
+    ///
+    /// # Errors
+    ///
+    /// [`GroupError::MemberIndexOutOfRange`] when `index` names no member.
+    pub fn on_attempt_failed(&mut self, index: usize, attempt: u32) -> Result<(), GroupError> {
+        let member = self.member(index)?;
+        if member.link_up() || attempt != member.attempts {
+            return Ok(());
+        }
+        self.on_connection_lost(index)
+    }
+
     /// The soonest instant [`RedundancyGroup::tick`] has something to do, or
     /// `None` when nothing is armed: what an event loop sleeps until.
     ///
@@ -2798,6 +2836,7 @@ impl RedundancyGroup {
                 {
                     member.timers.connection_attempt(now);
                     member.attempt_began = Some(now);
+                    member.attempts = member.attempts.saturating_add(1);
                     outcome.connect.push(index);
                 }
                 continue;
