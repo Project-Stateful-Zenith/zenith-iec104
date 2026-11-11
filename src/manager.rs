@@ -827,7 +827,7 @@ impl ConnectionManager {
     /// [`ManagerError::StationIndexOutOfRange`] when `index` names no station.
     pub fn on_attempt_failed(&mut self, index: usize, attempt: u32) -> Result<(), ManagerError> {
         let station = self.station_mut(index)?;
-        if !station.connected && attempt == station.attempts {
+        if attempt == station.attempts {
             station.dialing = false;
         }
         Ok(())
