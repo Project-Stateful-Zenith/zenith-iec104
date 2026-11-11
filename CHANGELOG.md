@@ -52,6 +52,10 @@ follow [Semantic Versioning](https://semver.org/).
   the gap after a failure and sends the data the group held. It used to
   leave that data, and everything sent after it, held for good, with
   `start` refused as `AlreadyInState`.
+- `iec104-tokio`: `Client` and `Server` make a replay again on the next
+  started connection when it was refused because the connection that took
+  over was gone again. They dropped the refusal, and the data was never
+  sent again.
 - `timers`: a TESTFR act and a STARTDT or STOPDT act pending together are
   each timed by t1 from their own send. The con of one left t1 at the
   confirmed act's deadline, which closed a healthy connection whose other

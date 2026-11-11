@@ -15,7 +15,7 @@ use iec104::gi::{self, Interrogation, Scope, SecondActivation};
 use iec104::link::State;
 use iec104::pm::{self, Parameter, ParameterLoading};
 use iec104::rd::{self, Read};
-use iec104::redundancy::{Replay, Switchover};
+use iec104::redundancy::{GroupError, Replay, Switchover};
 use iec104::ts::{self, TestProcedure};
 use tokio::sync::mpsc::{self, error::TrySendError};
 use tokio::time::Instant;
@@ -791,11 +791,22 @@ impl Task {
                 .retransmit_unconfirmed(conn, Replay::Discard)
                 .await;
         } else if self.started {
-            let _ = self
-                .handle
-                .retransmit_unconfirmed(conn, Replay::Retransmit)
-                .await;
+            self.replay(conn).await;
         } else if !self.failed.contains(&conn) {
+            self.failed.push(conn);
+        }
+    }
+
+    async fn replay(&mut self, conn: usize) {
+        let refused = self
+            .handle
+            .retransmit_unconfirmed(conn, Replay::Retransmit)
+            .await;
+        if matches!(
+            refused,
+            Err(crate::Error::Group(GroupError::NoStartedConnection))
+        ) && !self.failed.contains(&conn)
+        {
             self.failed.push(conn);
         }
     }
@@ -830,10 +841,7 @@ impl Task {
         }
         self.publish(&Update::Started);
         for failed in std::mem::take(&mut self.failed) {
-            let _ = self
-                .handle
-                .retransmit_unconfirmed(failed, Replay::Retransmit)
-                .await;
+            self.replay(failed).await;
         }
         // TS 60870-5-604 5.4.13.10: after re-establishment normal operation
         // "begins the General Interrogation procedure".
