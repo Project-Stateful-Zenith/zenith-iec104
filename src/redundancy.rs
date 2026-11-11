@@ -621,8 +621,8 @@ impl Member {
     ///
     /// The queue itself is the session's ([`Session::pending_user_data`]); this
     /// is only what the group put there (through
-    /// [`RedundancyGroup::send_user_data`], or the data it held during a
-    /// switchover), and what a caller queued into the session itself once
+    /// [`RedundancyGroup::send_user_data`], a replay, or the data it held
+    /// during a switchover), and what a caller queued into the session itself once
     /// the group has had to reorder that queue. When the connection fails,
     /// the mirror is captured with the
     /// connection's unconfirmed frames into [`Member::left_behind`]. An entry is
@@ -1786,7 +1786,8 @@ impl RedundancyGroup {
     /// [`Replay::Retransmit`] while the group names no started connection is
     /// [`GroupError::NoStartedConnection`]. A started connection whose
     /// session is over, or whose queue has no room for the replay, refuses it
-    /// with [`GroupError::Queue`]. A refusal changes nothing.
+    /// with [`GroupError::Queue`]. A refusal moves no data; only a session the
+    /// caller closed by hand is captured first ([`Member::left_behind`]).
     ///
     /// # Errors
     ///
@@ -2244,8 +2245,9 @@ pub struct TimeoutOutcome {
 pub enum Switchover {
     /// The controlling station's automatic switchover. `failed` is the started
     /// connection whose `t1` expired (the one this call closed), `started` the
-    /// stopped connection that took over and now carries the group's user data,
-    /// and `unconfirmed` what the failed member holds for the replay.
+    /// stopped connection that took over (it carries the group's user data
+    /// once no member's data waits for the replay decision), and
+    /// `unconfirmed` what the failed member holds for the replay.
     Automatic {
         /// The connection the failure was detected on.
         failed: usize,
@@ -2265,7 +2267,8 @@ pub enum Switchover {
     /// fault is cleared and the connection is back, and in TS 60870-5-604
     /// `5.4.13.20` (index 59, printed 58) it periodically tries to open a new
     /// stopped connection to the controlled station in place of the closed
-    /// inoperable one. Both are the caller's steps.
+    /// inoperable one. Both are the caller's steps, and so is the Start of a
+    /// member once it is established again ([`RedundancyGroup::start_at`]).
     NoStoppedConnection {
         /// The connection the failure was detected on.
         failed: usize,
@@ -2346,10 +2349,13 @@ pub enum ReplayOutcome {
     /// The held ASDUs went out on the group's started connection, oldest first,
     /// re-stamped with that connection's own `N(S)`.
     Retransmitted {
-        /// The frames to put on the wire.
+        /// The frames to put on the wire, in handover order: the replayed
+        /// ASDUs, what waited in the started connection's queue and, once no
+        /// other member is undecided, the data the group held meanwhile
+        /// ([`RedundancyGroup::held_user_data`]).
         actions: Vec<Action>,
-        /// How many of them the started connection could not put on the wire yet
-        /// and holds in its own clause 5.3 queue.
+        /// How many of the replayed ASDUs the started connection could not
+        /// put on the wire yet and holds in its own clause 5.3 queue.
         queued: usize,
     },
 }
