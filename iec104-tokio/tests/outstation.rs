@@ -18,7 +18,7 @@ use std::time::Duration;
 use common::*;
 use iec104::link::{Role, State};
 use iec104::params::LinkParams;
-use iec104::redundancy::{GroupError, RedundancyGroup, Replay};
+use iec104::redundancy::{GroupError, RedundancyGroup, Replay, ReplayOutcome};
 use iec104_tokio::{Error, Event, Events, Handle, Options, outstation};
 
 fn driver(members: usize) -> (Handle, Events) {
@@ -102,9 +102,15 @@ async fn clause_10_7_a_start_on_a_second_connection_closes_the_first() {
     })
     .await;
 
+    assert!(matches!(
+        handle.retransmit_unconfirmed(0, Replay::Retransmit).await,
+        Ok(ReplayOutcome::Retransmitted { queued: 0, .. })
+    ));
+    assert_eq!(peer1.frame().await.unwrap(), i_frame(0, 0, &MEASURAND));
+
     // User data now goes on the second connection (rule 3).
     handle.send_asdu(0, MEASURAND).await.unwrap();
-    assert_eq!(peer1.frame().await.unwrap(), i_frame(0, 0, &MEASURAND));
+    assert_eq!(peer1.frame().await.unwrap(), i_frame(1, 0, &MEASURAND));
 }
 
 /// 10.2 (index 116): N is the number of connections the group was built

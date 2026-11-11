@@ -83,7 +83,9 @@ use iec104::gi::{Interrogation, Scope, SecondActivation};
 use iec104::init::{self, FollowUp, Reaction as InitReaction};
 use iec104::link::{Action, Role, State};
 use iec104::params::LinkParams;
-use iec104::redundancy::{EndInit, GroupError, RedundancyGroup, Replay, Routed, Switchover};
+use iec104::redundancy::{
+    EndInit, GroupError, RedundancyGroup, Replay, ReplayOutcome, Routed, Switchover,
+};
 use iec104::ts::Selection;
 
 use crate::conformance604::apps::{COT_OCTET, ProcedureApp, gi_activation, gi_frame, single_point};
@@ -721,7 +723,8 @@ fn clause_5_4_12_30_the_controlled_station_as_secondary_closes_an_inoperable_con
 /// attempts show. The station interrogation after the new
 /// start is clause 10.3's `follow_up`; the interrogation of the lost
 /// connection is dropped with `gi::Interrogation::reset`, the call its doc
-/// names for a connection loss.
+/// names for a connection loss, and its unconfirmed request with
+/// `Replay::Discard`: the group sends no user data until that is decided.
 #[test]
 fn clause_5_4_12_30_the_controlling_station_reconnects_restarts_and_interrogates() {
     let mut link = started_link(Role::Controlling);
@@ -740,6 +743,14 @@ fn clause_5_4_12_30_the_controlling_station_reconnects_restarts_and_interrogates
     link.mock.expect_eof().unwrap();
     link.group.on_connection_lost(0).unwrap();
     gi.reset();
+    assert_eq!(
+        link.group.retransmit_unconfirmed(0, Replay::Discard),
+        Ok(ReplayOutcome::Discarded {
+            discarded: 1,
+            actions: Vec::new(),
+        }),
+        "the dropped interrogation's request is not sent again"
+    );
 
     // Row 1: a new Stopped connection is attempted at regular intervals.
     // Lost before its attempt's t0 ran out: dialed again when it does.

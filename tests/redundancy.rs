@@ -1513,13 +1513,26 @@ fn clause_10_5_the_t1_on_the_started_connection_switches_over() {
     );
     assert_eq!(group.route(1), Ok(1));
 
+    assert_eq!(
+        group.retransmit_unconfirmed(0, Replay::Retransmit),
+        Ok(ReplayOutcome::Retransmitted {
+            actions: vec![Action::SendI {
+                ns: SeqNo::new(0),
+                nr: SeqNo::new(0),
+                asdu: station_interrogation(),
+            }],
+            queued: 0,
+        }),
+        "figure 34's `COMMAND (repeated)`, on the application's decision"
+    );
+
     // From here on, user data (events, say) goes out on the newly started
     // connection.
     let action = group
         .send_user_data(1, &monitoring_data())
         .expect("the new started connection takes it")
         .expect("the act is out, so the controlling station may send");
-    assert_eq!(sent_i(&[action]), vec![(0, 0, monitoring_data())]);
+    assert_eq!(sent_i(&[action]), vec![(1, 0, monitoring_data())]);
 
     // A switchover must not lose data; a station interrogation after it is one
     // way to ensure that (10.5). 10.3's follow-up value is that step,
@@ -1964,6 +1977,14 @@ fn clause_10_5_one_asdu_reaches_one_connection_across_a_switchover() {
         Vec::new(),
         "the switchover re-sends nothing on its own"
     );
+    assert_eq!(
+        group.retransmit_unconfirmed(0, Replay::Discard),
+        Ok(ReplayOutcome::Discarded {
+            discarded: 1,
+            actions: Vec::new(),
+        }),
+        "the application ends the function instead of repeating the ASDU"
+    );
 
     let second = monitoring_data();
     let action = group
@@ -2067,11 +2088,18 @@ fn clause_10_5_each_connection_keeps_its_own_counters_across_a_switchover() {
     );
     // ... and the next frame continues its own numbering, not the failed
     // connection's.
+    let ReplayOutcome::Retransmitted { actions, queued: 0 } = group
+        .retransmit_unconfirmed(0, Replay::Retransmit)
+        .expect("a replay")
+    else {
+        panic!("a replay with nothing queued");
+    };
+    assert_eq!(sent_i(&actions), vec![(1, 0, station_interrogation())]);
     let action = group
         .send_user_data(1, &monitoring_data())
         .expect("the new started connection")
         .expect("an I-frame");
-    assert_eq!(sent_i(&[action]), vec![(1, 0, monitoring_data())]);
+    assert_eq!(sent_i(&[action]), vec![(2, 0, monitoring_data())]);
     assert_eq!(group.member(0).expect("a member").session().v_s().get(), 1);
 }
 
@@ -3996,7 +4024,8 @@ fn clause_10_5_discarded_data_is_not_counted_or_replayed_later() {
 }
 
 /// `Leave` only counts. What it leaves stays until the application replays or
-/// discards it, also across later failures, which add their own.
+/// discards it, also across a later failure of the member, and user data
+/// handed over meanwhile waits in the group behind it.
 #[test]
 fn leave_keeps_the_data_for_a_later_decision() {
     let t = Instant::now();
@@ -4009,12 +4038,17 @@ fn leave_keeps_the_data_for_a_later_decision() {
         Ok(ReplayOutcome::Left { unconfirmed: 1 })
     );
     outstation_started(&mut group, 0, t);
-    group.send_user_data(0, &station_interrogation()).unwrap();
+    assert_eq!(group.send_user_data(0, &monitoring_data()), Ok(None));
     group.on_connection_lost(0).unwrap();
     assert_eq!(
-        group.member(0).unwrap().left_behind().len(),
-        2,
-        "one ASDU per failure, each captured once"
+        group.member(0).unwrap().left_behind(),
+        &[station_interrogation()],
+        "still the first failure's ASDU, captured once"
+    );
+    assert_eq!(group.held_user_data(), &[monitoring_data()]);
+    assert_eq!(
+        group.retransmit_unconfirmed(0, Replay::Leave),
+        Ok(ReplayOutcome::Left { unconfirmed: 1 })
     );
 }
 
