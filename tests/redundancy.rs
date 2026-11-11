@@ -197,6 +197,14 @@ fn rule_2_a_group_with_no_members_is_refused() {
     );
 }
 
+#[test]
+fn a_member_count_that_cannot_be_reserved_is_refused_without_a_panic() {
+    assert_eq!(
+        RedundancyGroup::uniform(Role::Controlling, LinkParams::default(), usize::MAX).err(),
+        Some(GroupError::TooManyMembers { count: usize::MAX })
+    );
+}
+
 // ------------------------------------------------------------------- rule 3
 
 /// Rule 3: within a redundancy group, at most one logical connection at a

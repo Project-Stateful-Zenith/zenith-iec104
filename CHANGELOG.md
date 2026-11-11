@@ -23,6 +23,11 @@ follow [Semantic Versioning](https://semver.org/).
 - `RedundancyGroup::select` returns the frames to put on the wire
   (`Result<Vec<Action>, GroupError>`, was `Result<(), GroupError>`): empty
   unless the connection named is already running.
+- `RedundancyGroup::new`/`uniform` and `ConnectionManager::new`/`uniform`
+  refuse a count whose memory cannot be reserved with the new
+  `GroupError::TooManyMembers` and `ManagerError::TooManyStations` instead
+  of panicking with "capacity overflow" (`uniform(.., usize::MAX)`). An
+  exhaustive match on either enum needs a new arm.
 
 ### Added
 

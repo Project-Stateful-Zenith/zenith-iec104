@@ -1008,6 +1008,14 @@ fn the_manager_refuses_what_it_cannot_manage() {
     );
 }
 
+#[test]
+fn a_station_count_that_cannot_be_reserved_is_refused_without_a_panic() {
+    assert_eq!(
+        ConnectionManager::uniform(Role::Controlling, station(), usize::MAX).err(),
+        Some(ManagerError::TooManyStations { count: usize::MAX })
+    );
+}
+
 /// The manager is a value, not a runtime: it holds no socket, no clock and no
 /// `static`, it is `Send` and `Debug`, and a manager of two stations that is
 /// never ticked does nothing at all.

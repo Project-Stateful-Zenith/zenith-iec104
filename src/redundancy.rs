@@ -768,17 +768,30 @@ impl RedundancyGroup {
     ///
     /// # Errors
     ///
-    /// [`GroupError::NoMembers`] for an empty list, and [`GroupError::Params`]
-    /// for the first inadmissible parameter set.
+    /// [`GroupError::NoMembers`] for an empty list,
+    /// [`GroupError::TooManyMembers`] when the memory for the members cannot
+    /// be reserved, and [`GroupError::Params`] for the first inadmissible
+    /// parameter set.
     pub fn new(role: Role, params: Vec<LinkParams>) -> Result<Self, GroupError> {
-        if params.is_empty() {
+        let count = params.len();
+        Self::build(role, params.into_iter(), count)
+    }
+
+    fn build(
+        role: Role,
+        params: impl Iterator<Item = LinkParams>,
+        count: usize,
+    ) -> Result<Self, GroupError> {
+        if count == 0 {
             return Err(GroupError::NoMembers);
         }
-        let members = params
-            .into_iter()
-            .map(|one| Member::new(role, one))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(GroupError::Params)?;
+        let mut members = Vec::new();
+        members
+            .try_reserve_exact(count)
+            .map_err(|_| GroupError::TooManyMembers { count })?;
+        for one in params {
+            members.push(Member::new(role, one).map_err(GroupError::Params)?);
+        }
         Ok(Self {
             role,
             members,
@@ -794,9 +807,10 @@ impl RedundancyGroup {
     /// # Errors
     ///
     /// As [`RedundancyGroup::new`], so [`GroupError::NoMembers`] when `count`
-    /// is zero.
+    /// is zero and [`GroupError::TooManyMembers`] when the memory for `count`
+    /// members cannot be reserved, as for `usize::MAX`.
     pub fn uniform(role: Role, params: LinkParams, count: usize) -> Result<Self, GroupError> {
-        Self::new(role, vec![params; count])
+        Self::build(role, std::iter::repeat_n(params, count), count)
     }
 
     /// The role of every member of this group.
@@ -2128,6 +2142,12 @@ pub enum GroupError {
     /// Rule 2: an empty member list is not one redundancy group. A group of
     /// zero logical connections has nothing to select and nothing to route.
     NoMembers,
+    /// The memory for this many members could not be reserved. The
+    /// constructor refuses before it builds any of them.
+    TooManyMembers {
+        /// How many members were asked for.
+        count: usize,
+    },
     /// The index names no member of this group.
     MemberIndexOutOfRange {
         /// The index the caller used.
