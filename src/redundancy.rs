@@ -2479,8 +2479,9 @@ pub struct TickOutcome {
     /// The switchovers a failed started connection caused (10.5).
     pub switchovers: Vec<Switchover>,
     /// Controlling group: the members to dial now (never connected, or lost),
-    /// with no attempt in flight or its t0 expired (clause 10.5's periodic
-    /// reopening; clause 10.7's t0 per connection). Report the
+    /// with no t0 armed or its t0 expired; a refused dial and a loss keep the
+    /// attempt's t0 (clause 10.5's periodic reopening; clause 10.7's t0 per
+    /// connection). Report the
     /// outcome with [`RedundancyGroup::on_connection_established`] or, for a
     /// refused dial, [`RedundancyGroup::on_attempt_failed`] with the member's
     /// [`Member::attempt`], read when the dial is begun.
@@ -2840,7 +2841,7 @@ impl RedundancyGroup {
     /// [`RedundancyGroup::on_timeout`] (so a t1 on the started connection is
     /// 10.5's switchover) with the timers kept in step. For a controlling
     /// group it also arms t0 for, and lists in [`TickOutcome::connect`], every
-    /// member that is down and has no attempt in flight or whose t0 expired.
+    /// member that is down and has no t0 armed or whose t0 expired.
     /// It starts no connection for a group that names none: after a reported
     /// loss that is the caller's [`RedundancyGroup::start_at`].
     pub fn tick(&mut self, now: Instant) -> TickOutcome {

@@ -150,9 +150,9 @@ struct Engine<C, K> {
     /// Writers of closed connections still flushing their last frames; waited
     /// for at shutdown so the peer sees them.
     closing: Vec<JoinHandle<()>>,
-    /// A connection was lost since the last tick. Such a connection is due
-    /// at once and has no instant in `next_deadline`, so the core is ticked
-    /// again before the engine sleeps.
+    /// A connection was lost since the last tick. One that was never dialled
+    /// has no t0 and so no instant in `next_deadline`, though it is due at
+    /// once: the core is ticked again before the engine sleeps.
     lost: bool,
 }
 
