@@ -1021,22 +1021,41 @@ impl RedundancyGroup {
     /// connection and every switchover). Naming the connection that is already
     /// the group's is [`GroupError::AlreadyInState`].
     ///
+    /// A connection whose own start is already out or confirmed
+    /// ([`Session::user_data_allowed`]: the one an earlier `select` moved the
+    /// naming away from, still running) has no Start left to wait for, and
+    /// [`RedundancyGroup::start`] refuses it. Naming it takes effect at once:
+    /// the gap after a failure ends, the data the group holds goes into that
+    /// connection's queue, as a Start would put it there, and the frames the
+    /// connection can send now are returned for the caller to put on the wire.
+    /// For every other member the list is empty.
+    ///
     /// # Errors
     ///
     /// [`GroupError::CannotSelect`] for a controlled group,
     /// [`GroupError::MemberIndexOutOfRange`] when `index` names no member, and
     /// [`GroupError::AlreadyInState`] when it is already the started one.
-    pub fn select(&mut self, index: usize) -> Result<(), GroupError> {
+    pub fn select(&mut self, index: usize) -> Result<Vec<Action>, GroupError> {
         if self.role != Role::Controlling {
             return Err(GroupError::CannotSelect);
         }
-        let state = self.member(index)?.state();
+        let member = self.member(index)?;
+        let state = member.state();
+        let running = member.session.user_data_allowed();
         if self.started == Some(index) {
             return Err(GroupError::AlreadyInState { index, state });
         }
-        self.sweep_stopped(index);
-        self.started = Some(index);
-        Ok(())
+        if !running {
+            self.sweep_stopped(index);
+            self.started = Some(index);
+            return Ok(Vec::new());
+        }
+        self.name(index);
+        let member = self.member_mut(index)?;
+        let actions = member.session.flush_pending();
+        member.note_wire(&actions);
+        self.record(index, &actions);
+        Ok(actions)
     }
 
     /// Rule 4's controlled-station half: the connection on which this station
@@ -2392,6 +2411,15 @@ impl RedundancyGroup {
             member.timers.i_frame_received(now);
         }
         Ok(self.supervised(now, |group| group.on_frame(index, apci))?.1)
+    }
+
+    /// [`RedundancyGroup::select`] at `now`.
+    ///
+    /// # Errors
+    ///
+    /// As [`RedundancyGroup::select`].
+    pub fn select_at(&mut self, index: usize, now: Instant) -> Result<Vec<Routed>, GroupError> {
+        Ok(self.supervised(now, |group| group.select(index))?.1)
     }
 
     /// [`RedundancyGroup::start`] at `now`.

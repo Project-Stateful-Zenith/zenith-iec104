@@ -20,6 +20,14 @@ follow [Semantic Versioning](https://semver.org/).
   the application's own `Handle::start` of another connection or
   `Handle::close` ended the started connection and it left data
   unconfirmed, and `Handle::window` is 0 until that data is decided on.
+- `RedundancyGroup::select` returns the frames to put on the wire
+  (`Result<Vec<Action>, GroupError>`, was `Result<(), GroupError>`): empty
+  unless the connection named is already running.
+
+### Added
+
+- `RedundancyGroup::select_at`: `select` with the caller's clock and routed
+  actions, like the other `_at` entry points.
 
 ### Fixed
 
@@ -30,6 +38,10 @@ follow [Semantic Versioning](https://semver.org/).
   `observe_startdt_act`) and its Start no longer goes out with the Start
   ahead of the data the connection closed by that Start leaves behind; it
   waits in the group for the replay decision.
+- `RedundancyGroup::select` onto a connection that is still running ends
+  the gap after a failure and sends the data the group held. It used to
+  leave that data, and everything sent after it, held for good, with
+  `start` refused as `AlreadyInState`.
 
 ## [0.36.0] - 2026-10-21
 
