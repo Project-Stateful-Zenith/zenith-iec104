@@ -2531,13 +2531,16 @@ impl RedundancyGroup {
     ///
     /// The earliest of every member's timers that `tick` reacts to: t0 of a
     /// controlling group's member that is down (clause 10.7 sets t0 per
-    /// connection), t0–t3 of one that is up and not [`State::Terminated`]. It
-    /// is exact only right after a `tick`, which arms t0 for every member it
-    /// asks to dial. A member whose loss was reported since, or a group that
-    /// was never ticked, has a member with no t0 armed: it is due at once and
-    /// has no instant here, so tick again after such an event instead of
-    /// sleeping. A member whose session closed itself while its socket is still
-    /// up has nothing due until the caller reports the loss.
+    /// connection), t0–t3 of one that is up and not [`State::Terminated`].
+    /// `tick` arms t0 for every member it asks to dial. Such a member whose
+    /// loss was reported since has t0 armed again from when the attempt its
+    /// connection came from began: an instant already past, and so due at the
+    /// next `tick`, when the connection lasted longer than t0. Only a
+    /// controlling group's member that was never asked to dial (one never
+    /// ticked while it was down) has no t0 armed: it is due at once and has
+    /// no instant here, so tick before sleeping on this value. A member whose
+    /// session closed itself while its socket is still up has nothing due
+    /// until the caller reports the loss.
     #[must_use]
     pub fn next_deadline(&self) -> Option<Instant> {
         let controlling = self.role == Role::Controlling;

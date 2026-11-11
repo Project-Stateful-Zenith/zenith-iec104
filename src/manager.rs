@@ -95,7 +95,7 @@
 //! | --- | --- |
 //! | an attempt is asked for (controlling only) | [`Timers::connection_attempt`] (arm t0) |
 //! | the caller's socket came up | [`Session::on_connection_established`], then [`Timers::connection_lost`] and [`Timers::connection_established`] (cancel t0 to t3, arm t3) |
-//! | an *established* connection went away | [`Session::on_connection_lost`] and [`Timers::connection_lost`] (cancel t0–t3) |
+//! | an *established* connection went away | [`Session::on_connection_lost`] and [`Timers::connection_lost`] (cancel t0–t3), then [`Timers::connection_attempt`] from when its attempt began (arm t0 again) |
 //! | any frame arrived | [`Timers::frame_received`] (clause 5.2's t3 retrigger) |
 //! | an I-frame arrived | [`Timers::i_frame_received`] (arm t2) |
 //! | a sent U-frame *act* or I-frame was handed out | [`Timers::frame_sent`] (arm t1) |
@@ -693,12 +693,15 @@ impl ConnectionManager {
     ///
     /// Only the timers `tick` reacts to count: t0 of a station that is down
     /// (clause 9's *"Time-out of connection establishment"*), t0–t3 of one that
-    /// is up and not yet [`State::Terminated`]. It is exact only right after a
-    /// `tick`, which arms t0 for every attempt it asks for. A station that went
-    /// down since (an established connection reported through
-    /// [`ConnectionManager::on_connection_lost`]) or was never ticked has no t0
-    /// armed: it is due at once and has no instant here, so tick again after
-    /// such an event instead of sleeping.
+    /// is up and not yet [`State::Terminated`]. `tick` arms t0 for every
+    /// attempt it asks for. A station that went down since (an established
+    /// connection reported through [`ConnectionManager::on_connection_lost`])
+    /// has t0 armed again from when the attempt its connection came from
+    /// began: an instant already past, and so due at the next `tick`, when
+    /// the connection lasted longer than t0. Only a station of a controlling
+    /// manager that no attempt was ever asked for (one never ticked while it
+    /// was down) has no t0 armed: it is due at once and has no instant here,
+    /// so tick before sleeping on this value.
     #[must_use]
     pub fn next_deadline(&self) -> Option<Instant> {
         let controlling = self.role == Role::Controlling;
@@ -758,8 +761,11 @@ impl ConnectionManager {
     /// - **An established connection that was lost.** The session loses it
     ///   ([`Session::on_connection_lost`], which emits nothing: the peer is gone
     ///   and there is nobody left to confirm anything to) and its scheduler
-    ///   cancels t0–t3. The next [`ConnectionManager::tick`] asks for a new
-    ///   connection at once (clause 10.5: the controlling station retries the
+    ///   cancels t0–t3. t0 is then armed again from when the attempt this
+    ///   connection came from began, so [`ConnectionManager::tick`] asks for a
+    ///   new connection when that t0 runs out: at the next tick after a
+    ///   connection that lasted longer than t0, later after one lost sooner
+    ///   (clause 10.5: the controlling station retries the
     ///   open at regular intervals until the fault is cleared), and that
     ///   attempt's `reason` is [`ConnectReason::ConnectionLost`].
     /// - **A dial that was refused.** A session that was never established has no
