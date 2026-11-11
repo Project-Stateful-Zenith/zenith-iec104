@@ -25,6 +25,9 @@ follow [Semantic Versioning](https://semver.org/).
 - `RedundancyGroup::select` returns the frames to put on the wire
   (`Result<Vec<Action>, GroupError>`, was `Result<(), GroupError>`): empty
   unless the connection named is already running.
+- `RedundancyGroup::observe_startdt_act` returns the frames to put on the
+  wire (`Result<Vec<Action>, GroupError>`, was `Result<(), GroupError>`),
+  as `select` does.
 - `RedundancyGroup::new`/`uniform` and `ConnectionManager::new`/`uniform`
   refuse a count whose memory cannot be reserved with the new
   `GroupError::TooManyMembers` and `ManagerError::TooManyStations` instead
@@ -33,8 +36,9 @@ follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- `RedundancyGroup::select_at`: `select` with the caller's clock and routed
-  actions, like the other `_at` entry points.
+- `RedundancyGroup::select_at` and `observe_startdt_act_at`: `select` and
+  `observe_startdt_act` with the caller's clock and routed actions, like
+  the other `_at` entry points.
 - `ConnectionManager::on_attempt_failed(index, attempt)` reports a refused
   or abandoned dial by the attempt number of its `Directive::Connect`. A
   late report of an abandoned attempt no longer has to go through
@@ -64,6 +68,9 @@ follow [Semantic Versioning](https://semver.org/).
   started connection when it was refused because the connection that took
   over was gone again. They dropped the refusal, and the data was never
   sent again.
+- `RedundancyGroup::observe_startdt_act` onto a connection that is already
+  running sends the data it moves there. That data, and everything sent
+  after it, stayed in the connection's queue for good.
 - `timers`: a TESTFR act and a STARTDT or STOPDT act pending together are
   each timed by t1 from their own send. The con of one left t1 at the
   confirmed act's deadline, which closed a healthy connection whose other
