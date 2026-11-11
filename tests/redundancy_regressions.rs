@@ -13,7 +13,7 @@ use iec104::apci::{Apci, SeqNo, UFunction};
 use iec104::link::{Action, Role, State, Timer};
 use iec104::params::LinkParams;
 use iec104::redundancy::{
-    CLOSED_BY_START, RedundancyGroup, Replay, ReplayOutcome, Routed, Switchover,
+    CLOSED_BY_START, GroupError, RedundancyGroup, Replay, ReplayOutcome, Routed, Switchover,
 };
 
 fn asdu(v: u8) -> Vec<u8> {
@@ -475,4 +475,87 @@ fn rule_4_selecting_a_stopped_connection_sends_nothing() {
         "held for the Start that carries the selection out"
     );
     assert_eq!(on_wire(&group.start_at(1, t).unwrap(), 1), vec![asdu(1)]);
+}
+
+#[test]
+fn clause_10_5_a_reported_loss_starts_nothing_until_the_caller_starts_a_standby() {
+    let t = Instant::now();
+    let mut group = RedundancyGroup::uniform(Role::Controlling, LinkParams::default(), 2).unwrap();
+    group.on_connection_established(0, t).unwrap();
+    group.on_connection_established(1, t).unwrap();
+    group.start_at(0, t).unwrap();
+    group
+        .on_frame_at(0, Apci::U(UFunction::StartDtCon), t)
+        .unwrap();
+
+    group.on_connection_lost(0).unwrap();
+    assert_eq!(group.started_index(), None);
+    assert_eq!(group.send_user_data_at(0, &asdu(1), t).unwrap(), Vec::new());
+
+    let mut now = t;
+    for _ in 0..25 {
+        now += Duration::from_secs(1);
+        let outcome = group.tick(now);
+        assert_eq!(outcome.switchovers, Vec::new());
+        for routed in outcome.routed {
+            assert_eq!(
+                routed,
+                Routed {
+                    member: 1,
+                    actions: vec![Action::Send(Apci::U(UFunction::TestFrAct))],
+                },
+                "the standby is only supervised (rule 5)"
+            );
+            group
+                .on_frame_at(1, Apci::U(UFunction::TestFrCon), now)
+                .unwrap();
+        }
+    }
+    assert_eq!(group.started_index(), None);
+    assert_eq!(group.state(1), Ok(State::Stopped));
+    assert_eq!(group.held_user_data(), &[asdu(1)]);
+
+    let routed = group.start_at(1, now).unwrap();
+    assert_eq!(
+        routed,
+        vec![Routed {
+            member: 1,
+            actions: vec![
+                Action::Send(Apci::U(UFunction::StartDtAct)),
+                Action::SendI {
+                    ns: SeqNo::new(0),
+                    nr: SeqNo::new(0),
+                    asdu: asdu(1),
+                },
+            ],
+        }]
+    );
+}
+
+#[test]
+fn figure_37_a_closed_started_connection_leaves_the_next_start_to_the_caller() {
+    let t = Instant::now();
+    let mut group = RedundancyGroup::uniform(Role::Controlling, LinkParams::default(), 2).unwrap();
+    group.on_connection_established(0, t).unwrap();
+    group.on_connection_established(1, t).unwrap();
+    group.start_at(0, t).unwrap();
+    group
+        .on_frame_at(0, Apci::U(UFunction::StartDtCon), t)
+        .unwrap();
+
+    group.close_at(0, t).unwrap();
+    group.on_connection_lost(0).unwrap();
+    assert_eq!(group.started_index(), None);
+    assert_eq!(
+        group.send_user_data_at(1, &asdu(1), t),
+        Err(GroupError::NoStartedConnection)
+    );
+    assert_eq!(group.tick(t + Duration::from_secs(1)).routed, Vec::new());
+    assert_eq!(group.state(1), Ok(State::Stopped));
+
+    group.start_at(1, t).unwrap();
+    assert_eq!(
+        on_wire(&group.send_user_data_at(1, &asdu(1), t).unwrap(), 1),
+        vec![asdu(1)]
+    );
 }

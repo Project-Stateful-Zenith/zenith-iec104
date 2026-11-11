@@ -26,6 +26,19 @@
 //! own socket. The plain methods below them do the same protocol work without
 //! the timers and return one merged list.
 //!
+//! **Only a t1 on the started connection switches over by itself** (10.5).
+//! When the started connection ends any other way (the caller reports its
+//! loss, its own session closes it on a sequence or parse error and the
+//! caller reports that loss, or the application closes it with
+//! [`RedundancyGroup::close`]), and when the t1 finds no stopped connection
+//! to take over ([`Switchover::NoStoppedConnection`]), the group names no
+//! started connection and starts none, however long it is ticked. A
+//! controlling caller then picks an established, stopped member and calls
+//! [`RedundancyGroup::start_at`] itself, at once or as soon as one is up
+//! again. Until it does, the group holds the user data it is handed (after
+//! `close` it refuses it with [`GroupError::NoStartedConnection`]). A
+//! controlled station waits for the peer's `STARTDT_ACT` instead (rule 4).
+//!
 //! Clause 10 is **connection-level, not ASDU-level, and it changes nothing on
 //! the wire.** A [`Session`] is one logical connection with one [`Timers`];
 //! clause 10 describes what a *set* of them (a **redundancy group**) does
@@ -405,6 +418,10 @@
 //!   retried** (clause 7.1; in 10.5 the controlling station keeps retrying
 //!   until the fault is cleared and the connection is back): the crate holds no
 //!   socket.
+//! - **Starting a connection after every failure but a t1 on the started
+//!   connection** (see "Driving a group"): after a reported loss, a close
+//!   or [`Switchover::NoStoppedConnection`] the group names none until the
+//!   controlling caller calls [`RedundancyGroup::start`].
 //! - **Which data is retransmitted on switchover** (10.5 leaves it to the
 //!   application): [`Replay`], answered with
 //!   [`ReplayOutcome`].
@@ -2224,7 +2241,10 @@ pub struct TickOutcome {
 /// every member's [`Timers`] in step with what its session did (the same
 /// wiring as [`crate::manager`], [`Supervisor`]) and returns [`Routed`]
 /// actions. Driving a group through these and [`RedundancyGroup::tick`] is
-/// all the timer handling a caller needs.
+/// all the timer handling a caller needs. It is not all the switching: a
+/// started connection that ends without its t1 expiring is replaced by the
+/// caller's own [`RedundancyGroup::start_at`]
+/// ([`RedundancyGroup::on_connection_lost`]).
 impl RedundancyGroup {
     /// Records one member's actions for the routed entry points.
     fn record(&mut self, index: usize, actions: &[Action]) {
@@ -2312,6 +2332,12 @@ impl RedundancyGroup {
     /// failure. A controlling group dials it again when the t0 of the attempt
     /// it came from runs out: at the next tick after a connection that lasted
     /// longer than t0 (10.5's reopening), later after one lost sooner.
+    ///
+    /// Nothing is started in its place. The group switches over by itself
+    /// only on a t1 of the started connection
+    /// ([`RedundancyGroup::on_timeout`]), so after the loss of the started
+    /// connection a controlling caller starts an established, stopped member
+    /// with [`RedundancyGroup::start_at`]; [`RedundancyGroup::tick`] will not.
     ///
     /// A refused dial had no connection to lose: its t0 stays armed, so the
     /// retry comes at its expiry and not on every tick.
@@ -2518,6 +2544,8 @@ impl RedundancyGroup {
     /// 10.5's switchover) with the timers kept in step. For a controlling
     /// group it also arms t0 for, and lists in [`TickOutcome::connect`], every
     /// member that is down and has no attempt in flight or whose t0 expired.
+    /// It starts no connection for a group that names none: after a reported
+    /// loss that is the caller's [`RedundancyGroup::start_at`].
     pub fn tick(&mut self, now: Instant) -> TickOutcome {
         let mut outcome = TickOutcome::default();
         for index in 0..self.members.len() {
