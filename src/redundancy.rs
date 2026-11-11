@@ -1239,11 +1239,14 @@ impl RedundancyGroup {
     /// (its own choice is [`RedundancyGroup::select`]), so it is refused with
     /// [`GroupError::CannotSelect`].
     ///
-    /// This sends nothing and closes nothing: it names the connection and
+    /// This closes nothing: it names the connection and
     /// moves the group's held data (and data waiting on other stopped
     /// connections) into that connection's clause 5.3 queue, or, while a
     /// failed connection's data waits for the replay decision, keeps it held
-    /// and adds what waits on the named connection. 10.7's close of
+    /// and adds what waits on the named connection. A connection that is
+    /// already running has no `STARTDT_CON` left to send that data behind,
+    /// so the frames it can send now are returned for the caller to put on
+    /// the wire; for every other member the list is empty. 10.7's close of
     /// every other connection that is not stopped comes with the frame.
     /// [`RedundancyGroup::on_startdt_act`] is the same naming with the
     /// received frame wired into the member's session (10.4, index 124), and
@@ -1254,13 +1257,17 @@ impl RedundancyGroup {
     ///
     /// [`GroupError::CannotSelect`] for a controlling group, and
     /// [`GroupError::MemberIndexOutOfRange`] when `index` names no member.
-    pub fn observe_startdt_act(&mut self, index: usize) -> Result<(), GroupError> {
+    pub fn observe_startdt_act(&mut self, index: usize) -> Result<Vec<Action>, GroupError> {
         if self.role != Role::Controlled {
             return Err(GroupError::CannotSelect);
         }
         self.member(index)?;
         self.name(index);
-        Ok(())
+        let member = self.member_mut(index)?;
+        let actions = member.session.flush_pending();
+        member.note_wire(&actions);
+        self.record(index, &actions);
+        Ok(actions)
     }
 
     /// Names one member the group's started connection.
@@ -2642,6 +2649,21 @@ impl RedundancyGroup {
             member.timers.i_frame_received(now);
         }
         Ok(self.supervised(now, |group| group.on_frame(index, apci))?.1)
+    }
+
+    /// [`RedundancyGroup::observe_startdt_act`] at `now`.
+    ///
+    /// # Errors
+    ///
+    /// As [`RedundancyGroup::observe_startdt_act`].
+    pub fn observe_startdt_act_at(
+        &mut self,
+        index: usize,
+        now: Instant,
+    ) -> Result<Vec<Routed>, GroupError> {
+        Ok(self
+            .supervised(now, |group| group.observe_startdt_act(index))?
+            .1)
     }
 
     /// [`RedundancyGroup::select`] at `now`.

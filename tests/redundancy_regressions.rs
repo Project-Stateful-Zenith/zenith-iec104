@@ -661,3 +661,32 @@ fn clause_10_6_a_replay_newer_than_the_named_connections_queue_goes_out_behind_i
     ));
     assert_eq!(wire, vec![asdu(2), asdu(3)]);
 }
+
+#[test]
+fn rule_4_an_act_observed_on_a_running_connection_puts_the_moved_data_on_the_wire() {
+    let mut group = established(Role::Controlled, 12).unwrap();
+    let t = Instant::now();
+    group.on_startdt_act(0).unwrap();
+    assert_eq!(group.observe_startdt_act(1), Ok(Vec::new()));
+    assert_eq!(group.send_user_data(1, &asdu(1)), Ok(None));
+
+    let later = t + Duration::from_secs(3);
+    assert_eq!(
+        group.observe_startdt_act_at(0, later).unwrap(),
+        vec![Routed {
+            member: 0,
+            actions: vec![Action::SendI {
+                ns: SeqNo::new(0),
+                nr: SeqNo::new(0),
+                asdu: asdu(1),
+            }],
+        }]
+    );
+    assert_eq!(group.member(0).unwrap().session().pending_user_data(), 0);
+    assert_eq!(
+        group.member(0).unwrap().timers().deadline(Timer::T1),
+        Some(later + Duration::from_secs(15)),
+        "t1 supervises the released frame"
+    );
+    assert!(group.send_user_data(0, &asdu(2)).unwrap().is_some());
+}
