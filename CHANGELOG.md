@@ -26,6 +26,10 @@ follow [Semantic Versioning](https://semver.org/).
 - `RedundancyGroup::on_startdt_act` applies 10.7's close rule also when
   `observe_startdt_act` has named the connection beforehand; that pair left
   two connections of a controlled group started.
+- User data queued on a connection between `RedundancyGroup::select` (or
+  `observe_startdt_act`) and its Start no longer goes out with the Start
+  ahead of the data the connection closed by that Start leaves behind; it
+  waits in the group for the replay decision.
 
 ## [0.36.0] - 2026-10-21
 

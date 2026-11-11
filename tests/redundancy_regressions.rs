@@ -323,3 +323,88 @@ fn clause_10_7_an_act_on_a_connection_named_beforehand_still_closes_the_started_
         "a repeated act closes nothing"
     );
 }
+
+#[test]
+fn clause_10_7_data_queued_between_select_and_start_waits_behind_the_replay() {
+    let t = Instant::now();
+    let mut group = RedundancyGroup::uniform(Role::Controlling, LinkParams::default(), 2).unwrap();
+    group.on_connection_established(0, t).unwrap();
+    group.on_connection_established(1, t).unwrap();
+    group.start_at(0, t).unwrap();
+    group
+        .on_frame_at(0, Apci::U(UFunction::StartDtCon), t)
+        .unwrap();
+    group.send_user_data_at(0, &asdu(1), t).unwrap();
+
+    group.select(1).unwrap();
+    assert_eq!(group.send_user_data_at(1, &asdu(2), t).unwrap(), Vec::new());
+    assert_eq!(group.member(1).unwrap().queued_user_data(), &[asdu(2)]);
+
+    let routed = group.start_at(1, t).unwrap();
+    assert_eq!(
+        routed,
+        vec![
+            Routed {
+                member: 0,
+                actions: vec![Action::ActiveClose(CLOSED_BY_START)],
+            },
+            Routed {
+                member: 1,
+                actions: vec![Action::Send(Apci::U(UFunction::StartDtAct))],
+            },
+        ],
+        "the Start carries no data ahead of what the closed connection left"
+    );
+    group.on_connection_lost(0).unwrap();
+    assert_eq!(group.member(0).unwrap().left_behind(), &[asdu(1)]);
+    assert_eq!(group.held_user_data(), &[asdu(2)]);
+    assert_eq!(
+        group.member(1).unwrap().queued_user_data(),
+        [] as [Vec<u8>; 0]
+    );
+
+    let (_, routed) = group
+        .retransmit_unconfirmed_at(0, Replay::Retransmit, t)
+        .unwrap();
+    assert_eq!(on_wire(&routed, 1), vec![asdu(1), asdu(2)]);
+}
+
+#[test]
+fn clause_10_7_an_event_queued_before_the_act_waits_behind_the_replay() {
+    let t = Instant::now();
+    let mut group = RedundancyGroup::uniform(Role::Controlled, LinkParams::default(), 2).unwrap();
+    group.on_connection_established(0, t).unwrap();
+    group.on_connection_established(1, t).unwrap();
+    group
+        .on_frame_at(0, Apci::U(UFunction::StartDtAct), t)
+        .unwrap();
+    group.send_user_data_at(0, &asdu(1), t).unwrap();
+
+    group.observe_startdt_act(1).unwrap();
+    assert_eq!(group.send_user_data_at(1, &asdu(2), t).unwrap(), Vec::new());
+
+    let routed = group
+        .on_frame_at(1, Apci::U(UFunction::StartDtAct), t)
+        .unwrap();
+    assert_eq!(
+        routed,
+        vec![
+            Routed {
+                member: 0,
+                actions: vec![Action::ActiveClose(CLOSED_BY_START)],
+            },
+            Routed {
+                member: 1,
+                actions: vec![Action::Send(Apci::U(UFunction::StartDtCon))],
+            },
+        ],
+        "the con carries no data ahead of what the closed connection left"
+    );
+    group.on_connection_lost(0).unwrap();
+    assert_eq!(group.held_user_data(), &[asdu(2)]);
+
+    let (_, routed) = group
+        .retransmit_unconfirmed_at(0, Replay::Retransmit, t)
+        .unwrap();
+    assert_eq!(on_wire(&routed, 1), vec![asdu(1), asdu(2)]);
+}
