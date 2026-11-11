@@ -322,7 +322,9 @@
 //!   [`RedundancyGroup::start`], [`RedundancyGroup::on_startdt_act`] and the
 //!   automatic switchover of [`RedundancyGroup::on_timeout`] therefore return
 //!   the close actions of every other member that is neither
-//!   [`State::Stopped`] nor [`State::Terminated`], then the new connection's
+//!   [`State::Stopped`] nor [`State::Terminated`], and of a stopped one that
+//!   still has I-frames unconfirmed (its peer confirmed the stop before it
+//!   acknowledged them), then the new connection's
 //!   own frames (`on_timeout` puts the failed connection's own t1 reaction
 //!   before both, and a repeated act on the connection already named finds
 //!   every other one stopped or closed, so it closes nothing). Without it
@@ -1260,7 +1262,7 @@ impl RedundancyGroup {
     /// already running has no `STARTDT_CON` left to send that data behind,
     /// so the frames it can send now are returned for the caller to put on
     /// the wire; for every other member the list is empty. 10.7's close of
-    /// every other connection that is not stopped comes with the frame.
+    /// the other connections comes with the frame.
     /// [`RedundancyGroup::on_startdt_act`] is the same naming with the
     /// received frame wired into the member's session (10.4, index 124), and
     /// it applies the close rule also after this call has named the
@@ -1425,7 +1427,8 @@ impl RedundancyGroup {
     /// the connection that was started. An act on another member moves the
     /// naming, and 10.7's close
     /// rule (index 136: a Start on a new connection immediately closes every
-    /// connection that is not STOPPED) closes every other member that is not stopped. Figure 36's label
+    /// connection that is not STOPPED) closes every other member that is not
+    /// stopped, and a stopped one with I-frames still unconfirmed. Figure 36's label
     /// `STARTDT act[]/Close other not stopped connection(s)/Send STARTDT con`
     /// puts the close first, so the close actions come first, in member order,
     /// then the connection's own answer. What waits in a closed connection's
@@ -1618,8 +1621,9 @@ impl RedundancyGroup {
     /// appends that connection's [`Session::request_start`] actions behind the
     /// failed connection's own. 10.7's close rule belongs to this Start as much
     /// as to [`RedundancyGroup::start`], so any *other* member that is not
-    /// stopped is closed first (the failed connection is already terminated by
-    /// its own t1 reaction). [`TimeoutOutcome::switchover`] says which of the
+    /// stopped, or is stopped with I-frames unconfirmed, is closed first (the
+    /// failed connection is already terminated by its own t1 reaction).
+    /// [`TimeoutOutcome::switchover`] says which of the
     /// three cases it was: [`Switchover::Automatic`],
     /// [`Switchover::NoStoppedConnection`] when no stopped connection was left
     /// to start, or [`Switchover::LeftToTheControllingStation`] for a controlled
@@ -1942,7 +1946,8 @@ impl RedundancyGroup {
     /// closes every connection that is not STOPPED. The event of a Start is this call, so before the new
     /// connection's own act goes out the group actively closes **every other
     /// member that is not [`State::Stopped`]** (a member already
-    /// [`State::Terminated`] is left alone) and returns those close actions
+    /// [`State::Terminated`] is left alone, and a stopped one that still has
+    /// I-frames unconfirmed is closed too) and returns those close actions
     /// first, in member order, as figure 36's `STARTDT act[]/Close other not
     /// stopped connection(s)/Send STARTDT con` prints the close before the
     /// confirmation. Each close is that connection's own [`Session::close`], so
@@ -2208,8 +2213,8 @@ pub struct TimeoutOutcome {
     /// The named connection's own [`Session::on_timeout`] actions, unchanged and
     /// first on the wire: t1's active close (figures 17/18), t2's S-frame
     /// (clause 5.1) or t3's `TESTFR act` (clause 5.2). When the expiry was the
-    /// group's switchover trigger, the close actions of every other member
-    /// that is not stopped follow them (10.7's close rule), then the
+    /// group's switchover trigger, the close actions of the other members
+    /// follow them (10.7's close rule, [`RedundancyGroup::start`]), then the
     /// taking-over connection's `STARTDT act` and any user data it sends
     /// behind the act.
     pub actions: Vec<Action>,

@@ -58,10 +58,10 @@ impl Handle {
     }
 
     /// Sends STARTDT act on `conn` (clause 5.3; for a group, 10.3's start,
-    /// which closes any other connection that is not stopped, 10.7). A
-    /// connection without a socket, or not stopped, is refused. A started
-    /// connection closed that way reports the data it left unconfirmed as
-    /// [`crate::Event::StartedConnectionFailed`].
+    /// which closes any other connection that is not stopped, or is stopped
+    /// with I-frames unconfirmed, 10.7). A connection without a socket, or
+    /// not stopped, is refused. A connection closed that way reports the
+    /// data it left unconfirmed as [`crate::Event::StartedConnectionFailed`].
     ///
     /// # Errors
     ///
