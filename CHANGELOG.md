@@ -71,6 +71,11 @@ follow [Semantic Versioning](https://semver.org/).
   (its peer confirmed the stop without acknowledging them), as 10.7 closes
   one that is not stopped. Those frames used to surface at that
   connection's t1, after newer data had gone out on the new connection.
+- `RedundancyGroup::retransmit_unconfirmed` checks that the started
+  connection is connected and has room before it moves anything, so a
+  replay refused with `GroupError::Queue` moves no data. It used to stop
+  part-way, with frames numbered on the connection that no caller was
+  handed.
 - `RedundancyGroup::select` onto a connection that is still running ends
   the gap after a failure and sends the data the group held. It used to
   leave that data, and everything sent after it, held for good, with
