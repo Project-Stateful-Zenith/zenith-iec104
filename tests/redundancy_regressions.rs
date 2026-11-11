@@ -690,3 +690,64 @@ fn rule_4_an_act_observed_on_a_running_connection_puts_the_moved_data_on_the_wir
     );
     assert!(group.send_user_data(0, &asdu(2)).unwrap().is_some());
 }
+
+#[test]
+fn clause_10_5_a_late_failure_of_an_abandoned_dial_is_not_the_loss_of_its_successor() {
+    let t = Instant::now();
+    let mut group = RedundancyGroup::uniform(Role::Controlling, LinkParams::default(), 2).unwrap();
+    assert_eq!(group.tick(t).connect, vec![0, 1]);
+    let abandoned = group.member(0).unwrap().attempt();
+    assert_eq!(abandoned, 1);
+
+    let later = t + Duration::from_secs(30);
+    assert_eq!(group.tick(later).connect, vec![0, 1]);
+    let latest = group.member(0).unwrap().attempt();
+    assert_eq!(latest, 2);
+    group.on_connection_established(0, later).unwrap();
+    group.start_at(0, later).unwrap();
+    group
+        .on_frame_at(0, Apci::U(UFunction::StartDtCon), later)
+        .unwrap();
+    assert_eq!(
+        on_wire(&group.send_user_data_at(0, &asdu(1), later).unwrap(), 0),
+        vec![asdu(1)]
+    );
+
+    group.on_attempt_failed(0, abandoned).unwrap();
+    group.on_attempt_failed(0, latest).unwrap();
+    assert_eq!(group.state(0), Ok(State::Started));
+    assert_eq!(group.started_index(), Some(0));
+    assert_eq!(group.member(0).unwrap().left_behind(), [] as [Vec<u8>; 0]);
+    assert_eq!(
+        on_wire(&group.send_user_data_at(0, &asdu(2), later).unwrap(), 0),
+        vec![asdu(2)]
+    );
+}
+
+#[test]
+fn clause_10_5_a_refused_dial_reported_by_its_number_is_retried_at_t0() {
+    let t = Instant::now();
+    let mut group = RedundancyGroup::uniform(Role::Controlling, LinkParams::default(), 2).unwrap();
+    assert_eq!(group.tick(t).connect, vec![0, 1]);
+    group.on_connection_established(0, t).unwrap();
+    assert_eq!(group.select(1), Ok(Vec::new()));
+    assert_eq!(group.started_index(), Some(1));
+
+    group.on_attempt_failed(1, 7).unwrap();
+    assert_eq!(group.started_index(), Some(1), "not the latest attempt");
+    group
+        .on_attempt_failed(1, group.member(1).unwrap().attempt())
+        .unwrap();
+    assert_eq!(group.started_index(), None, "the naming goes with the dial");
+
+    assert_eq!(group.tick(t + Duration::from_secs(29)).connect, Vec::new());
+    assert_eq!(group.tick(t + Duration::from_secs(30)).connect, vec![1]);
+    assert_eq!(group.member(1).unwrap().attempt(), 2);
+    assert_eq!(
+        group.on_attempt_failed(2, 1),
+        Err(GroupError::MemberIndexOutOfRange {
+            index: 2,
+            members: 2
+        })
+    );
+}
