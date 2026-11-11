@@ -21,6 +21,12 @@ follow [Semantic Versioning](https://semver.org/).
   `Handle::close` ended the started connection and it left data
   unconfirmed, and `Handle::window` is 0 until that data is decided on.
 
+### Fixed
+
+- `RedundancyGroup::on_startdt_act` applies 10.7's close rule also when
+  `observe_startdt_act` has named the connection beforehand; that pair left
+  two connections of a controlled group started.
+
 ## [0.36.0] - 2026-10-21
 
 ### Added

@@ -311,8 +311,9 @@
 //!   the close actions of every other member that is neither
 //!   [`State::Stopped`] nor [`State::Terminated`], then the new connection's
 //!   own frames (`on_timeout` puts the failed connection's own t1 reaction
-//!   before both, and a repeated act on the connection already named closes
-//!   nothing). Without it the connection that was
+//!   before both, and a repeated act on the connection already named finds
+//!   every other one stopped or closed, so it closes nothing). Without it
+//!   the connection that was
 //!   started before would stay live: two started connections in one group.
 //! - **The two stop transitions.** Figure 37's `Stop connection[no unconfirmed
 //!   I-frames]/Send STOPDT act` and `Stop connection[unconfirmed I-frames]/Send
@@ -1050,11 +1051,14 @@ impl RedundancyGroup {
     /// (its own choice is [`RedundancyGroup::select`]), so it is refused with
     /// [`GroupError::CannotSelect`].
     ///
-    /// This sends nothing: it names the connection and moves the group's held
-    /// data (and data waiting on other stopped connections) into that
-    /// connection's clause 5.3 queue. [`RedundancyGroup::on_startdt_act`] is
-    /// the same naming with the received
-    /// frame wired into the member's session (10.4, index 124).
+    /// This sends nothing and closes nothing: it names the connection and
+    /// moves the group's held data (and data waiting on other stopped
+    /// connections) into that connection's clause 5.3 queue. 10.7's close of
+    /// every other connection that is not stopped comes with the frame.
+    /// [`RedundancyGroup::on_startdt_act`] is the same naming with the
+    /// received frame wired into the member's session (10.4, index 124), and
+    /// it applies the close rule also after this call has named the
+    /// connection.
     ///
     /// # Errors
     ///
@@ -1184,8 +1188,13 @@ impl RedundancyGroup {
     /// names nothing and leaves the data the group holds held.
     ///
     /// A repeated act on the connection that already is the group's names it
-    /// again and closes nothing (clause 5.3 answers every STARTDT act with a
-    /// STARTDT con). An act on another member moves the naming, and 10.7's close
+    /// again (clause 5.3 answers every STARTDT act with a STARTDT con) and
+    /// closes nothing, every other connection being stopped or closed since
+    /// the act that named it. The close rule is applied to every act all the
+    /// same, so an act on a connection that
+    /// [`RedundancyGroup::observe_startdt_act`] named beforehand still closes
+    /// the connection that was started. An act on another member moves the
+    /// naming, and 10.7's close
     /// rule (index 136: a Start on a new connection immediately closes every
     /// connection that is not STOPPED) closes every other member that is not stopped. Figure 36's label
     /// `STARTDT act[]/Close other not stopped connection(s)/Send STARTDT con`
@@ -1206,13 +1215,8 @@ impl RedundancyGroup {
             // not reported yet) starts nothing and names nothing.
             return Err(GroupError::NotConnected { index });
         }
-        let already_named = self.started == Some(index);
         self.observe_startdt_act(index)?;
-        let mut actions = if already_named {
-            Vec::new()
-        } else {
-            self.close_others(index)
-        };
+        let mut actions = self.close_others(index);
         let answered = self
             .member_mut(index)?
             .session_mut()

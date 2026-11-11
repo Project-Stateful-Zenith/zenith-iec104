@@ -10,9 +10,11 @@
 use std::time::{Duration, Instant};
 
 use iec104::apci::{Apci, SeqNo, UFunction};
-use iec104::link::{Action, Role};
+use iec104::link::{Action, Role, State};
 use iec104::params::LinkParams;
-use iec104::redundancy::{RedundancyGroup, Replay, ReplayOutcome, Routed, Switchover};
+use iec104::redundancy::{
+    CLOSED_BY_START, RedundancyGroup, Replay, ReplayOutcome, Routed, Switchover,
+};
 
 fn asdu(v: u8) -> Vec<u8> {
     vec![0x01, 0x01, 0x03, 0x00, 0x0C, 0x00, 0x00, 0x00, 0x00, v]
@@ -272,4 +274,52 @@ fn clause_10_7_data_sent_after_a_start_closed_another_connection_waits_for_the_d
     ));
     assert_eq!(on_wire(&routed, 1), vec![asdu(2)]);
     assert_eq!(group.held_user_data(), [] as [Vec<u8>; 0]);
+}
+
+#[test]
+fn clause_10_7_an_act_on_a_connection_named_beforehand_still_closes_the_started_one() {
+    let t = Instant::now();
+    let mut group = RedundancyGroup::uniform(Role::Controlled, LinkParams::default(), 2).unwrap();
+    group.on_connection_established(0, t).unwrap();
+    group.on_connection_established(1, t).unwrap();
+    group
+        .on_frame_at(0, Apci::U(UFunction::StartDtAct), t)
+        .unwrap();
+    assert_eq!(group.state(0), Ok(State::Started));
+
+    group.observe_startdt_act(1).unwrap();
+    let routed = group
+        .on_frame_at(1, Apci::U(UFunction::StartDtAct), t)
+        .unwrap();
+    assert_eq!(
+        routed,
+        vec![
+            Routed {
+                member: 0,
+                actions: vec![Action::ActiveClose(CLOSED_BY_START)],
+            },
+            Routed {
+                member: 1,
+                actions: vec![Action::Send(Apci::U(UFunction::StartDtCon))],
+            },
+        ]
+    );
+    assert_eq!(group.started_index(), Some(1));
+    assert_eq!(
+        [group.state(0), group.state(1)],
+        [Ok(State::Terminated), Ok(State::Started)],
+        "rule 3: one started connection"
+    );
+
+    let again = group
+        .on_frame_at(1, Apci::U(UFunction::StartDtAct), t)
+        .unwrap();
+    assert_eq!(
+        again,
+        vec![Routed {
+            member: 1,
+            actions: vec![Action::Send(Apci::U(UFunction::StartDtCon))],
+        }],
+        "a repeated act closes nothing"
+    );
 }
