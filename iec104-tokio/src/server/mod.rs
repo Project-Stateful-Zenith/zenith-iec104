@@ -591,7 +591,7 @@ impl Server {
     /// `LOF` can state, [`ServerError::Layout`] when the common address, or a
     /// point's or a command's address, does not fit [`ServerConfig::sizes`], and
     /// [`ServerError::Driver`] when the redundancy group cannot be built from
-    /// the configuration (no member, say).
+    /// the configuration (no member, or more than memory can be reserved for).
     pub fn spawn<A: Application>(config: ServerConfig, app: A) -> Result<Self, ServerError> {
         // 5-101 cl.7.2.4: every ASDU carries it, so one that does not fit
         // would leave each answer unencodable.
@@ -634,7 +634,7 @@ impl Server {
             };
             return Err(ServerError::Layout(LayoutError::Asdu(e)));
         }
-        let group = RedundancyGroup::new(Role::Controlled, vec![config.link; config.members])
+        let group = RedundancyGroup::uniform(Role::Controlled, config.link, config.members)
             .map_err(|e| ServerError::Driver(Error::Group(e)))?;
         let options = Options {
             trace: config.trace,

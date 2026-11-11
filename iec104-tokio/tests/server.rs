@@ -2087,3 +2087,16 @@ async fn without_accept_uploads_an_offered_file_is_an_unknown_type() {
     mirror[2] = UNKNOWN_TYPE;
     assert_eq!(master.next().await, mirror);
 }
+
+#[tokio::test]
+async fn a_member_count_that_cannot_be_reserved_is_refused_without_a_panic() {
+    let mut config = config();
+    config.members = usize::MAX;
+    let (station, _side) = app();
+    assert_eq!(
+        Server::spawn(config, station).err(),
+        Some(ServerError::Driver(iec104_tokio::Error::Group(
+            iec104::redundancy::GroupError::TooManyMembers { count: usize::MAX }
+        )))
+    );
+}

@@ -1834,3 +1834,14 @@ async fn a_test_asdu_does_not_change_the_image() {
     assert_eq!(image.apply(&update, Instant::now()), 0);
     assert_eq!(image, before);
 }
+
+#[tokio::test]
+async fn a_member_count_that_cannot_be_reserved_is_refused_without_a_panic() {
+    let (connector, _dials) = Dials::new();
+    assert_eq!(
+        Client::spawn_redundant(connector, usize::MAX, config()).err(),
+        Some(ClientError::Driver(iec104_tokio::Error::Group(
+            iec104::redundancy::GroupError::TooManyMembers { count: usize::MAX }
+        )))
+    );
+}

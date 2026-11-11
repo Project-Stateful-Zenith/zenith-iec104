@@ -32,7 +32,9 @@ follow [Semantic Versioning](https://semver.org/).
   refuse a count whose memory cannot be reserved with the new
   `GroupError::TooManyMembers` and `ManagerError::TooManyStations` instead
   of panicking with "capacity overflow" (`uniform(.., usize::MAX)`). An
-  exhaustive match on either enum needs a new arm.
+  exhaustive match on either enum needs a new arm. `iec104-tokio`'s
+  `Client::spawn_redundant` and `Server::spawn` return it as their
+  `Driver` error.
 
 ### Added
 

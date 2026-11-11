@@ -587,13 +587,13 @@ impl Client {
     /// # Errors
     ///
     /// [`ClientError::Driver`] when no redundancy group can be built of
-    /// `members` connections (none, say).
+    /// `members` connections (none, or more than memory can be reserved for).
     pub fn spawn_redundant<K: Connector>(
         connector: K,
         members: usize,
         config: ClientConfig,
     ) -> Result<Self, ClientError> {
-        let group = RedundancyGroup::new(Role::Controlling, vec![config.link; members])
+        let group = RedundancyGroup::uniform(Role::Controlling, config.link, members)
             .map_err(|e| ClientError::Driver(Error::Group(e)))?;
         let (handle, events) = master::spawn_redundant(group, connector, options(&config))?;
         Ok(Self::start(handle, events, config, true, Vec::new()))
