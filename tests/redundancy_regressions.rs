@@ -7,12 +7,12 @@
 // Test code may panic, index and compute freely, as clippy.toml allows inside #[test] functions.
 #![allow(clippy::as_conversions, clippy::cast_possible_truncation)]
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use iec104::apci::{Apci, SeqNo, UFunction};
 use iec104::link::{Action, Role};
 use iec104::params::LinkParams;
-use iec104::redundancy::{RedundancyGroup, Replay, ReplayOutcome};
+use iec104::redundancy::{RedundancyGroup, Replay, ReplayOutcome, Routed, Switchover};
 
 fn asdu(v: u8) -> Vec<u8> {
     vec![0x01, 0x01, 0x03, 0x00, 0x0C, 0x00, 0x00, 0x00, 0x00, v]
@@ -25,6 +25,14 @@ fn i_asdus(actions: &[Action]) -> Vec<Vec<u8>> {
             Action::SendI { asdu, .. } => Some(asdu.clone()),
             _ => None,
         })
+        .collect()
+}
+
+fn on_wire(routed: &[Routed], member: usize) -> Vec<Vec<u8>> {
+    routed
+        .iter()
+        .filter(|r| r.member == member)
+        .flat_map(|r| i_asdus(&r.actions))
         .collect()
 }
 
@@ -136,4 +144,132 @@ fn hand_reestablished_member_captures_its_next_failure() {
     assert_eq!(group.member(0).unwrap().queued_user_data().len(), 1);
     group.on_connection_lost(0).unwrap();
     assert_eq!(group.member(0).unwrap().left_behind(), &[asdu(0)], "B lost");
+}
+
+#[test]
+fn clause_10_6_data_sent_after_a_t1_switchover_waits_behind_the_replay() {
+    let t = Instant::now();
+    let mut group = RedundancyGroup::uniform(Role::Controlling, LinkParams::default(), 2).unwrap();
+    group.on_connection_established(0, t).unwrap();
+    group.on_connection_established(1, t).unwrap();
+    group.start_at(0, t).unwrap();
+    group
+        .on_frame_at(0, Apci::U(UFunction::StartDtCon), t)
+        .unwrap();
+    assert_eq!(
+        on_wire(&group.send_user_data_at(0, &asdu(1), t).unwrap(), 0),
+        vec![asdu(1)]
+    );
+
+    let later = t + Duration::from_secs(15);
+    let outcome = group.tick(later);
+    assert_eq!(
+        outcome.switchovers,
+        vec![Switchover::Automatic {
+            failed: 0,
+            started: 1,
+            unconfirmed: 1,
+        }]
+    );
+    group.on_connection_lost(0).unwrap();
+    group
+        .on_frame_at(1, Apci::U(UFunction::StartDtCon), later)
+        .unwrap();
+
+    assert_eq!(
+        group.send_user_data_at(1, &asdu(2), later).unwrap(),
+        Vec::new(),
+        "nothing overtakes the data the failed connection left behind"
+    );
+    assert_eq!(group.held_user_data(), &[asdu(2)]);
+
+    let (outcome, routed) = group
+        .retransmit_unconfirmed_at(0, Replay::Retransmit, later)
+        .unwrap();
+    assert!(matches!(
+        outcome,
+        ReplayOutcome::Retransmitted { queued: 0, .. }
+    ));
+    assert_eq!(on_wire(&routed, 1), vec![asdu(1), asdu(2)]);
+    assert_eq!(group.held_user_data(), [] as [Vec<u8>; 0]);
+
+    assert_eq!(
+        on_wire(&group.send_user_data_at(1, &asdu(3), later).unwrap(), 1),
+        vec![asdu(3)],
+        "decided: user data flows again"
+    );
+}
+
+#[test]
+fn clause_10_6_an_event_sent_after_a_displacement_waits_behind_the_replay() {
+    let t = Instant::now();
+    let mut group = RedundancyGroup::uniform(Role::Controlled, LinkParams::default(), 2).unwrap();
+    group.on_connection_established(0, t).unwrap();
+    group.on_connection_established(1, t).unwrap();
+    group
+        .on_frame_at(0, Apci::U(UFunction::StartDtAct), t)
+        .unwrap();
+    assert_eq!(
+        on_wire(&group.send_user_data_at(0, &asdu(1), t).unwrap(), 0),
+        vec![asdu(1)]
+    );
+
+    let routed = group
+        .on_frame_at(1, Apci::U(UFunction::StartDtAct), t)
+        .unwrap();
+    assert!(
+        routed
+            .iter()
+            .any(|r| r.member == 0 && matches!(r.actions.last(), Some(Action::ActiveClose(_)))),
+        "10.7 closes the displaced connection"
+    );
+    group.on_connection_lost(0).unwrap();
+    assert_eq!(group.member(0).unwrap().left_behind(), &[asdu(1)]);
+
+    assert_eq!(
+        group.send_user_data_at(1, &asdu(2), t).unwrap(),
+        Vec::new(),
+        "nothing overtakes the data the displaced connection left behind"
+    );
+
+    let (_, routed) = group
+        .retransmit_unconfirmed_at(0, Replay::Retransmit, t)
+        .unwrap();
+    assert_eq!(on_wire(&routed, 1), vec![asdu(1), asdu(2)]);
+}
+
+#[test]
+fn clause_10_7_data_sent_after_a_start_closed_another_connection_waits_for_the_decision() {
+    let t = Instant::now();
+    let mut group = RedundancyGroup::uniform(Role::Controlling, LinkParams::default(), 2).unwrap();
+    group.on_connection_established(0, t).unwrap();
+    group.on_connection_established(1, t).unwrap();
+    group.start_at(0, t).unwrap();
+    group
+        .on_frame_at(0, Apci::U(UFunction::StartDtCon), t)
+        .unwrap();
+    group.send_user_data_at(0, &asdu(1), t).unwrap();
+
+    let routed = group.start_at(1, t).unwrap();
+    assert!(
+        routed
+            .iter()
+            .any(|r| r.member == 0 && matches!(r.actions.last(), Some(Action::ActiveClose(_)))),
+        "10.7 closes the connection that was started"
+    );
+    group.on_connection_lost(0).unwrap();
+    assert_eq!(group.member(0).unwrap().left_behind(), &[asdu(1)]);
+
+    assert_eq!(group.send_user_data_at(1, &asdu(2), t).unwrap(), Vec::new());
+    assert_eq!(group.held_user_data(), &[asdu(2)]);
+
+    let (outcome, routed) = group
+        .retransmit_unconfirmed_at(0, Replay::Discard, t)
+        .unwrap();
+    assert!(matches!(
+        outcome,
+        ReplayOutcome::Discarded { discarded: 1, .. }
+    ));
+    assert_eq!(on_wire(&routed, 1), vec![asdu(2)]);
+    assert_eq!(group.held_user_data(), [] as [Vec<u8>; 0]);
 }

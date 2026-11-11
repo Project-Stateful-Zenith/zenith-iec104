@@ -393,8 +393,9 @@
 //!   is handed ([`RedundancyGroup::held_user_data`]) and queues it on the next
 //!   connection named; data still waiting on another stopped connection when
 //!   the naming moves joins it. While a failed connection's data waits for the
-//!   application's replay decision, the held data waits behind it, so the
-//!   replay goes out first (10.6).
+//!   application's replay decision, the held data waits behind it, and so
+//!   does every ASDU handed over meanwhile, also when another connection is
+//!   already started, so the replay goes out first (10.6).
 //!
 //! # What stays the caller's
 //!
@@ -900,10 +901,12 @@ impl RedundancyGroup {
     ///   connection (clause 5.1) and 10.5 requires that no data is lost in a
     ///   switchover;
     /// - in the group ([`RedundancyGroup::held_user_data`]), when the started
-    ///   connection failed and no other has been named yet, or the group
-    ///   already holds data. The data goes into the queue of the next
-    ///   connection named, once no failed connection's data waits for the
-    ///   replay decision.
+    ///   connection failed and no other has been named yet, when a failed
+    ///   connection's data still waits for the replay decision
+    ///   ([`Member::left_behind`]), or when the group already holds data. The
+    ///   data goes into the queue of the next connection named, once no
+    ///   failed connection's data waits for the replay decision: that data is
+    ///   older, and nothing handed over later goes out ahead of it (10.6).
     ///
     /// A terminated connection that is still named refuses with
     /// [`GroupError::Queue`], and so does the group once it holds
@@ -953,12 +956,6 @@ impl RedundancyGroup {
         if in_hand >= MAX_PENDING_USER_DATA {
             return Err(GroupError::Queue(QueueError::Full));
         }
-        self.deliver(index, asdu)
-    }
-
-    /// [`RedundancyGroup::send_user_data`] without the group's limit, for the
-    /// replay of data the limit already counted.
-    fn deliver(&mut self, index: usize, asdu: &[u8]) -> Result<Option<Action>, GroupError> {
         if (self.started.is_none() && self.switching) || !self.held.is_empty() {
             // Between a failure and the next Start there is no connection to
             // carry it; the group holds it for the next one named. Data the
@@ -968,6 +965,22 @@ impl RedundancyGroup {
             return Ok(None);
         }
         let index = self.route(index)?;
+        if self.undecided() && self.member(index)?.session.is_connected() {
+            self.held.push(asdu.to_vec());
+            return Ok(None);
+        }
+        self.place(index, asdu)
+    }
+
+    fn undecided(&self) -> bool {
+        self.members.iter().any(|member| !member.left.is_empty())
+    }
+
+    /// [`RedundancyGroup::send_user_data`] without the group's limit and
+    /// without its holding, for the replay of data the limit already counted:
+    /// the ASDU goes to the started connection, onto the wire or into its
+    /// clause 5.3 queue.
+    fn place(&mut self, index: usize, asdu: &[u8]) -> Result<Option<Action>, GroupError> {
         let member = self.member_mut(index)?;
         // Clause 5.3's queue is older than this ASDU: while it holds anything
         // the ASDU queues behind it, so nothing overtakes it (10.6's order).
@@ -1089,7 +1102,7 @@ impl RedundancyGroup {
     /// ([`RedundancyGroup::retransmit_unconfirmed`]) releases the held data
     /// behind it.
     fn release_held(&mut self) {
-        if self.members.iter().any(|member| !member.left.is_empty()) {
+        if self.undecided() {
             return;
         }
         let Some(member) = self.started.and_then(|index| self.members.get_mut(index)) else {
@@ -1577,7 +1590,7 @@ impl RedundancyGroup {
                 // (10.6).
                 let newer = std::mem::take(&mut self.held);
                 for asdu in &held {
-                    match self.deliver(index, asdu) {
+                    match self.place(index, asdu) {
                         Ok(Some(action)) => actions.push(action),
                         Ok(None) => queued = queued.saturating_add(1),
                         Err(error) => {

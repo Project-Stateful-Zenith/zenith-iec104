@@ -7,6 +7,16 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- `RedundancyGroup::send_user_data` holds user data while a failed
+  connection's data waits for the replay decision, also when another
+  connection is already started. After a t1 switchover, a displacement by
+  the master's STARTDT act or a Start on another connection it went out
+  ahead of that older data. An application that sent without deciding now
+  calls `retransmit_unconfirmed` with `Retransmit` or `Discard` first, as
+  the documentation already required.
+
 ## [0.36.0] - 2026-10-21
 
 ### Added
