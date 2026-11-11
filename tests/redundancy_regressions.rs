@@ -1,8 +1,10 @@
 //! Redundancy-group scenarios that once lost or reordered data at a
 //! connection switchover, one test each, in the exact sequence that showed the
 //! fault (104 clause 10.5/10.6: data are neither lost nor reordered at a
-//! connection switchover). `tests/redundancy_model.rs` covers the same ground
-//! at random.
+//! connection switchover). `tests/redundancy_model.rs` and
+//! `tests/redundancy_order.rs` cover the same ground at random. The file
+//! also pins that only a t1 switches over by itself, and that a refused
+//! dial is reported by its attempt number.
 
 // Test code may panic, index and compute freely, as clippy.toml allows inside #[test] functions.
 #![allow(clippy::as_conversions, clippy::cast_possible_truncation)]

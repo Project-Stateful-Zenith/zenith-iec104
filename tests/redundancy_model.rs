@@ -5,8 +5,11 @@
 //! controlling one, with the outstation's confirmations); acknowledgements;
 //! lost and re-established connections; and expiring timers (a t1 on the
 //! started connection is the controlling station's switchover). After every
-//! step, the test checks the three properties clause 10.5 and 10.6 ask for:
+//! step, the test checks rule 3 and the three properties clause 10.5 and
+//! 10.6 ask for:
 //!
+//! - **One started connection** (10.2 rule 3, kept by 10.7's close rule): at
+//!   most one member is in a data-transfer state.
 //! - **Nothing is lost** (10.5 requires that a switch to another connection
 //!   lose no data): every ASDU handed to the group that the
 //!   master has not confirmed and the application has not discarded is in
