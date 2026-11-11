@@ -1727,17 +1727,18 @@ impl RedundancyGroup {
     /// [`Replay::Leave`] only counts it. [`Replay::Discard`] drops it: the
     /// caller then ends the application function in progress and runs it again
     /// on the new connection itself. [`Replay::Retransmit`]
-    /// hands every held ASDU to the group's started connection, oldest first,
-    /// through [`RedundancyGroup::send_user_data`]. That is rule 3's routing:
+    /// hands every held ASDU to the group's started connection, oldest first.
+    /// That is rule 3's routing:
     /// the data leaves on the one started connection (which may be `failed`
     /// itself on a new connection), and an ASDU that connection cannot put on
     /// the wire yet waits in *its* clause 5.3 queue (counted in
     /// [`ReplayOutcome::Retransmitted`]'s `queued`).
     ///
     /// The user data the group held meanwhile ([`RedundancyGroup::held_user_data`])
-    /// is newer, so it waits for this decision: once no member has anything
-    /// left behind, `Retransmit` sends it behind the replay (in the same
-    /// actions) and `Discard` sends it on the started connection (in
+    /// waits for this decision: once no member has anything left behind,
+    /// `Retransmit` sends it with the replay (in the same actions), in
+    /// handover order with it and with what already waits in the started
+    /// connection's queue, and `Discard` sends it on the started connection (in
     /// [`ReplayOutcome::Discarded`]'s actions); what that connection cannot put
     /// on the wire yet waits in its clause 5.3 queue, and later user data
     /// queues behind it. `Leave` decides nothing and keeps it held.
@@ -1768,7 +1769,9 @@ impl RedundancyGroup {
     /// held is [`GroupError::StillStartedConnection`] (its own frames are on
     /// the wire, and the group does not duplicate them); and
     /// [`Replay::Retransmit`] while the group names no started connection is
-    /// [`GroupError::NoStartedConnection`].
+    /// [`GroupError::NoStartedConnection`]. A started connection whose
+    /// session is over, or whose queue has no room for the replay, refuses it
+    /// with [`GroupError::Queue`]. A refusal changes nothing.
     ///
     /// # Errors
     ///
@@ -1776,8 +1779,7 @@ impl RedundancyGroup {
     /// [`GroupError::AlreadyRetransmitted`] when its data was already replayed
     /// or discarded, and for [`Replay::Retransmit`]
     /// [`GroupError::StillStartedConnection`],
-    /// [`GroupError::NoStartedConnection`] or the errors of
-    /// [`RedundancyGroup::send_user_data`].
+    /// [`GroupError::NoStartedConnection`] or [`GroupError::Queue`].
     pub fn retransmit_unconfirmed(
         &mut self,
         failed: usize,
@@ -1825,65 +1827,57 @@ impl RedundancyGroup {
                     return Err(GroupError::StillStartedConnection { index: failed });
                 }
                 let index = self.started()?;
-                if !held.is_empty() && !self.member(index)?.session.is_connected() {
-                    return Err(GroupError::Queue(QueueError::NotConnected));
-                }
                 let mut actions = Vec::new();
                 let mut queued = 0_usize;
-                let others = self
-                    .members
-                    .iter()
-                    .enumerate()
-                    .any(|(other, member)| other != failed && !member.left.is_empty());
-                let replay = std::mem::take(&mut self.member_mut(failed)?.left);
-                let mut merged: Vec<(u64, bool, Vec<u8>)> = replay
-                    .pairs()
-                    .map(|(stamp, asdu)| (stamp, true, asdu))
-                    .collect();
                 if !held.is_empty() {
+                    let carrier = &self.member(index)?.session;
+                    if !carrier.is_connected() {
+                        return Err(GroupError::Queue(QueueError::NotConnected));
+                    }
+                    let room = MAX_PENDING_USER_DATA.saturating_sub(carrier.pending_user_data());
+                    if held.len() > room {
+                        return Err(GroupError::Queue(QueueError::Full));
+                    }
+                    let others = self
+                        .members
+                        .iter()
+                        .enumerate()
+                        .any(|(other, member)| other != failed && !member.left.is_empty());
+                    let fits = self.held.len() <= room.saturating_sub(held.len());
+                    let replay = std::mem::take(&mut self.member_mut(failed)?.left);
+                    let mut merged: Vec<(u64, bool, Vec<u8>)> = replay
+                        .pairs()
+                        .map(|(stamp, asdu)| (stamp, true, asdu))
+                        .collect();
                     let waiting = self.member_mut(index)?.take_queue();
                     merged.extend(waiting.pairs().map(|(stamp, asdu)| (stamp, false, asdu)));
-                    if !others {
+                    if fits && !others {
                         let older = std::mem::take(&mut self.held);
                         merged.extend(older.pairs().map(|(stamp, asdu)| (stamp, false, asdu)));
                     }
-                }
-                merged.sort_by_key(|(stamp, ..)| *stamp);
-                let mut kept = Order::default();
-                let mut refused = None;
-                for (stamp, replayed, asdu) in merged {
-                    let placed = match refused {
-                        None => self.place(index, stamp, &asdu),
-                        Some(_) => Ok(None),
-                    };
-                    match placed {
-                        Ok(Some(action)) => actions.push(action),
-                        Ok(None) if refused.is_none() => {
-                            if replayed {
-                                queued = queued.saturating_add(1);
+                    merged.sort_by_key(|(stamp, ..)| *stamp);
+                    let mut kept = Order::default();
+                    for (stamp, replayed, asdu) in merged {
+                        match self.place(index, stamp, &asdu) {
+                            Ok(Some(action)) => actions.push(action),
+                            Ok(None) => {
+                                if replayed {
+                                    queued = queued.saturating_add(1);
+                                }
                             }
-                        }
-                        Ok(None) | Err(_) => {
-                            if let Err(error) = placed
-                                && refused.is_none()
-                            {
-                                refused = Some(error);
-                            }
-                            if replayed {
-                                kept.push(stamp, asdu);
-                            } else {
+                            Err(_) if replayed => kept.push(stamp, asdu),
+                            Err(_) => {
                                 let mut one = Order::default();
                                 one.push(stamp, asdu);
                                 self.held.merge(one);
                             }
                         }
                     }
-                }
-                if let Some(error) = refused {
                     self.member_mut(failed)?.left = kept;
-                    return Err(error);
                 }
-                self.member_mut(failed)?.mark_replayed();
+                if self.member(failed)?.left.is_empty() {
+                    self.member_mut(failed)?.mark_replayed();
+                }
                 self.release_held();
                 let member = self.member_mut(index)?;
                 let flushed = member.session.flush_pending();

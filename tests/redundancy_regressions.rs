@@ -10,7 +10,7 @@
 use std::time::{Duration, Instant};
 
 use iec104::apci::{Apci, SeqNo, UFunction};
-use iec104::link::{Action, Role, State, Timer};
+use iec104::link::{Action, MAX_PENDING_USER_DATA, QueueError, Role, State, Timer};
 use iec104::params::LinkParams;
 use iec104::redundancy::{
     CLOSED_BY_START, GroupError, RedundancyGroup, Replay, ReplayOutcome, Routed, Switchover,
@@ -788,4 +788,70 @@ fn clause_10_7_a_start_closes_a_stopped_connection_that_has_frames_unconfirmed()
     };
     assert_eq!(queued, 0);
     assert_eq!(i_asdus(&actions), vec![asdu(1), asdu(2), asdu(3)]);
+}
+
+#[test]
+fn clause_10_6_held_data_waits_until_every_failure_is_decided() {
+    let t = Instant::now();
+    let mut group = RedundancyGroup::uniform(Role::Controlling, LinkParams::default(), 3).unwrap();
+    for member in 0..3 {
+        group.on_connection_established(member, t).unwrap();
+    }
+    group.start(0).unwrap();
+    group.on_frame(0, Apci::U(UFunction::StartDtCon)).unwrap();
+    assert!(group.send_user_data(0, &asdu(1)).unwrap().is_some());
+    assert_eq!(group.select(1), Ok(Vec::new()));
+    assert_eq!(group.send_user_data(1, &asdu(2)), Ok(None));
+    group.on_connection_lost(0).unwrap();
+    group.on_connection_lost(1).unwrap();
+    assert_eq!(group.member(0).unwrap().left_behind(), &[asdu(1)]);
+    assert_eq!(group.member(1).unwrap().left_behind(), &[asdu(2)]);
+
+    group.start(2).unwrap();
+    group.on_frame(2, Apci::U(UFunction::StartDtCon)).unwrap();
+    assert_eq!(group.send_user_data(2, &asdu(3)), Ok(None));
+
+    let Ok(ReplayOutcome::Retransmitted { actions, queued }) =
+        group.retransmit_unconfirmed(0, Replay::Retransmit)
+    else {
+        panic!("the replay is refused");
+    };
+    assert_eq!((i_asdus(&actions), queued), (vec![asdu(1)], 0));
+    assert_eq!(group.held_user_data(), &[asdu(3)]);
+
+    let Ok(ReplayOutcome::Retransmitted { actions, queued }) =
+        group.retransmit_unconfirmed(1, Replay::Retransmit)
+    else {
+        panic!("the replay is refused");
+    };
+    assert_eq!((i_asdus(&actions), queued), (vec![asdu(2), asdu(3)], 0));
+    assert_eq!(group.held_user_data(), [] as [Vec<u8>; 0]);
+}
+
+#[test]
+fn a_replay_the_started_connections_queue_has_no_room_for_changes_nothing() {
+    let mut group = established(Role::Controlled, 1).unwrap();
+    group.on_startdt_act(0).unwrap();
+    assert!(group.send_user_data(0, &asdu(1)).unwrap().is_some());
+    assert_eq!(group.send_user_data(0, &asdu(2)), Ok(None));
+    group.on_connection_lost(0).unwrap();
+    group.on_startdt_act(1).unwrap();
+    let mut by_hand = 0_usize;
+    for _ in 0..MAX_PENDING_USER_DATA {
+        let session = group.member_mut(1).unwrap().session_mut();
+        if session.queue_i_frame(&asdu(9)).is_ok() {
+            by_hand += 1;
+        }
+    }
+    assert_eq!(by_hand, MAX_PENDING_USER_DATA);
+
+    assert_eq!(
+        group.retransmit_unconfirmed(0, Replay::Retransmit),
+        Err(GroupError::Queue(QueueError::Full))
+    );
+    assert_eq!(group.member(0).unwrap().left_behind(), &[asdu(1), asdu(2)]);
+    let session = group.member(1).unwrap().session();
+    assert_eq!(session.pending_user_data(), MAX_PENDING_USER_DATA);
+    assert_eq!(session.outstanding_frames().len(), 0);
+    assert!(!group.member(0).unwrap().replayed());
 }
