@@ -466,6 +466,12 @@ pub enum ManagerError {
     /// no manager at all) and the counterpart of
     /// [`crate::redundancy::GroupError::NoMembers`].
     NoStations,
+    /// The memory for this many stations could not be reserved. The
+    /// constructor refuses before it builds any of them.
+    TooManyStations {
+        /// How many stations were asked for.
+        count: usize,
+    },
     /// The index names no station of this manager.
     StationIndexOutOfRange {
         /// The index the caller used.
@@ -521,23 +527,35 @@ impl ConnectionManager {
     ///
     /// # Errors
     ///
-    /// [`ManagerError::NoStations`] for an empty list, and
-    /// [`ManagerError::Params`] for the first station whose parameters are
-    /// inadmissible.
+    /// [`ManagerError::NoStations`] for an empty list,
+    /// [`ManagerError::TooManyStations`] when the memory for the stations
+    /// cannot be reserved, and [`ManagerError::Params`] for the first station
+    /// whose parameters are inadmissible.
     pub fn new(role: Role, stations: Vec<StationConfig>) -> Result<Self, ManagerError> {
-        if stations.is_empty() {
+        let count = stations.len();
+        Self::build(role, stations.into_iter(), count)
+    }
+
+    fn build(
+        role: Role,
+        configs: impl Iterator<Item = StationConfig>,
+        count: usize,
+    ) -> Result<Self, ManagerError> {
+        if count == 0 {
             return Err(ManagerError::NoStations);
         }
-        let stations = stations
-            .into_iter()
-            .enumerate()
-            .map(|(index, config)| {
-                Station::from_config(role, config).map_err(|error| ManagerError::Params {
+        let mut stations = Vec::new();
+        stations
+            .try_reserve_exact(count)
+            .map_err(|_| ManagerError::TooManyStations { count })?;
+        for (index, config) in configs.enumerate() {
+            stations.push(Station::from_config(role, config).map_err(|error| {
+                ManagerError::Params {
                     station: index,
                     error,
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+                }
+            })?);
+        }
         Ok(Self { role, stations })
     }
 
@@ -546,9 +564,10 @@ impl ConnectionManager {
     /// # Errors
     ///
     /// As [`ConnectionManager::new`], so [`ManagerError::NoStations`] when
-    /// `count` is zero.
+    /// `count` is zero and [`ManagerError::TooManyStations`] when the memory
+    /// for `count` stations cannot be reserved, as for `usize::MAX`.
     pub fn uniform(role: Role, config: StationConfig, count: usize) -> Result<Self, ManagerError> {
-        Self::new(role, vec![config; count])
+        Self::build(role, std::iter::repeat_n(config, count), count)
     }
 
     /// The role of every station of this manager.
