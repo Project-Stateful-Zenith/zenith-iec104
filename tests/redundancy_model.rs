@@ -38,7 +38,7 @@ use std::time::{Duration, Instant};
 use iec104::apci::{Apci, SeqNo, UFunction};
 use iec104::link::{Action, Role, State};
 use iec104::params::LinkParams;
-use iec104::redundancy::{RedundancyGroup, Replay, ReplayOutcome, Routed};
+use iec104::redundancy::{Member, RedundancyGroup, Replay, ReplayOutcome, Routed};
 
 /// A small deterministic generator (Knuth's MMIX LCG).
 struct Rng(u64);
@@ -461,8 +461,24 @@ impl Model {
         self.check();
     }
 
+    fn check_rule_3(&self) {
+        let states: Vec<State> = self.group.members().iter().map(Member::state).collect();
+        let live = states
+            .iter()
+            .filter(|state| !matches!(state, State::Stopped | State::Terminated))
+            .count();
+        if live > 1 {
+            self.fail(&format!(
+                "rule 3: {live} connections are in a data-transfer state, members {states:?}, \
+                 started {:?}",
+                self.group.started_index()
+            ));
+        }
+    }
+
     /// Where each open ASDU is, and that it is there exactly once.
     fn check(&self) {
+        self.check_rule_3();
         let mut seen: HashMap<u32, Vec<String>> = HashMap::new();
         let mut note = |ids: Vec<u32>, place: String| {
             for id in ids {
