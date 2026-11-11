@@ -16,6 +16,10 @@ follow [Semantic Versioning](https://semver.org/).
   ahead of that older data. An application that sent without deciding now
   calls `retransmit_unconfirmed` with `Retransmit` or `Discard` first, as
   the documentation already required.
+- `iec104-tokio`: `Event::StartedConnectionFailed` is also reported when
+  the application's own `Handle::start` of another connection or
+  `Handle::close` ended the started connection and it left data
+  unconfirmed, and `Handle::window` is 0 until that data is decided on.
 
 ## [0.36.0] - 2026-10-21
 

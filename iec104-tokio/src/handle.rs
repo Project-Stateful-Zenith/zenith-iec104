@@ -41,7 +41,9 @@ impl Handle {
     /// the connection: user data goes on the group's started connection
     /// (rule 3). Before the first start it is refused; between a failure and
     /// the next start the group holds it (10.5). A failed connection's
-    /// unconfirmed data waits for [`Handle::retransmit_unconfirmed`].
+    /// unconfirmed data waits for [`Handle::retransmit_unconfirmed`], and
+    /// until that decision the group holds what it is handed, so the older
+    /// data goes out first (10.6).
     ///
     /// # Errors
     ///
@@ -57,7 +59,9 @@ impl Handle {
 
     /// Sends STARTDT act on `conn` (clause 5.3; for a group, 10.3's start,
     /// which closes any other connection that is not stopped, 10.7). A
-    /// connection without a socket, or not stopped, is refused.
+    /// connection without a socket, or not stopped, is refused. A started
+    /// connection closed that way reports the data it left unconfirmed as
+    /// [`crate::Event::StartedConnectionFailed`].
     ///
     /// # Errors
     ///
@@ -90,7 +94,9 @@ impl Handle {
     /// Closing a group's started connection is the application's connection
     /// change (figure 37): the group names none, and user data is refused
     /// until another is started, which [`crate::Options::auto_start`] does
-    /// at once on a controlling station.
+    /// at once on a controlling station. The data the closed connection left
+    /// unconfirmed is reported as [`crate::Event::StartedConnectionFailed`]
+    /// and waits for [`Handle::retransmit_unconfirmed`].
     ///
     /// # Errors
     ///
@@ -116,9 +122,9 @@ impl Handle {
     /// once: the k window (clause 5.5) less the I-frames the peer has not
     /// confirmed and the ASDUs already waiting in the session's clause 5.3
     /// queue. 0 while data transfer is not on, and on a redundancy group
-    /// while it names no started connection or holds data for the next one
-    /// (10.5); a group answers for its started connection whatever `conn`
-    /// names.
+    /// while it names no started connection, holds data for the next one
+    /// (10.5) or keeps a failed connection's data for the replay decision; a
+    /// group answers for its started connection whatever `conn` names.
     ///
     /// An application that keeps its own send queue (to order what it sends,
     /// as 5-101 Table 16 asks of a controlled station) hands over no more

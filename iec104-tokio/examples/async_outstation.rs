@@ -26,7 +26,7 @@ use iec104::dispatch::{Route, not_implemented, route};
 use iec104::gi::{DataSource, Interrogation, ReActivation, Reaction, Scope};
 use iec104::link::{Role, State};
 use iec104::params::LinkParams;
-use iec104::redundancy::{RedundancyGroup, Replay};
+use iec104::redundancy::{RedundancyGroup, Replay, Switchover};
 use iec104_tokio::{Event, Handle, Options, outstation};
 use tokio::net::TcpListener;
 
@@ -166,6 +166,12 @@ async fn main() -> Result<(), String> {
             }
             Event::StartedConnectionFailed { conn, unconfirmed } if unconfirmed > 0 => {
                 to_replay.push(conn);
+            }
+            Event::Switchover(Switchover::LeftToTheControllingStation {
+                failed,
+                unconfirmed,
+            }) if unconfirmed > 0 => {
+                to_replay.push(failed);
             }
             Event::Asdu { asdu, .. } => {
                 let Ok(header) = Header::parse_with(&asdu, sizes) else {
