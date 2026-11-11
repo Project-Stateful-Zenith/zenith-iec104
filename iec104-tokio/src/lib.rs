@@ -211,7 +211,9 @@ pub enum Event {
         error: Error,
     },
     /// Redundancy group: a failed started connection's switchover (10.5),
-    /// after its t1 expired.
+    /// after its t1 expired. What that connection left unconfirmed is decided
+    /// on with [`Handle::retransmit_unconfirmed`], as for
+    /// [`Event::StartedConnectionFailed`].
     Switchover(Switchover),
     /// Redundancy group: the started connection went down other than by its
     /// t1: the socket was lost, its session closed it (a sequence error), or,
@@ -220,11 +222,14 @@ pub enum Event {
     /// again on the next started connection with
     /// [`Handle::retransmit_unconfirmed`] (10.5, 10.6), or be discarded with
     /// it; the group keeps them until then, also when `conn` is reopened or
-    /// started again. The count includes earlier failures of `conn` not yet
-    /// decided on, so an application that never decides holds more with every
-    /// failure. A connection the master stopped before starting another
-    /// (10.2's manual switchover) has not failed and is not reported, and
-    /// neither is the application's own [`Handle::close`].
+    /// started again, and holds every ASDU it is handed meanwhile behind
+    /// them (10.6), so an application that never decides sends no user data
+    /// again. The count includes earlier failures of `conn` not yet decided
+    /// on. A connection the master stopped before starting another (10.2's
+    /// manual switchover) has not failed and is not reported. The
+    /// application's own [`Handle::close`], and its [`Handle::start`] of
+    /// another connection, which closes the started one (10.7), are reported
+    /// only when the connection they ended left data behind.
     StartedConnectionFailed {
         /// The connection: the station of a manager, or the member of a group.
         conn: usize,

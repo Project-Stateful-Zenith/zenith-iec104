@@ -366,3 +366,108 @@ async fn a_self_closed_started_connection_is_reported() {
     );
     assert!(!seen.iter().any(|e| matches!(e, Event::Switchover(_))));
 }
+
+#[tokio::test(start_paused = true)]
+async fn clause_10_7_a_start_on_another_connection_reports_what_the_closed_one_left() {
+    let (handle, mut events, _dials, mut peer0, mut peer1) = started().await;
+    handle.send_asdu(0, INTERROGATION).await.unwrap();
+    assert_eq!(peer0.frame().await.unwrap(), i_frame(0, 0, &INTERROGATION));
+
+    handle.start(1).await.unwrap();
+    assert_eq!(
+        peer0.frame().await,
+        None,
+        "10.7 closes the started connection"
+    );
+    assert_eq!(peer1.frame().await.unwrap(), STARTDT_ACT);
+    peer1.send(&STARTDT_CON).await;
+    assert_eq!(
+        until(&mut events, |e| matches!(
+            e,
+            Event::StartedConnectionFailed { .. }
+        ))
+        .await,
+        Event::StartedConnectionFailed {
+            conn: 0,
+            unconfirmed: 1
+        }
+    );
+    until(&mut events, |e| {
+        *e == Event::State {
+            conn: 1,
+            state: State::Started,
+        }
+    })
+    .await;
+
+    assert_eq!(
+        handle.window(1).await,
+        Ok(0),
+        "no room before the replay decision"
+    );
+    handle.send_asdu(1, MEASURAND).await.unwrap();
+    assert!(
+        tokio::time::timeout(Duration::from_secs(1), peer1.frame())
+            .await
+            .is_err(),
+        "nothing overtakes the data the closed connection left"
+    );
+
+    handle
+        .retransmit_unconfirmed(0, Replay::Retransmit)
+        .await
+        .unwrap();
+    assert_eq!(peer1.frame().await.unwrap(), i_frame(0, 0, &INTERROGATION));
+    assert_eq!(peer1.frame().await.unwrap(), i_frame(1, 0, &MEASURAND));
+    assert_eq!(handle.window(1).await, Ok(10));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_closed_started_connection_reports_the_data_it_left() {
+    let (handle, mut events, _dials, mut peer0, mut peer1) = started().await;
+    handle.send_asdu(0, INTERROGATION).await.unwrap();
+    assert_eq!(peer0.frame().await.unwrap(), i_frame(0, 0, &INTERROGATION));
+
+    handle.close(0).await.unwrap();
+    assert_eq!(
+        until(&mut events, |e| matches!(
+            e,
+            Event::StartedConnectionFailed { .. }
+        ))
+        .await,
+        Event::StartedConnectionFailed {
+            conn: 0,
+            unconfirmed: 1
+        }
+    );
+    assert_eq!(peer1.frame().await.unwrap(), STARTDT_ACT);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_closed_started_connection_that_left_nothing_is_not_reported() {
+    let (handle, mut events, _dials, _peer0, mut peer1) = started().await;
+    handle.close(0).await.unwrap();
+    assert_eq!(peer1.frame().await.unwrap(), STARTDT_ACT);
+    peer1.send(&STARTDT_CON).await;
+    let mut seen = Vec::new();
+    loop {
+        let event = events.recv().await.unwrap();
+        let done = event
+            == Event::State {
+                conn: 1,
+                state: State::Started,
+            };
+        seen.push(event);
+        if done {
+            break;
+        }
+    }
+    assert!(
+        !seen
+            .iter()
+            .any(|e| matches!(e, Event::StartedConnectionFailed { .. })),
+        "{seen:?}"
+    );
+    handle.send_asdu(1, MEASURAND).await.unwrap();
+    assert_eq!(peer1.frame().await.unwrap(), i_frame(0, 0, &MEASURAND));
+}

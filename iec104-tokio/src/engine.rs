@@ -588,20 +588,24 @@ impl<C: Core, K: Connector> Engine<C, K> {
                 self.answer(result, reply);
             }
             Command::Start { conn, reply } => {
+                let started = self.core.started();
                 let result = self.check(conn).and_then(|()| self.core.start(conn, now));
                 self.answer(result, reply);
+                self.report_left_behind(started);
             }
             Command::Stop { conn, reply } => {
                 let result = self.check(conn).and_then(|()| self.core.stop(conn, now));
                 self.answer(result, reply);
             }
             Command::Close { conn, reply } => {
+                let started = self.core.started();
                 let result = match self.slots.get(conn) {
                     None => Err(Error::NoSuchConnection(conn)),
                     Some(slot) if slot.writer.is_none() => Err(Error::NotConnected(conn)),
                     Some(_) => self.core.close(conn, now),
                 };
                 self.answer(result, reply);
+                self.report_left_behind(started);
             }
             Command::State { conn, reply } => {
                 let _ = reply.send(self.core.state(conn).ok_or(Error::NoSuchConnection(conn)));
@@ -646,6 +650,19 @@ impl<C: Core, K: Connector> Engine<C, K> {
             }
         }
         false
+    }
+
+    fn report_left_behind(&mut self, previous: Option<usize>) {
+        let Some(conn) = previous else {
+            return;
+        };
+        if self.core.started() == Some(conn) || self.core.state(conn) != Some(State::Terminated) {
+            return;
+        }
+        let unconfirmed = self.core.unconfirmed(conn);
+        if unconfirmed > 0 {
+            self.emit(Event::StartedConnectionFailed { conn, unconfirmed });
+        }
     }
 
     /// Performs a request's actions, then answers it.
